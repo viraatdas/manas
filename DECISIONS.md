@@ -15,3 +15,16 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Wire saveNow() into app termination [out of lane] — debounced saves could theoretically lose the last <500ms of mutations on quit; an NSApplicationDelegate applicationWillTerminate hook would close that gap once real UI mutations exist
 - **By:** n0 · 2026-07-14T22:41:31.604Z
 
+## n0: foundation decisions (rationale)
+- 2026-07-14 (n0 foundation): `WorkSource` enum is `claude | codex | granola` — spec said claude/codex, but the original request names Granola meetings as a source, so the case is there now (additive). It is shared by `DiscoveredActivity.source` and `WorkActivity.source`.
+- 2026-07-14 (n0 foundation): `DiscoveredActivity` dismissed/added state is a single `resolution` enum (`pending | added | dismissed`) with `isAdded`/`isDismissed` conveniences, so an item can't be both.
+- 2026-07-14 (n0 foundation): `WorkActivity.projectPath` and `.endedAt` are optional — meetings have no repo path and sessions may still be open.
+- 2026-07-14 (n0 foundation): `AppStore` autosaves via property `didSet` → debounced (500 ms) atomic JSON write to `~/Library/Application Support/Manas/state.json` (ISO 8601 dates, pretty-printed). Mutate `store.todos[i]...` directly or use helpers (`addTodo`, `toggleDone`, `setVerdictAccepted`, `dismissDiscovered`, `addDiscoveredToTodos`, `applyJudgeResult`) — both persist. `saveNow()` forces a write; `init(fileURL:saveDebounce:)` is injectable for tests.
+- 2026-07-14 (n0 foundation): model picker uses `JudgeModel` enum (`haiku | sonnet`, String raw values, default haiku). `TodoJudge.judge(model:)` takes a String per spec — pass `store.selectedModel.rawValue`.
+- 2026-07-14 (n0 foundation): theme vocabulary lives in `Sources/Manas/Design/Theme.swift`: `Color.manasAccent` (#D85A30), `Color.manasBackground` (warm off-white window surface, #FAF8F5), `Color.surface1` (quieter warm surface, #F2EFE9), `Color.hairline`; helpers `View.manasCard()`, `.buttonStyle(.ghost)`, `Chip(text:systemImage:tint:)`, and `Verdict.Status.label/systemImage/tint` for verdict chips.
+- 2026-07-14 (n0 foundation): package is swift-tools-version 6.0 (Swift 6 language mode, strict concurrency). `AppStore` is `@MainActor @Observable`; `ActivitySource`/`TodoJudge` are `Sendable`. UI workers replace files under `Sources/Manas/UI/` but keep `ManasApp.swift` as is (Window scene, `AppStore` injected via `.environment(store)`, read with `@Environment(AppStore.self)`).
+## n0: Resolved the 2-sided jj merge conflicts in .gitignore and
+- **Did:** Resolved the 2-sided jj merge conflicts in .gitignore and DECISIONS.md. .gitignore: took the foundation worker's version wholesale since it was a strict superset of the other side (same Rudder ignore entries plus the required Swift/.build/.DS_Store/macOS sections). DECISIONS.md: merged both sides — kept the conductor's log (header, plan-approved entry, n0 completion report) and appended the worker's n0 rationale bullets as a new section titled 'n0: foundation decisions (rationale)', which the completion report already referenced. Verified: jj resolve --list is empty, swift build succeeds, all 18 tests pass.
+- **Interfaces:** .gitignore (Rudder + SPM/Xcode + macOS sections); DECISIONS.md (conductor log + n0 rationale section merged)
+- **By:** n0 · 2026-07-14T22:43:22.405Z
+

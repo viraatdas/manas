@@ -1,0 +1,133 @@
+import SwiftUI
+
+// Manas is light mode with a native macOS feel: warm off-white surfaces,
+// generous whitespace, and a single warm coral accent doing all the work.
+// Everything not defined here pulls from system colors so the app adapts if
+// dark mode is ever added. Icons are always SF Symbols. Text uses system text
+// styles (.subheadline, .caption, ...) — never fixed point sizes. Copy is
+// sentence case everywhere. No gradients, no heavy shadows: flat cards with
+// hairline borders.
+
+// MARK: - Palette
+
+extension Color {
+    /// The one accent color (warm coral, #D85A30). Use for primary actions,
+    /// selected states, and verdict emphasis — and nothing else.
+    static let manasAccent = Color(red: 216 / 255, green: 90 / 255, blue: 48 / 255)
+
+    /// Warm off-white window surface (#FAF8F5). The default background.
+    static let manasBackground = Color(red: 250 / 255, green: 248 / 255, blue: 245 / 255)
+
+    /// Slightly darker warm surface (#F2EFE9) for visually quieter secondary
+    /// sections (e.g. discovered activities). Sits on `manasBackground`
+    /// without a border.
+    static let surface1 = Color(red: 242 / 255, green: 239 / 255, blue: 233 / 255)
+
+    /// Hairline border color, straight from the system.
+    static let hairline = Color(nsColor: .separatorColor)
+}
+
+// MARK: - Cards
+
+/// A flat card: content background, 0.5pt hairline border, no shadow.
+struct ManasCardModifier: ViewModifier {
+    var padding: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background(
+                Color(nsColor: .textBackgroundColor),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.hairline, lineWidth: 0.5)
+            )
+    }
+}
+
+extension View {
+    /// Wraps the view in a flat, hairline-bordered card.
+    func manasCard(padding: CGFloat = 12) -> some View {
+        modifier(ManasCardModifier(padding: padding))
+    }
+}
+
+// MARK: - Buttons
+
+/// Borderless button with accent-colored text and a faint tint while pressed.
+/// Use for secondary row actions like accept/dismiss.
+struct GhostButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline)
+            .foregroundStyle(configuration.isPressed ? Color.manasAccent.opacity(0.7) : Color.manasAccent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Color.manasAccent.opacity(configuration.isPressed ? 0.1 : 0),
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+}
+
+extension ButtonStyle where Self == GhostButtonStyle {
+    /// `Button("Accept") { ... }.buttonStyle(.ghost)`
+    static var ghost: GhostButtonStyle { GhostButtonStyle() }
+}
+
+// MARK: - Chips
+
+/// A small capsule with a tinted background, for verdicts and metadata.
+struct Chip: View {
+    var text: String
+    var systemImage: String?
+    var tint: Color = .manasAccent
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.12), in: Capsule())
+    }
+}
+
+// MARK: - Verdict presentation
+
+extension Verdict.Status {
+    /// Sentence-case label for chips.
+    var label: String {
+        switch self {
+        case .done: "Done"
+        case .inProgress: "In progress"
+        case .notStarted: "Not started"
+        case .unknown: "Unknown"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .done: "checkmark.circle.fill"
+        case .inProgress: "circle.lefthalf.filled"
+        case .notStarted: "circle.dashed"
+        case .unknown: "questionmark.circle"
+        }
+    }
+
+    /// Chip tint: the accent carries positive signal; everything else stays muted.
+    var tint: Color {
+        switch self {
+        case .done, .inProgress: .manasAccent
+        case .notStarted, .unknown: Color(nsColor: .secondaryLabelColor)
+        }
+    }
+}
