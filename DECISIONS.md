@@ -28,3 +28,10 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Interfaces:** .gitignore (Rudder + SPM/Xcode + macOS sections); DECISIONS.md (conductor log + n0 rationale section merged)
 - **By:** n0 · 2026-07-14T22:43:22.405Z
 
+
+## n3: Screen 1 UI interface contract
+- 2026-07-14 (n3 Screen 1): `ContentView` gained an injectable `judgeToday: (@MainActor () async throws -> Void)?` (default nil). Integration wires the real judge by constructing `ContentView(judgeToday: ...)`; while nil, tapping "Ask Claude" shows inline caption error "Claude judge isn't connected yet". While running it shows a small ProgressView and disables the button; thrown errors surface as inline `.caption` text via `error.localizedDescription`.
+- 2026-07-14 (n3 Screen 1): the footer usage-strip slot is `FooterUsagePlaceholder()` in `Sources/Manas/UI/Main/MainFooterView.swift` — one view name in one place; integration swaps it for `UsageStripView()` when n4's view lands.
+- 2026-07-14 (n3 Screen 1): dismissing a verdict clears `todo.verdict` entirely (judge can re-judge next pass); accepting uses `store.setVerdictAccepted(id, accepted: true)`. A verdict with `accepted == true` on an unchecked todo keeps its chip + evidence but loses the accept/dismiss buttons; `accepted == false` hides the sub-row (state unreachable from this UI).
+- 2026-07-14 (n3 Screen 1): header date navigation is local `@State selectedDate` in ContentView (not persisted; AppStore has no such property) — forward chevron disabled at today. Integration can lift it if per-day fetching needs it.
+- 2026-07-14 (n3 Screen 1): preview seeding lives in `Sources/Manas/UI/Main/PreviewData.swift` (`AppStore.previewEmpty/.previewJudged/.previewWithDiscovered`, temp-file-backed so previews never touch real state).
