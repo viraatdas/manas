@@ -1,0 +1,15 @@
+# Rudder
+.rudder/
+.rudder-worktrees/
+RUDDER.md
+RUDDER_SHARED.md
+.claude/skills/rudder-*/
+
+# Swift Package Manager / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store
