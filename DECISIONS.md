@@ -34,6 +34,16 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - 2026-07-14 (n1 ingestion): `WorkActivity.tokensUsed` is cache-inclusive total processed tokens (ccusage-style). Real sessions show 10M+; do not display it as if it were judge spend — the usage strip must keep using `UsageRecord`.
 - 2026-07-14 (n1 ingestion): both sources take injectable `(directory: URL?, calendar: Calendar)` inits for tests; day boundaries use the injected calendar (default `.current`). File filter: only .jsonl files whose creation/mtime window overlaps the target day are opened (streamed line by line via `URL.lines`, unparseable lines skipped, 400-file backstop per fetch).
 
+## n2: judge engine decisions (rationale)
+- 2026-07-14 (n2 judge): `ClaudeCLIJudge` (Sources/Manas/Judge/) implements `TodoJudge` by shelling out to `claude -p <prompt> --output-format json --model <model>` — subscription auth, no API key, no SDK. Instantiate with defaults (`ClaudeCLIJudge()`); everything (runner, locator, timeout, clock) is injectable for tests.
+- 2026-07-14 (n2 judge): verified the real CLI (v2.1.209) can emit its `--output-format json` envelope as a single result object OR an array of events ending in a `{"type":"result",...}` event (observed live), so `ClaudeCLIResponseParser` handles both plus newline-delimited events.
+- 2026-07-14 (n2 judge): `UsageRecord.tokensIn` counts `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` — cache tokens are still tokens the model processed, and the usage strip's job is to showcase real consumption. `costUSD` comes from `total_cost_usd`, 0 when absent (subscription). When the model's reply needs the one JSON-only retry, usage/cost accumulate across both calls.
+- 2026-07-14 (n2 judge): CLI discovery order: `~/.claude/local/claude`, `~/.local/bin/claude` (where it actually lives on this machine), `/opt/homebrew/bin`, `/usr/local/bin`, then `$SHELL -l -c 'command -v claude'` — GUI apps don't inherit shell PATH. `ProcessCommandRunner` also prepends these dirs to the child PATH so the claude wrapper can find its runtime.
+- 2026-07-14 (n2 judge): errors are typed as `JudgeError` (`cliNotFound`, `launchFailed`, `nonZeroExit`, `timedOut`, `malformedCLIOutput`, `malformedModelOutput`, `cliReportedError`) with sentence-case `errorDescription` for direct UI display. Timeout is 60s default; the child process gets SIGTERM then SIGKILL. Judge is async and cancellable, never touches the main thread.
+- 2026-07-14 (n2 judge): discoveries carry an optional `source` field in the model's JSON schema (claude|codex|granola, defaults to `.claude` when absent) because `DiscoveredActivity.source` is required — additive to the spec's `{title, evidence}`.
+- 2026-07-14 (n2 judge): empty todos AND empty activities short-circuits without a CLI call, returning a zero-token `UsageRecord` with summary "Nothing to judge".
+- 2026-07-14 (n2 judge): integration smoke test against the real CLI is gated behind `MANAS_CLAUDE_INTEGRATION=1` (run once during development: passes, ~29s, haiku).
+
 ## n0: Resolved the 2-sided jj merge conflicts in .gitignore and
 - **Did:** Resolved the 2-sided jj merge conflicts in .gitignore and DECISIONS.md. .gitignore: took the foundation worker's version wholesale since it was a strict superset of the other side (same Rudder ignore entries plus the required Swift/.build/.DS_Store/macOS sections). DECISIONS.md: merged both sides — kept the conductor's log (header, plan-approved entry, n0 completion report) and appended the worker's n0 rationale bullets as a new section titled 'n0: foundation decisions (rationale)', which the completion report already referenced. Verified: jj resolve --list is empty, swift build succeeds, all 18 tests pass.
 - **Interfaces:** .gitignore (Rudder + SPM/Xcode + macOS sections); DECISIONS.md (conductor log + n0 rationale section merged)
@@ -88,4 +98,9 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Consider showing cache vs fresh token split in usage panel [out of lane] — tokensIn aggregates input+cache_creation+cache_read; the expanded usage view could distinguish them if users find totals surprisingly large
   - Surface JudgeError.errorDescription in Screen 1 when Ask Claude fails [out of lane] — errors are typed and UI-ready; integration node should render them (e.g. CLI missing banner)
 - **By:** n2 · 2026-07-14T23:01:24.434Z
+
+## n2: Resolved the 2-sided jj merge conflict in DECISIONS.md by
+- **Did:** Resolved the 2-sided jj merge conflict in DECISIONS.md by keeping both sides, following the additive-log pattern from the n0/n3/n1 resolutions: kept main's n4 usage-UI and n1 session-ingestion decision sections in place (matching main's order), then appended the n2 worker's new section titled n2: judge engine decisions (rationale) directly after them. No content from either side was dropped. Verified jj resolve --list reports no conflicts and swift test passes all 113 tests (1 skipped env-gated integration test).
+- **Interfaces:** DECISIONS.md (n4 + n1 sections retained, n2 judge engine rationale section appended)
+- **By:** n2 · 2026-07-14T23:03:01.128Z
 
