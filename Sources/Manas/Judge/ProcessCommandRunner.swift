@@ -54,12 +54,21 @@ struct ProcessCommandRunner: CommandRunning {
         }
     }
 
+    /// Blocking read on a background thread. `FileHandle.bytes` was observed
+    /// truncating pipe output at 64KB (the CLI's JSON envelope regularly
+    /// exceeds that on a busy day); `readToEnd()` loops read(2) until true
+    /// EOF. Process termination (normal, timeout, or cancellation) closes
+    /// the write end, so this always completes.
     private static func readToEnd(_ handle: FileHandle) async throws -> Data {
-        var data = Data()
-        for try await byte in handle.bytes {
-            data.append(byte)
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try handle.readToEnd() ?? Data())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-        return data
     }
 
     static func environmentWithAugmentedPATH(

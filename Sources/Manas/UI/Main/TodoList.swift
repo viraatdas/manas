@@ -1,14 +1,15 @@
 import SwiftUI
 
 /// The rounded add field pinned above the todo list. Submits on return and
-/// keeps focus so several todos can be entered in a row.
+/// keeps focus so several todos can be entered in a row; the border warms to
+/// the accent while focused.
 struct AddTodoField: View {
     @Environment(AppStore.self) private var store
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             Image(systemName: "plus")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
@@ -18,16 +19,20 @@ struct AddTodoField: View {
                 .focused($isFocused)
                 .onSubmit(submit)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(
             Color(nsColor: .textBackgroundColor),
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.hairline, lineWidth: 0.5)
+                .strokeBorder(
+                    isFocused ? Color.manasAccent.opacity(0.45) : Color.hairline,
+                    lineWidth: isFocused ? 1 : 0.5
+                )
         )
+        .animation(.easeOut(duration: 0.15), value: isFocused)
     }
 
     private func submit() {
@@ -50,7 +55,7 @@ struct TodoListSection: View {
                 ForEach(store.todos) { todo in
                     TodoRow(todo: todo)
                     if todo.id != store.todos.last?.id {
-                        Divider().padding(.leading, 38)
+                        Divider().padding(.leading, 42)
                     }
                 }
             }
@@ -59,34 +64,35 @@ struct TodoListSection: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             Image(systemName: "checklist")
-                .font(.title3)
+                .font(.title2)
                 .foregroundStyle(.tertiary)
             Text("Nothing planned yet")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("Add a todo above, then ask Claude how the day went.")
+            Text("Add a todo above — Manas checks in on your day by itself.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        .padding(.vertical, 48)
     }
 }
 
 /// One todo: checkbox and text, plus — while an unsettled verdict exists — an
 /// indented sub-row with the verdict chip, one-line evidence, and
 /// accept/dismiss ghost buttons. Checked-off items collapse to strikethrough
-/// secondary text with no chip.
+/// secondary text with no chip. Rows pick up a soft highlight on hover.
 struct TodoRow: View {
     @Environment(AppStore.self) private var store
     var todo: Todo
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             checkbox
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(todo.text)
                     .font(.body)
                     .strikethrough(todo.isDone)
@@ -97,17 +103,23 @@ struct TodoRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.primary.opacity(isHovered ? 0.025 : 0))
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 
     private var checkbox: some View {
         Button {
-            store.toggleDone(todo.id)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                store.toggleDone(todo.id)
+            }
         } label: {
             Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
                 .font(.body)
                 .foregroundStyle(todo.isDone ? Color.manasAccent : Color(nsColor: .tertiaryLabelColor))
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(todo.isDone ? "Mark as not done" : "Mark as done")
@@ -124,7 +136,7 @@ struct TodoRow: View {
                 Text(verdict.evidence)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             if verdict.accepted == nil {
                 HStack(spacing: 2) {
@@ -149,23 +161,23 @@ struct TodoRow: View {
 }
 
 #Preview("Todo list, judged") {
-    VStack(spacing: 12) {
+    VStack(spacing: 16) {
         AddTodoField()
         TodoListSection()
     }
     .environment(AppStore.previewJudged)
-    .padding(16)
-    .frame(width: 420)
+    .padding(24)
+    .frame(width: 520)
     .background(Color.manasBackground)
 }
 
 #Preview("Todo list, empty") {
-    VStack(spacing: 12) {
+    VStack(spacing: 16) {
         AddTodoField()
         TodoListSection()
     }
     .environment(AppStore.previewEmpty)
-    .padding(16)
-    .frame(width: 420)
+    .padding(24)
+    .frame(width: 520)
     .background(Color.manasBackground)
 }

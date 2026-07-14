@@ -20,6 +20,18 @@ final class AppStore {
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
     var syncedSourceCount: Int = 0 { didSet { scheduleSave() } }
 
+    // MARK: - Transient check-in state (not persisted)
+
+    /// True while a check-in is running — spins the header refresh button
+    /// and blocks overlapping checks.
+    var isCheckingIn = false
+    /// The last check-in's failure, sentence-case and UI-ready; nil once a
+    /// check starts or succeeds.
+    var lastCheckInError: String?
+
+    @ObservationIgnored var autoCheckTask: Task<Void, Never>?
+    @ObservationIgnored var checkInTask: Task<Void, Never>?
+
     // MARK: - Setup
 
     @ObservationIgnored private let fileURL: URL
@@ -110,21 +122,38 @@ final class AppStore {
 
     // MARK: - Judge results
 
-    /// Applies one judge pass: verdicts onto matching todos, new discoveries
-    /// (deduplicated by title so dismissed items don't reappear), and the
-    /// usage record for the cost strip.
+    /// Applies one judge pass: verdicts onto matching todos, the refreshed
+    /// discovery list, and the usage record for the cost strip.
     func applyJudgeResult(_ result: JudgeResult) {
         for index in todos.indices {
-            if let verdict = result.verdicts[todos[index].id] {
+            if var verdict = result.verdicts[todos[index].id] {
+                // Re-checks run automatically all day; a verdict the user
+                // already accepted stays settled unless the judge's call
+                // actually changed. Evidence still refreshes.
+                if let existing = todos[index].verdict,
+                   existing.accepted == true, existing.status == verdict.status {
+                    verdict.accepted = true
+                }
                 todos[index].verdict = verdict
             }
         }
-        let knownTitles = Set(discoveredActivities.map { $0.title.lowercased() })
-        discoveredActivities.append(contentsOf: result.discovered.filter {
-            !knownTitles.contains($0.title.lowercased())
-        })
+        // Every pass re-observes the whole day, so its discoveries supersede
+        // the previous pass's pending ones — keeping them would pile up a
+        // rephrased duplicate of the same work every hour. Items the user
+        // added or dismissed are kept forever so they never come back.
+        let settled = discoveredActivities.filter { $0.resolution != .pending }
+        var knownTitles = Set(todos.map { Self.dedupeKey($0.text) })
+        knownTitles.formUnion(settled.map { Self.dedupeKey($0.title) })
+        discoveredActivities = settled + result.discovered.filter { item in
+            let key = Self.dedupeKey(item.title)
+            return !key.isEmpty && knownTitles.insert(key).inserted
+        }
         usageRecords.append(result.usage)
         lastCheckedAt = result.usage.timestamp
+    }
+
+    private static func dedupeKey(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     // MARK: - Usage aggregates
