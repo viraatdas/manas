@@ -7,7 +7,8 @@ import Foundation
 /// The interesting entries: `session_meta`/`turn_context` carry the cwd,
 /// `event_msg`+`user_message` carries user prompts, `event_msg`+`task_complete`
 /// carries the agent's own summary of what it finished, and
-/// `event_msg`+`token_count` carries cumulative session token totals. Older
+/// `event_msg`+`token_count` carries cumulative session token totals, which
+/// restart from the shrunken context after each compaction. Older
 /// rollouts only have `response_item` user messages, which mix real prompts
 /// with AGENTS.md/environment boilerplate that has to be filtered out.
 struct CodexSource: ActivitySource {
@@ -111,12 +112,13 @@ struct CodexSource: ActivitySource {
             }
         case "token_count":
             digest.observe(timestamp)
-            // Totals are cumulative per session; keep the high-water mark so
-            // out-of-order or post-compaction resets can't inflate the sum.
+            // Totals are cumulative per session but restart after context
+            // compaction; the digest banks each finished segment so
+            // multi-compaction sessions count in full.
             if let info = payload["info"] as? [String: Any],
                let totals = info["total_token_usage"] as? [String: Any],
                let total = TranscriptJSON.int(totals["total_tokens"]) {
-                digest.totalTokens = max(digest.totalTokens, total)
+                digest.recordCumulativeTokens(total)
             }
         case "agent_message":
             digest.observe(timestamp)

@@ -94,6 +94,8 @@ struct SessionDigest: Sendable {
     var assistantSummaries: [String] = []
     var totalTokens = 0
     private var seenTextKeys: Set<String> = []
+    private var bankedCumulativeTokens = 0
+    private var lastCumulativeTokens = 0
 
     var hasActivity: Bool { startedAt != nil }
 
@@ -113,6 +115,19 @@ struct SessionDigest: Sendable {
     mutating func addSummary(_ text: String) {
         guard assistantSummaries.count < Self.maxSummaries else { return }
         assistantSummaries.append(text)
+    }
+
+    /// Folds one cumulative session token total (Codex's `token_count`
+    /// snapshots). Totals only grow within a conversation segment, but
+    /// context compaction starts a fresh segment whose totals restart low —
+    /// so a drop banks the finished segment instead of discarding it, and
+    /// `totalTokens` counts every segment of a multi-compaction session.
+    mutating func recordCumulativeTokens(_ total: Int) {
+        if total < lastCumulativeTokens {
+            bankedCumulativeTokens += lastCumulativeTokens
+        }
+        lastCumulativeTokens = total
+        totalTokens = bankedCumulativeTokens + lastCumulativeTokens
     }
 }
 

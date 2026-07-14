@@ -104,3 +104,11 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Interfaces:** DECISIONS.md (n4 + n1 sections retained, n2 judge engine rationale section appended)
 - **By:** n2 · 2026-07-14T23:03:01.128Z
 
+## followup: Codex token totals across context compaction
+- 2026-07-14 (followup, Codex compaction): `SessionDigest.recordCumulativeTokens(_:)` (Sources/Manas/Ingestion/TranscriptSupport.swift) replaces the high-water-mark fold for Codex `token_count` events: cumulative totals restart low after each context compaction, so a drop banks the finished segment and `totalTokens` sums every segment. Monotonic sessions are unchanged (total = latest snapshot); repeated identical snapshots don't double count. `CodexSource` now calls this instead of `max`. ClaudeCodeSource's per-message `totalTokens +=` path is untouched.
+- 2026-07-14 (followup, Codex compaction): my workspace predates n1's merge, so the nine Ingestion source/test files appear as adds here; six are byte-identical to what n1 landed on main, and only CodexSource.swift, TranscriptSupport.swift, and CodexSourceTests.swift differ (the fix + two new tests).
+## followup: Resolved the 4-file jj merge conflict for the Codex
+- **Did:** Resolved the 4-file jj merge conflict for the Codex compaction followup. The three Swift files were add/add conflicts where the agent side was a strict superset of what n1 landed on main (verified by diffing both parents): took the agent versions, which replace the high-water-mark token_count fold with SessionDigest.recordCumulativeTokens(_:) (banks each pre-compaction segment so multi-compaction sessions count in full) and add two tests. DECISIONS.md (3-sided): kept main's full log through the n2 sections and appended the followup section at the end, matching the additive-log pattern. Verified: jj resolve --list empty, swift build clean, swift test 115 tests / 0 failures / 1 skipped (env-gated).
+- **Interfaces:** SessionDigest.recordCumulativeTokens(_:) in Sources/Manas/Ingestion/TranscriptSupport.swift; CodexSource token_count handling now calls it instead of max; DECISIONS.md followup section appended
+- **By:** followup · 2026-07-14T23:10:16.533Z
+

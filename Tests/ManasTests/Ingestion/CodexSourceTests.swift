@@ -88,7 +88,7 @@ final class CodexSourceTests: XCTestCase {
         XCTAssertEqual(activity.projectPath, cwd)
         XCTAssertEqual(activity.startedAt, IngestionFixtures.date("2026-07-10T17:10:03Z"))
         XCTAssertEqual(activity.endedAt, IngestionFixtures.date("2026-07-10T17:30:00Z"))
-        // Cumulative totals: the high-water mark, not a sum of snapshots.
+        // Cumulative totals: the latest snapshot, not a sum of snapshots.
         XCTAssertEqual(activity.tokensUsed, 25_000)
 
         // task_complete leads (markdown link stripped), then the user prompt —
@@ -97,6 +97,47 @@ final class CodexSourceTests: XCTestCase {
         XCTAssertEqual(activity.features.filter { $0.contains("feeder viewer") && $0.contains("hover") }.count, 1)
         XCTAssertFalse(activity.features.contains { $0.contains("AGENTS.md") })
         XCTAssertTrue(activity.summary.contains("sf-electricity"))
+    }
+
+    func testTokenTotalsAccumulateAcrossContextCompaction() async throws {
+        let root = try IngestionFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Each compaction restarts the cumulative counter from the shrunken
+        // context, so a long session's totals look like three ramps:
+        // 19,515→25,000, reset, 8,000→12,000, reset, 5,000. The session
+        // really used 25,000 + 12,000 + 5,000 tokens.
+        let lines = [
+            sessionMetaLine(at: "2026-07-10T09:00:00.000Z", cwd: "/Users/dev/code/marathon"),
+            userMessageLine(text: "migrate the billing pipeline to the new schema", at: "2026-07-10T09:00:05.000Z"),
+            tokenCountLine(total: 19_515, at: "2026-07-10T09:20:00.000Z"),
+            tokenCountLine(total: 25_000, at: "2026-07-10T09:40:00.000Z"),
+            #"{"timestamp":"2026-07-10T09:40:10.000Z","type":"compacted","payload":{"message":"Context was summarized to fit the window."}}"#,
+            tokenCountLine(total: 8_000, at: "2026-07-10T10:00:00.000Z"),
+            // A repeated identical snapshot is not a reset — no double count.
+            tokenCountLine(total: 8_000, at: "2026-07-10T10:00:01.000Z"),
+            tokenCountLine(total: 12_000, at: "2026-07-10T10:20:00.000Z"),
+            #"{"timestamp":"2026-07-10T10:20:10.000Z","type":"compacted","payload":{"message":"Context was summarized to fit the window."}}"#,
+            tokenCountLine(total: 5_000, at: "2026-07-10T10:30:00.000Z"),
+        ]
+        try IngestionFixtures.writeJSONL(
+            lines: lines,
+            to: root.appendingPathComponent("2026/07/10/rollout-2026-07-10T09-00-00-long.jsonl")
+        )
+
+        let activities = try await makeSource(sessionsDirectory: root).fetchActivities(for: day)
+
+        let activity = try XCTUnwrap(activities.first)
+        XCTAssertEqual(activity.tokensUsed, 42_000)
+    }
+
+    func testCumulativeTokenFoldingWithoutResetKeepsLatestTotal() {
+        // Sanity check on the digest itself: monotonic totals (a session that
+        // never compacted) fold to the final snapshot, not a sum of them.
+        var digest = SessionDigest()
+        for total in [1_000, 6_000, 6_000, 9_500] {
+            digest.recordCumulativeTokens(total)
+        }
+        XCTAssertEqual(digest.totalTokens, 9_500)
     }
 
     func testParsesFlatLegacyLayout() async throws {
