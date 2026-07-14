@@ -28,3 +28,12 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Interfaces:** .gitignore (Rudder + SPM/Xcode + macOS sections); DECISIONS.md (conductor log + n0 rationale section merged)
 - **By:** n0 · 2026-07-14T22:43:22.405Z
 
+## n3: Screen 1 complete: replaced the placeholder ContentView with the
+- **Did:** Screen 1 complete: replaced the placeholder ContentView with the full main window — header with ‹ Tue, Jul 14 › day navigation (forward chevron disabled at today) and gearshape settings popover (segmented Haiku/Sonnet picker + daily token budget field bound to AppStore), muted last-checked/sources-synced metadata row, add-todo field pinned above the scroll, judged todo list as one flat hairline card (accent checkbox, verdict chip + one-line evidence sub-row with Accept/Dismiss ghost buttons, checked items collapse to strikethrough with no chip, default animations), quieter surface-1 discovered-activities section (hidden when empty, Add ghost button + xmark dismiss), and a footer with hairline top border, usage-strip slot, and accent-filled Ask Claude button with ProgressView-while-running and inline caption error text. swift build passes, all 18 tests pass, app smoke-launched OK.
+- **Interfaces:** Sources/Manas/UI/ContentView.swift: ContentView(judgeToday: (@MainActor () async throws -> Void)? = nil) — integration injects the judge pass here; Sources/Manas/UI/Main/{MainHeaderView,TodoList,DiscoveredSection,MainFooterView,PreviewData}.swift; MainFooterView.FooterUsagePlaceholder() is the single swap point for n4 UsageStripView(); AppStore.previewEmpty/.previewJudged/.previewWithDiscovered for previews; dismiss clears todo.verdict, accept uses store.setVerdictAccepted
+- **Follow-ups:**
+  - Swap FooterUsagePlaceholder for UsageStripView [out of lane] — n4 owns the real strip; the slot is one view name in MainFooterView.swift
+  - Wire judgeToday through ManasApp/integration glue [out of lane] — ContentView takes the closure but ManasApp.swift (untouchable in my lane) still constructs ContentView() with nil
+  - Per-day data when navigating dates [out of lane] — header selectedDate is local UI state; todo list and metadata do not yet filter by the selected day
+- **By:** n3 · 2026-07-14T22:51:09.517Z
+
