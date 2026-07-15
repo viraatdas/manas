@@ -49,6 +49,11 @@ final class LoginItemController {
 
     init(item: (any LoginItemManaging)?) {
         self.item = item
+        // Popovers size themselves from the content's first measurement, so
+        // isEnabled/caption must be right from birth — a caption that only
+        // arrives with a later refresh() lands in a popover sized without it
+        // and gets squeezed.
+        refresh()
     }
 
     /// The production controller: the real service when running from a
