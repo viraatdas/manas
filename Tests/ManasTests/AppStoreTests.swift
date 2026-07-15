@@ -114,6 +114,77 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.usageRecords.count, 2)
     }
 
+    func testDiscoveredDeduplication() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship the sparkline")
+        let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "  ship the Sparkline ", evidence: "already a todo", source: .claude),
+            DiscoveredActivity(title: "Fixed flaky CI", evidence: "codex session", source: .codex),
+            DiscoveredActivity(title: "fixed flaky ci", evidence: "same pass repeat", source: .claude),
+            DiscoveredActivity(title: "   ", evidence: "blank title", source: .claude),
+        ], usage: usage))
+
+        XCTAssertEqual(
+            store.discoveredActivities.map(\.title), ["Fixed flaky CI"],
+            "existing todos, same-pass repeats, and blank titles are all filtered"
+        )
+    }
+
+    func testRepeatedChecksRefreshRatherThanPileUpDiscoveries() {
+        let store = AppStore(fileURL: tempStateURL())
+        let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "Refactored the transcript reader", evidence: "first pass", source: .claude),
+            DiscoveredActivity(title: "Reviewed PR #42", evidence: "first pass", source: .claude),
+        ], usage: usage))
+        store.dismissDiscovered(store.discoveredActivities[1].id)
+
+        // An hour later the judge re-observes the same day and rephrases the
+        // same work: the pending suggestion is replaced, not duplicated.
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "Refactored transcript parsing", evidence: "second pass", source: .claude),
+            DiscoveredActivity(title: "reviewed pr #42", evidence: "second pass", source: .claude),
+        ], usage: usage))
+
+        let pending = store.discoveredActivities.filter { $0.resolution == .pending }
+        XCTAssertEqual(pending.map(\.title), ["Refactored transcript parsing"], "pending items come from the latest pass only")
+        XCTAssertEqual(
+            store.discoveredActivities.filter(\.isDismissed).map(\.title), ["Reviewed PR #42"],
+            "a dismissed suggestion stays dismissed and never returns"
+        )
+    }
+
+    func testReJudgingPreservesAcceptanceWhenStatusIsUnchanged() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship it")
+        let id = store.todos[0].id
+        let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(
+            verdicts: [id: Verdict(status: .inProgress, evidence: "First pass", judgedAt: date)],
+            usage: usage
+        ))
+        store.setVerdictAccepted(id, accepted: true)
+
+        // Same status on the next auto-check: stays settled, evidence refreshes.
+        store.applyJudgeResult(JudgeResult(
+            verdicts: [id: Verdict(status: .inProgress, evidence: "Second pass", judgedAt: date.addingTimeInterval(3600))],
+            usage: usage
+        ))
+        XCTAssertEqual(store.todos[0].verdict?.accepted, true)
+        XCTAssertEqual(store.todos[0].verdict?.evidence, "Second pass")
+
+        // Changed status: new information, surface it for review again.
+        store.applyJudgeResult(JudgeResult(
+            verdicts: [id: Verdict(status: .done, evidence: "Merged", judgedAt: date.addingTimeInterval(7200))],
+            usage: usage
+        ))
+        XCTAssertNil(store.todos[0].verdict?.accepted)
+    }
+
     func testAcceptingDoneVerdictChecksOffTodo() {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Ship it")

@@ -29,6 +29,7 @@ struct UsageStripView: View {
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Image(systemName: "chevron.up")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

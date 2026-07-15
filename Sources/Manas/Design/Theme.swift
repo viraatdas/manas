@@ -56,26 +56,114 @@ extension View {
 
 // MARK: - Buttons
 
-/// Borderless button with accent-colored text and a faint tint while pressed.
-/// Use for secondary row actions like accept/dismiss.
+/// Borderless button with accent-colored text, a faint tint on hover, and a
+/// slightly stronger one while pressed. Use for secondary row actions like
+/// accept/dismiss.
 struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline)
-            .foregroundStyle(configuration.isPressed ? Color.manasAccent.opacity(0.7) : Color.manasAccent)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Color.manasAccent.opacity(configuration.isPressed ? 0.1 : 0),
-                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        GhostBody(configuration: configuration)
+    }
+
+    private struct GhostBody: View {
+        let configuration: Configuration
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .font(.subheadline)
+                .foregroundStyle(configuration.isPressed ? Color.manasAccent.opacity(0.7) : Color.manasAccent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(
+                    Color.manasAccent.opacity(configuration.isPressed ? 0.12 : (isHovered ? 0.08 : 0)),
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .onHover { isHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isHovered)
+        }
     }
 }
 
 extension ButtonStyle where Self == GhostButtonStyle {
     /// `Button("Accept") { ... }.buttonStyle(.ghost)`
     static var ghost: GhostButtonStyle { GhostButtonStyle() }
+}
+
+/// Plain icon button that picks up a soft neutral fill on hover — for the
+/// header's chevrons, refresh, and gear.
+struct HoverIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverBody(configuration: configuration)
+    }
+
+    private struct HoverBody: View {
+        let configuration: Configuration
+        @State private var isHovered = false
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .background(
+                    Color.primary.opacity(
+                        isEnabled && (isHovered || configuration.isPressed)
+                            ? (configuration.isPressed ? 0.08 : 0.05) : 0
+                    ),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+                .opacity(isEnabled ? 1 : 0.5)
+                .onHover { isHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isHovered)
+        }
+    }
+}
+
+extension ButtonStyle where Self == HoverIconButtonStyle {
+    /// `Button { } label: { Image(...) }.buttonStyle(.hoverIcon)`
+    static var hoverIcon: HoverIconButtonStyle { HoverIconButtonStyle() }
+}
+
+// MARK: - Model picker
+
+/// Segmented control in the app's own chip language — selected segment gets
+/// the accent, never the system tint. Native segmented controls follow the
+/// system accent color (blue), which would break the one-accent rule.
+struct JudgeModelPicker: View {
+    @Binding var selection: JudgeModel
+    var label: (JudgeModel) -> String = { $0.displayName }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(JudgeModel.allCases) { model in
+                Button {
+                    selection = model
+                } label: {
+                    Text(label(model))
+                        .font(.subheadline)
+                        .foregroundStyle(selection == model ? Color.manasAccent : Color.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            selection == model ? Color.manasAccent.opacity(0.12) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == model ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Color.surface1, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.hairline, lineWidth: 0.5)
+        )
+        .animation(.easeOut(duration: 0.15), value: selection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Model")
+    }
 }
 
 // MARK: - Chips

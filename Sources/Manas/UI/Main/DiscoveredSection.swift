@@ -12,7 +12,7 @@ struct DiscoveredSection: View {
 
     var body: some View {
         if !pending.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text("You might have also done this")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -20,7 +20,7 @@ struct DiscoveredSection: View {
                     DiscoveredRow(activity: activity)
                 }
             }
-            .padding(12)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.surface1, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -55,10 +55,10 @@ struct DiscoveredRow: View {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
+                    .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverIcon)
             .accessibilityLabel("Dismiss")
         }
     }

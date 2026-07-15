@@ -23,6 +23,21 @@ final class ProcessCommandRunnerTests: XCTestCase {
         XCTAssertEqual(String(decoding: output.stderr, as: UTF8.self), "oops\n")
     }
 
+    /// Regression: FileHandle.bytes silently truncated pipe output at 64KB,
+    /// which corrupted every judge pass once the CLI's event log outgrew the
+    /// pipe buffer. Capture must be complete well past that boundary.
+    func testCapturesOutputLargerThanPipeBuffer() async throws {
+        let byteCount = 300_000
+        let output = try await runner.run(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "/usr/bin/head -c \(byteCount) /dev/zero | /usr/bin/tr '\\0' 'x'"],
+            timeout: 20
+        )
+        XCTAssertEqual(output.exitStatus, 0)
+        XCTAssertEqual(output.stdout.count, byteCount)
+        XCTAssertTrue(output.stdout.allSatisfy { $0 == UInt8(ascii: "x") })
+    }
+
     func testTimeoutKillsProcess() async {
         let started = Date()
         do {

@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Screen 3: the expanded usage view — today's total as a metric card, a
 /// per-check-in table, a 7-day sparkline, and the Haiku/Sonnet dial. Lives
-/// inside the window as a slide-down panel (see `UsageFooterView`), never a
-/// separate window.
+/// inside the window as a slide-down panel above the footer strip (see
+/// `MainFooterView`), never a separate window.
 struct UsageDetailPanel: View {
     @Environment(AppStore.self) private var store
 
@@ -59,10 +59,15 @@ struct UsageDetailPanel: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if records.isEmpty {
-                Text("No check-ins yet today")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.vertical, 4)
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text("No check-ins yet today — the first one runs on its own")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 6)
             } else if records.count > 6 {
                 ScrollView {
                     sessionRows(records)
@@ -161,13 +166,7 @@ struct UsageDetailPanel: View {
             Text("Model")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Picker("Model", selection: selection) {
-                ForEach(JudgeModel.allCases) { model in
-                    Text(segmentLabel(for: model)).tag(model)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            JudgeModelPicker(selection: selection, label: segmentLabel(for:))
         }
     }
 

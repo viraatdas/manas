@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Promotes the process to a regular, activated app so the window reliably
@@ -8,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 }
 
@@ -20,9 +25,16 @@ struct ManasApp: App {
         Window("Manas", id: "main") {
             ContentView()
                 .environment(store)
-                .frame(minWidth: 380, minHeight: 480)
+                .frame(minWidth: 420, minHeight: 600)
                 .preferredColorScheme(.light)
+                // Checks run by themselves: once now, then on a timer.
+                .task { store.startAutoCheckIns() }
+                // Debounced saves can trail the last mutation by up to 500ms;
+                // flush on quit so nothing is lost.
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    store.saveNow()
+                }
         }
-        .defaultSize(width: 420, height: 640)
+        .defaultSize(width: 520, height: 760)
     }
 }

@@ -1,37 +1,41 @@
 import SwiftUI
 
-/// Screen 1: the day's control panel. Header with date navigation and sync
-/// metadata, the add field pinned above the judged todo list, discovered
-/// activities below, and the usage/Ask Claude footer.
+/// Screen 1: the day's control panel. Header with date navigation, refresh,
+/// and sync metadata; the add field pinned above the judged todo list;
+/// discovered activities below; and the usage footer. Checks run
+/// automatically — there is no run button.
 struct ContentView: View {
     @Environment(AppStore.self) private var store
 
-    /// Injected by the integration layer; runs one judge pass for today.
-    /// Defaults to nil, which the footer surfaces as "not connected" on tap.
-    var judgeToday: (@MainActor () async throws -> Void)?
-
     @State private var selectedDate = Date()
+
+    /// Content stays a comfortable column when the window gets wide.
+    static let contentMaxWidth: CGFloat = 720
 
     var body: some View {
         VStack(spacing: 0) {
-            MainHeaderView(selectedDate: $selectedDate)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
-            AddTodoField()
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+            Group {
+                MainHeaderView(selectedDate: $selectedDate)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
+                AddTodoField()
+                    .padding(.bottom, 16)
+            }
+            .padding(.horizontal, 24)
+            .frame(maxWidth: Self.contentMaxWidth)
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 24) {
                     TodoListSection()
                     DiscoveredSection()
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .frame(maxWidth: Self.contentMaxWidth)
+                .frame(maxWidth: .infinity)
             }
-            .animation(.default, value: store.todos)
-            .animation(.default, value: store.discoveredActivities)
-            MainFooterView(judgeToday: judgeToday)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: store.todos)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: store.discoveredActivities)
+            MainFooterView()
         }
         .background(Color.manasBackground)
     }
@@ -40,17 +44,23 @@ struct ContentView: View {
 #Preview("Empty") {
     ContentView()
         .environment(AppStore.previewEmpty)
-        .frame(width: 420, height: 640)
+        .frame(width: 520, height: 760)
 }
 
 #Preview("Judged") {
     ContentView()
         .environment(AppStore.previewJudged)
-        .frame(width: 420, height: 640)
+        .frame(width: 520, height: 760)
 }
 
 #Preview("Discovered present") {
-    ContentView(judgeToday: { try? await Task.sleep(for: .seconds(2)) })
+    ContentView()
         .environment(AppStore.previewWithDiscovered)
-        .frame(width: 420, height: 640)
+        .frame(width: 520, height: 760)
+}
+
+#Preview("Wide") {
+    ContentView()
+        .environment(AppStore.previewWithDiscovered)
+        .frame(width: 900, height: 760)
 }

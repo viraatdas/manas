@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Screen 1 header: date navigation on the left, settings gear on the right,
-/// with a muted metadata row ("Last checked 2:14 pm · 2 sources synced")
-/// underneath.
+/// Screen 1 header: date navigation on the left; refresh and settings on the
+/// right; a muted metadata row ("Last checked 2:14 pm · 2 sources synced")
+/// underneath. The spinning refresh icon is the only visible sign that a
+/// check-in is running.
 struct MainHeaderView: View {
     @Environment(AppStore.self) private var store
     @Binding var selectedDate: Date
@@ -12,23 +13,26 @@ struct MainHeaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 dayButton(systemImage: "chevron.left", byAdding: -1)
                     .accessibilityLabel("Previous day")
                 Text(selectedDate, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 dayButton(systemImage: "chevron.right", byAdding: 1)
                     .disabled(isToday)
                     .accessibilityLabel("Next day")
                 Spacer(minLength: 0)
+                RefreshButton()
                 Button {
                     showingSettings = true
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverIcon)
                 .accessibilityLabel("Settings")
                 .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
                     SettingsPopover()
@@ -37,6 +41,8 @@ struct MainHeaderView: View {
             Text(metadata)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
+                .animation(.default, value: metadata)
         }
     }
 
@@ -49,15 +55,17 @@ struct MainHeaderView: View {
             Image(systemName: systemImage)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
+                .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverIcon)
     }
 
     private var metadata: String {
         var parts: [String] = []
-        if let lastChecked = store.lastCheckedAt {
+        if store.isCheckingIn {
+            parts.append("Checking your day…")
+        } else if let lastChecked = store.lastCheckedAt {
             let time = lastChecked.formatted(date: .omitted, time: .shortened).lowercased()
             parts.append("Last checked \(time)")
         } else {
@@ -71,6 +79,47 @@ struct MainHeaderView: View {
     }
 }
 
+/// The manual re-check control: an arrow.clockwise that spins while a check
+/// is running and ignores clicks until it finishes.
+private struct RefreshButton: View {
+    @Environment(AppStore.self) private var store
+    @State private var rotation = 0.0
+
+    var body: some View {
+        Button {
+            store.checkInNow()
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(rotation))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.hoverIcon)
+        .disabled(store.isCheckingIn)
+        .accessibilityLabel(store.isCheckingIn ? "Checking now" : "Check now")
+        .help(store.isCheckingIn ? "Checking your day…" : "Check your day now")
+        .onAppear { if store.isCheckingIn { startSpinning() } }
+        .onChange(of: store.isCheckingIn) { _, checking in
+            if checking {
+                startSpinning()
+            } else {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { rotation = 0 }
+            }
+        }
+    }
+
+    private func startSpinning() {
+        rotation = 0
+        withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+            rotation = 360
+        }
+    }
+}
+
 /// Small settings surface behind the gear: the model dial and the soft daily
 /// token budget, both bound straight to `AppStore` so they persist.
 struct SettingsPopover: View {
@@ -78,23 +127,17 @@ struct SettingsPopover: View {
 
     var body: some View {
         @Bindable var store = store
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Model")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Picker("Model", selection: $store.selectedModel) {
-                    ForEach(JudgeModel.allCases) { model in
-                        Text(model.displayName).tag(model)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                JudgeModelPicker(selection: $store.selectedModel)
                 Text(store.selectedModel.detail)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Daily token budget")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -103,16 +146,16 @@ struct SettingsPopover: View {
                     .labelsHidden()
             }
         }
-        .padding(14)
-        .frame(width: 240)
+        .padding(16)
+        .frame(width: 248)
     }
 }
 
 #Preview("Header") {
     MainHeaderView(selectedDate: .constant(Date()))
         .environment(AppStore.previewJudged)
-        .padding(16)
-        .frame(width: 420)
+        .padding(24)
+        .frame(width: 520)
         .background(Color.manasBackground)
 }
 

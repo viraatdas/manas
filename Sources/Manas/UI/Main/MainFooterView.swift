@@ -1,99 +1,70 @@
 import SwiftUI
 
-/// Footer bar: hairline top border, the usage strip slot on the left, and the
-/// "Ask Claude" primary action on the right, with inline error text when a
-/// judge pass fails.
+/// Footer bar: hairline top border and the usage strip, with a quiet caption
+/// when the last check-in failed. Clicking the strip slides the expanded
+/// usage panel (Screen 3) out above the bar, inside the same window. Checks
+/// themselves run automatically — the footer only reports.
 struct MainFooterView: View {
-    /// Injected by the integration layer; runs one judge pass for today.
-    /// Nil until wired, which surfaces as inline error text on tap.
-    var judgeToday: (@MainActor () async throws -> Void)?
-
-    @State private var isJudging = false
-    @State private var errorMessage: String?
+    @Environment(AppStore.self) private var store
+    @State private var isUsageExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.hairline)
-                .frame(height: 0.5)
-            HStack(spacing: 10) {
-                // Integration swaps this one view name for UsageStripView().
-                FooterUsagePlaceholder()
-                Spacer(minLength: 10)
-                if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.circle")
+            hairline
+            if isUsageExpanded {
+                VStack(spacing: 0) {
+                    UsageDetailPanel()
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: ContentView.contentMaxWidth)
+                        .frame(maxWidth: .infinity)
+                    hairline
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            HStack(spacing: 12) {
+                UsageStripView(isExpanded: $isUsageExpanded)
+                    // The strip keeps its single line; a long error message
+                    // truncates instead.
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
+                Spacer(minLength: 12)
+                if let error = store.lastCheckInError {
+                    Label(error, systemImage: "exclamationmark.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .help(error)
+                        .transition(.opacity)
                 }
-                if isJudging {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Button {
-                    runJudge()
-                } label: {
-                    Label("Ask Claude", systemImage: "sparkles")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.manasAccent)
-                .disabled(isJudging)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(maxWidth: ContentView.contentMaxWidth)
+            .frame(maxWidth: .infinity)
         }
+        .clipped()
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isUsageExpanded)
+        .animation(.default, value: store.lastCheckInError)
         .background(Color.manasBackground)
     }
 
-    @MainActor
-    private func runJudge() {
-        guard !isJudging else { return }
-        guard let judgeToday else {
-            errorMessage = "Claude judge isn't connected yet"
-            return
-        }
-        errorMessage = nil
-        isJudging = true
-        Task {
-            do {
-                try await judgeToday()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isJudging = false
-        }
-    }
-}
-
-/// Stand-in for the usage strip until the usage panel worker's
-/// `UsageStripView` lands; the integration task swaps that single name in
-/// `MainFooterView`. Shows the same headline numbers from `AppStore`.
-struct FooterUsagePlaceholder: View {
-    @Environment(AppStore.self) private var store
-
-    var body: some View {
-        Text(summary)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-    }
-
-    private var summary: String {
-        let checks = store.checkCountToday
-        let noun = checks == 1 ? "check" : "checks"
-        return "\(store.tokensUsedToday.formatted()) tokens today · \(checks) \(noun)"
+    private var hairline: some View {
+        Rectangle()
+            .fill(Color.hairline)
+            .frame(height: 0.5)
     }
 }
 
 #Preview("Footer") {
-    MainFooterView(judgeToday: { try? await Task.sleep(for: .seconds(2)) })
-        .environment(AppStore.previewJudged)
-        .frame(width: 420)
+    MainFooterView()
+        .environment(UsageSampleData.store())
+        .frame(width: 520)
 }
 
-#Preview("Footer, not wired") {
-    MainFooterView()
-        .environment(AppStore.previewEmpty)
-        .frame(width: 420)
+#Preview("Footer, check failed") {
+    let store = AppStore.previewEmpty
+    store.lastCheckInError = "Claude CLI not found. Install Claude Code, then try again."
+    return MainFooterView()
+        .environment(store)
+        .frame(width: 520)
 }
