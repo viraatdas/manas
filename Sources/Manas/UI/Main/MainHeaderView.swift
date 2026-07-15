@@ -1,4 +1,5 @@
-import ServiceManagement
+import AppKit
+import Combine
 import SwiftUI
 
 /// Screen 1 header: date navigation on the left; refresh and settings on the
@@ -123,16 +124,15 @@ private struct RefreshButton: View {
 
 /// Small settings surface behind the gear: the soft daily token budget,
 /// bound straight to `AppStore` so it persists, and the launch-at-login
-/// toggle backed by `SMAppService`.
+/// toggle driven by `LoginItemController` (SMAppService underneath). A first
+/// enable that macOS wants approved opens System Settings › Login items for
+/// the user; coming back to the app re-reads the outcome.
 struct SettingsPopover: View {
     @Environment(AppStore.self) private var store
-    @State private var launchAtLogin = false
-    @State private var loginItemCaption: String?
+    @State private var loginItem: LoginItemController
 
-    /// `SMAppService.mainApp` only works from a real .app bundle; under
-    /// `swift run` the executable sits in .build/ and registration would fail.
-    private var isBundled: Bool {
-        Bundle.main.bundleURL.pathExtension == "app"
+    init(loginItem: LoginItemController = .standard()) {
+        _loginItem = State(initialValue: loginItem)
     }
 
     var body: some View {
@@ -147,52 +147,30 @@ struct SettingsPopover: View {
                     .labelsHidden()
             }
             VStack(alignment: .leading, spacing: 6) {
-                Toggle("Launch at login", isOn: $launchAtLogin)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .tint(.manasAccent)
-                    .font(.subheadline)
-                    .disabled(!isBundled)
-                if let loginItemCaption {
-                    Text(loginItemCaption)
+                Toggle("Launch at login", isOn: Binding(
+                    get: { loginItem.isEnabled },
+                    set: { loginItem.setEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(.manasAccent)
+                .font(.subheadline)
+                .disabled(!loginItem.isAvailable)
+                if let caption = loginItem.caption {
+                    Text(caption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .padding(16)
         .frame(width: 248)
-        .onAppear { readLoginItemState() }
-        .onChange(of: launchAtLogin) { _, wanted in
-            setLaunchAtLogin(wanted)
-        }
-    }
-
-    private func readLoginItemState() {
-        guard isBundled else {
-            loginItemCaption = "Available when Manas runs as an installed app."
-            return
-        }
-        launchAtLogin = SMAppService.mainApp.status == .enabled
-        loginItemCaption = SMAppService.mainApp.status == .requiresApproval
-            ? "Approve Manas in System Settings › Login items."
-            : nil
-    }
-
-    private func setLaunchAtLogin(_ wanted: Bool) {
-        guard isBundled, wanted != (SMAppService.mainApp.status == .enabled) else { return }
-        do {
-            if wanted {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-            loginItemCaption = SMAppService.mainApp.status == .requiresApproval
-                ? "Approve Manas in System Settings › Login items."
-                : nil
-        } catch {
-            launchAtLogin = SMAppService.mainApp.status == .enabled
-            loginItemCaption = "Couldn't update the login item. Try again from System Settings."
+        .onAppear { loginItem.refresh() }
+        // The user approves us in System Settings, then comes back — pick up
+        // the new status the moment the app is active again.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loginItem.refresh()
         }
     }
 }
