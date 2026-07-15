@@ -57,7 +57,8 @@ enum JudgeFixtures {
         cacheRead: Int = 0,
         cost: Double? = 0.0123,
         isError: Bool = false,
-        subtype: String = "success"
+        subtype: String = "success",
+        modelID: String? = nil
     ) -> Data {
         var envelope: [String: Any] = [
             "type": "result",
@@ -74,6 +75,9 @@ enum JudgeFixtures {
         if let cost {
             envelope["total_cost_usd"] = cost
         }
+        if let modelID {
+            envelope["modelUsage"] = [modelID: ["outputTokens": outputTokens]]
+        }
         return try! JSONSerialization.data(withJSONObject: envelope)
     }
 
@@ -83,7 +87,8 @@ enum JudgeFixtures {
         outputTokens: Int = 340,
         cacheCreation: Int = 0,
         cacheRead: Int = 0,
-        cost: Double? = 0.0123
+        cost: Double? = 0.0123,
+        modelID: String? = nil
     ) -> CommandOutput {
         CommandOutput(
             exitStatus: 0,
@@ -93,7 +98,8 @@ enum JudgeFixtures {
                 outputTokens: outputTokens,
                 cacheCreation: cacheCreation,
                 cacheRead: cacheRead,
-                cost: cost
+                cost: cost,
+                modelID: modelID
             )
         )
     }

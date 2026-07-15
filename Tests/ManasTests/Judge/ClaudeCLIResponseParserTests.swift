@@ -56,6 +56,13 @@ final class ClaudeCLIResponseParserTests: XCTestCase {
         XCTAssertEqual(reply.tokensIn, 0)
         XCTAssertEqual(reply.tokensOut, 0)
         XCTAssertEqual(reply.costUSD, 0, "Cost is 0 when total_cost_usd is absent (subscription auth)")
+        XCTAssertNil(reply.modelID, "No modelUsage in the envelope means no reported model")
+    }
+
+    func testParsesReportedModelFromModelUsage() throws {
+        let json = #"{"type":"result","subtype":"success","is_error":false,"result":"ok","modelUsage":{"claude-sonnet-5":{"inputTokens":10,"outputTokens":3,"costUSD":0.01}}}"#
+        let reply = try ClaudeCLIResponseParser.parse(Data(json.utf8))
+        XCTAssertEqual(reply.modelID, "claude-sonnet-5")
     }
 
     func testErrorEnvelopeFlagged() throws {

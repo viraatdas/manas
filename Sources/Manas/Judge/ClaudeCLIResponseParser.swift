@@ -9,6 +9,9 @@ struct ClaudeCLIReply: Hashable, Sendable {
     var costUSD: Double
     var isError: Bool
     var subtype: String?
+    /// Full API model id the CLI reports having used (e.g.
+    /// "claude-sonnet-5"), nil on CLI versions that omit `modelUsage`.
+    var modelID: String?
 }
 
 /// Parses the claude CLI's `--output-format json` envelope. Depending on CLI
@@ -50,7 +53,8 @@ enum ClaudeCLIResponseParser {
             tokensOut: usage?.outputTokens ?? 0,
             costUSD: envelope.totalCostUSD ?? 0,  // absent on subscription auth
             isError: isError,
-            subtype: envelope.subtype
+            subtype: envelope.subtype,
+            modelID: envelope.modelUsage?.keys.sorted().first
         )
     }
 
@@ -63,14 +67,18 @@ enum ClaudeCLIResponseParser {
         var result: String?
         var totalCostUSD: Double?
         var usage: Usage?
+        /// Keyed by the API model id; only the keys matter here.
+        var modelUsage: [String: PerModelUsage]?
 
         var isResult: Bool { type == "result" || (type == nil && result != nil) }
 
         enum CodingKeys: String, CodingKey {
-            case type, subtype, result, usage
+            case type, subtype, result, usage, modelUsage
             case isError = "is_error"
             case totalCostUSD = "total_cost_usd"
         }
+
+        struct PerModelUsage: Decodable {}
 
         struct Usage: Decodable {
             var inputTokens: Int?

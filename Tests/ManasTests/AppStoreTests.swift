@@ -16,7 +16,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(store.todos.isEmpty)
         XCTAssertTrue(store.discoveredActivities.isEmpty)
         XCTAssertTrue(store.usageRecords.isEmpty)
-        XCTAssertEqual(store.selectedModel, .haiku)
+        XCTAssertEqual(store.selectedModel, .sonnet, "the judge model is a constant — always sonnet")
         XCTAssertEqual(store.dailyTokenBudget, 10_000)
         XCTAssertNil(store.lastCheckedAt)
         XCTAssertEqual(store.syncedSourceCount, 0)
@@ -37,7 +37,6 @@ final class AppStoreTests: XCTestCase {
         store.usageRecords = [
             UsageRecord(timestamp: date, model: "haiku", tokensIn: 1800, tokensOut: 340, costUSD: 0.03, summary: "3 todos judged, 1 discovered")
         ]
-        store.selectedModel = .sonnet
         store.dailyTokenBudget = 25_000
         store.lastCheckedAt = date
         store.syncedSourceCount = 3
@@ -47,7 +46,6 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.todos, store.todos)
         XCTAssertEqual(reloaded.discoveredActivities, store.discoveredActivities)
         XCTAssertEqual(reloaded.usageRecords, store.usageRecords)
-        XCTAssertEqual(reloaded.selectedModel, .sonnet)
         XCTAssertEqual(reloaded.dailyTokenBudget, 25_000)
         XCTAssertEqual(reloaded.lastCheckedAt, date)
         XCTAssertEqual(reloaded.syncedSourceCount, 3)
@@ -59,7 +57,30 @@ final class AppStoreTests: XCTestCase {
         try Data("not json".utf8).write(to: url)
         let store = AppStore(fileURL: url)
         XCTAssertTrue(store.todos.isEmpty)
-        XCTAssertEqual(store.selectedModel, .haiku)
+        XCTAssertEqual(store.dailyTokenBudget, 10_000)
+    }
+
+    /// state.json written before the model dial was removed carries a
+    /// `selectedModel` key — it must still load, not be treated as corrupt.
+    func testLegacyStateWithSelectedModelKeyStillLoads() throws {
+        let url = tempStateURL()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let legacyJSON = #"""
+        {
+          "todos": [{"id": "6F1E9C6A-2C3B-4E5D-8F9A-0B1C2D3E4F5A", "text": "Ship the sparkline", "createdAt": "2025-07-08T18:40:00Z", "isDone": false}],
+          "discoveredActivities": [],
+          "usageRecords": [],
+          "selectedModel": "haiku",
+          "dailyTokenBudget": 25000,
+          "syncedSourceCount": 2
+        }
+        """#
+        try Data(legacyJSON.utf8).write(to: url)
+        let store = AppStore(fileURL: url)
+        XCTAssertEqual(store.todos.map(\.text), ["Ship the sparkline"])
+        XCTAssertEqual(store.dailyTokenBudget, 25_000)
+        XCTAssertEqual(store.syncedSourceCount, 2)
+        XCTAssertEqual(store.selectedModel, .sonnet, "the old haiku choice is ignored — the judge always runs sonnet")
     }
 
     func testMutationTriggersDebouncedSave() async throws {

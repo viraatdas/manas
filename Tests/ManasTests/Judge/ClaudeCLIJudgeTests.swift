@@ -77,12 +77,27 @@ final class ClaudeCLIJudgeTests: XCTestCase {
         XCTAssertEqual(result.discovered[0].source, .claude)
         XCTAssertEqual(result.discovered[0].resolution, .pending)
 
-        XCTAssertEqual(result.usage.model, "haiku")
+        XCTAssertEqual(result.usage.model, "haiku", "Falls back to the requested alias when the CLI reports no model")
         XCTAssertEqual(result.usage.tokensIn, 1800 + 100 + 200)
         XCTAssertEqual(result.usage.tokensOut, 340)
         XCTAssertEqual(result.usage.costUSD, 0.03, accuracy: 0.000_001)
         XCTAssertEqual(result.usage.timestamp, now)
         XCTAssertEqual(result.usage.summary, "2 todos judged, 1 discovered")
+    }
+
+    func testUsageRecordsTheModelTheCLIReportsRan() async throws {
+        let todos = makeTodos()
+        let reply = JudgeFixtures.modelReplyJSON(verdicts: [
+            (id: todos[0].id.uuidString, status: "done", evidence: "Shipped"),
+        ])
+        let runner = MockCommandRunner(results: [
+            .success(JudgeFixtures.cliSuccess(result: reply, modelID: "claude-sonnet-5")),
+        ])
+        let judge = makeJudge(runner: runner)
+
+        let result = try await judge.judge(todos: todos, activities: makeActivities(), model: "sonnet")
+
+        XCTAssertEqual(result.usage.model, "claude-sonnet-5", "The usage log shows the model that actually ran, not the requested alias")
     }
 
     func testCLIInvocationArguments() async throws {

@@ -2,14 +2,13 @@ import Charts
 import SwiftUI
 
 /// Screen 3: the expanded usage view — today's total as a metric card, a
-/// per-check-in table, a 7-day sparkline, and the Haiku/Sonnet dial. Lives
-/// inside the window as a slide-down panel above the footer strip (see
-/// `MainFooterView`), never a separate window.
+/// per-check-in table, and a 7-day sparkline. Lives inside the window as a
+/// slide-down panel above the footer strip (see `MainFooterView`), never a
+/// separate window.
 struct UsageDetailPanel: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        @Bindable var store = store
         let now = Date()
         let totals = UsageMath.totals(of: store.usageRecords, on: now)
         let todaysRecords = store.records(on: now).sorted { $0.timestamp > $1.timestamp }
@@ -19,7 +18,6 @@ struct UsageDetailPanel: View {
             metricCard(totals)
             sessionTable(todaysRecords)
             sparkline(series)
-            modelPicker(selection: $store.selectedModel)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,23 +157,6 @@ struct UsageDetailPanel: View {
         }
     }
 
-    // MARK: - Model picker
-
-    private func modelPicker(selection: Binding<JudgeModel>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Model")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            JudgeModelPicker(selection: selection, label: segmentLabel(for:))
-        }
-    }
-
-    private func segmentLabel(for model: JudgeModel) -> String {
-        switch model {
-        case .haiku: "Haiku (fast, cheap)"
-        case .sonnet: "Sonnet (better judgment)"
-        }
-    }
 }
 
 #Preview("Usage detail panel") {

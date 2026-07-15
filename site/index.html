@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manas — the control panel of your day</title>
+<meta name="description" content="Manas is a native macOS app. Write your todo list; it quietly checks your real Claude Code and Codex sessions and tells you how your day is actually going.">
+<meta property="og:title" content="Manas — the control panel of your day">
+<meta property="og:description" content="A native macOS app that judges your todo list against your real coding sessions, shows every token it spends, and knows where the day went.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://manas.viraat.dev">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23D85A30'/%3E%3Ctext x='32' y='44' font-family='-apple-system,Helvetica,Arial,sans-serif' font-size='36' font-weight='600' fill='%23FAF8F5' text-anchor='middle'%3EM%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #FAF8F5;
+    --surface: #F2EFE9;
+    --ink: #2B2825;
+    --muted: #756E63;
+    --faint: #B3AC9F;
+    --accent: #D85A30;
+    --hairline: #E4DED4;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* load-in: one staggered pass, nothing after */
+  @media (prefers-reduced-motion: no-preference) {
+    .rise {
+      opacity: 0;
+      transform: translateY(10px);
+      animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards;
+    }
+    .rise.d1 { animation-delay: .06s; }
+    .rise.d2 { animation-delay: .14s; }
+    .rise.d3 { animation-delay: .24s; }
+    .rise.d4 { animation-delay: .36s; }
+    @keyframes rise { to { opacity: 1; transform: none; } }
+  }
+
+  header.site {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 28px 0;
+  }
+  .mark {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    background: var(--accent);
+    color: var(--bg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    flex: none;
+  }
+  header.site .name { font-weight: 600; font-size: 16px; }
+  header.site .platform {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .hero { padding: 72px 0 40px; }
+  h1 {
+    font-size: clamp(38px, 7vw, 56px);
+    line-height: 1.05;
+    font-weight: 650;
+    letter-spacing: -0.022em;
+    max-width: 14ch;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .hero p.lede {
+    margin-top: 24px;
+    font-size: 19px;
+    color: var(--muted);
+    max-width: 52ch;
+  }
+  .hero p.lede strong { color: var(--ink); font-weight: 550; }
+
+  /* ---- the app window, rebuilt in html ---- */
+  .window-frame { padding: 48px 0 8px; }
+  .window {
+    background: #FCFBF9;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    box-shadow: 0 24px 48px -32px rgba(43, 40, 37, 0.18);
+    overflow: hidden;
+    font-size: 14px;
+  }
+  .titlebar {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--hairline);
+    gap: 8px;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r { background: #E8A79B; }
+  .dot.y { background: #E9D3A3; }
+  .dot.g { background: #BCD3AC; }
+  .titlebar .date {
+    flex: 1;
+    text-align: center;
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .titlebar .gear { width: 30px; text-align: right; color: var(--faint); font-size: 12px; }
+  .meta-row {
+    padding: 10px 20px 2px;
+    color: var(--faint);
+    font-size: 12px;
+  }
+  .todos { padding: 10px 20px 6px; }
+  .todo {
+    padding: 11px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .todo:last-child { border-bottom: none; }
+  .todo .line { display: flex; align-items: center; gap: 10px; }
+  .box {
+    width: 16px; height: 16px;
+    border: 1.5px solid var(--faint);
+    border-radius: 5px;
+    flex: none;
+  }
+  .box.checked {
+    background: var(--accent);
+    border-color: var(--accent);
+    position: relative;
+  }
+  .box.checked::after {
+    content: "";
+    position: absolute;
+    left: 4.5px; top: 1.5px;
+    width: 4px; height: 8px;
+    border: solid var(--bg);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .todo .text { font-size: 14px; }
+  .todo .text.done { color: var(--faint); text-decoration: line-through; }
+  .verdict {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 6px 0 0 26px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1.5px 8px;
+    border-radius: 99px;
+    flex: none;
+  }
+  .chip.progress { color: var(--accent); background: rgba(216, 90, 48, 0.09); }
+  .chip.notstarted { color: var(--muted); background: var(--surface); }
+  .discovered {
+    margin: 10px 20px 16px;
+    background: var(--surface);
+    border-radius: 9px;
+    padding: 12px 14px;
+  }
+  .discovered .label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: .02em;
+    margin-bottom: 6px;
+  }
+  .discovered .item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .discovered .item .evidence { color: var(--muted); font-size: 12px; }
+  .discovered .add {
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+    flex: none;
+  }
+  .usage {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 20px;
+    border-top: 1px solid var(--hairline);
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .gauge { display: inline-flex; gap: 3.5px; }
+  .gauge i {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--hairline);
+  }
+  .gauge i.on { background: var(--faint); }
+  .usage .num { font-variant-numeric: tabular-nums; }
+  .caption {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 14px 0 0;
+  }
+
+  /* ---- features ---- */
+  .features { padding: 72px 0 8px; }
+  .features h2, .quiet h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    color: var(--muted);
+    text-transform: lowercase;
+    margin-bottom: 8px;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 48px;
+  }
+  .feature {
+    padding: 20px 0;
+    border-top: 1px solid var(--hairline);
+  }
+  .feature h3 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .feature p {
+    margin-top: 4px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  @media (max-width: 620px) {
+    .feature-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ---- local-first note ---- */
+  .quiet { padding: 64px 0; }
+  .quiet .card {
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    padding: 24px 28px;
+  }
+  .quiet .card p {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 58ch;
+  }
+  .quiet .card p strong { color: var(--ink); font-weight: 550; }
+  .quiet .card p + p { margin-top: 12px; }
+
+  footer.site {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 0 48px;
+    border-top: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  footer.site .sep { color: var(--hairline); }
+  footer.site .right { margin-left: auto; color: var(--faint); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="site rise">
+    <span class="mark" aria-hidden="true">M</span>
+    <span class="name">Manas</span>
+    <span class="platform">A native macOS app</span>
+  </header>
+
+  <section class="hero">
+    <h1 class="rise d1">The control panel of <em>your day</em>.</h1>
+    <p class="lede rise d2">You write the todo list. Manas quietly reads your real
+    <strong>Claude Code and Codex sessions</strong>, has Claude judge how each todo is
+    actually going, and surfaces the work you did but never wrote down.</p>
+  </section>
+
+  <section class="window-frame rise d3" aria-label="A preview of the Manas app window">
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="date">‹ &nbsp;Tue, Jul 14&nbsp; ›</span>
+        <span class="gear">⚙</span>
+      </div>
+      <div class="meta-row">Last checked 2:14 pm · 2 sources synced</div>
+      <div class="todos">
+        <div class="todo">
+          <div class="line"><span class="box checked"></span><span class="text done">Ship the ingestion layer</span></div>
+        </div>
+        <div class="todo">
+          <div class="line"><span class="box"></span><span class="text">Wire the judge into the UI</span></div>
+          <div class="verdict"><span class="chip progress">In progress</span><span>4:03–5:16 pm session in manas — check-in engine wired</span></div>
+        </div>
+        <div class="todo">
+          <div class="line"><span class="box"></span><span class="text">Water the plants</span></div>
+          <div class="verdict"><span class="chip notstarted">Not started</span><span>no evidence in today's sessions</span></div>
+        </div>
+      </div>
+      <div class="discovered">
+        <div class="label">You might have also done this</div>
+        <div class="item">
+          <span>Fixed a 64KB pipe truncation bug</span>
+          <span class="evidence">· from a Claude Code session</span>
+          <span class="add">Add</span>
+        </div>
+      </div>
+      <div class="usage">
+        <span class="gauge" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+        <span class="num">2,140 tokens today · $0.03 · 4 checks</span>
+      </div>
+    </div>
+    <p class="caption">The whole app, honestly: todos, verdicts with evidence, and every token on display.</p>
+  </section>
+
+  <section class="features rise d4">
+    <h2>what it does</h2>
+    <div class="feature-grid">
+      <div class="feature">
+        <h3>Todos judged against real work</h3>
+        <p>Each todo gets a verdict — done, in progress, not started — with one line of
+        evidence pulled from your local Claude Code and Codex transcripts.</p>
+      </div>
+      <div class="feature">
+        <h3>Discovered activities</h3>
+        <p>Feature-level work found in your sessions that never made the list.
+        Add it, already checked off, or dismiss it for good.</p>
+      </div>
+      <div class="feature">
+        <h3>A day journal with a price tag</h3>
+        <p>Automatic check-ins on launch and every hour. A usage strip shows today's
+        tokens, cost, and checks, with a per-check table and 7-day sparkline behind it.</p>
+      </div>
+      <div class="feature">
+        <h3>Calendar aware</h3>
+        <p>Your Mac calendar in the flow of the day — and typing “@6:30pm” on a todo
+        puts a real event on it.</p>
+      </div>
+      <div class="feature">
+        <h3>Where the time went</h3>
+        <p>Arc browsing history and Screen Time fill in the hours between commits,
+        so the day adds up honestly.</p>
+      </div>
+      <div class="feature">
+        <h3>Message awareness</h3>
+        <p>Knows when the afternoon disappeared into iMessage, and says so
+        without judgment. Well — with exactly one line of judgment.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="quiet">
+    <h2>local first</h2>
+    <div class="card">
+      <p><strong>No API keys, no accounts, no telemetry.</strong> Manas reads local files —
+      <span style="font-family: var(--mono); font-size: 13px;">~/.claude/projects</span> and
+      <span style="font-family: var(--mono); font-size: 13px;">~/.codex/sessions</span> — and
+      judging shells out to the <span style="font-family: var(--mono); font-size: 13px;">claude</span> CLI
+      you already have, on your existing subscription.</p>
+      <p>Built with SwiftUI, Swift Charts, and SF Symbols. Requires macOS 14+.
+      Manas is in active development.</p>
+    </div>
+  </section>
+
+  <footer class="site">
+    <span class="mark" style="width:20px;height:20px;border-radius:5px;font-size:12px;" aria-hidden="true">M</span>
+    <span>Manas</span>
+    <span class="sep">·</span>
+    <span>macOS 14+</span>
+    <span class="right">manas.viraat.dev</span>
+  </footer>
+
+</div>
+
+</body>
+</html>

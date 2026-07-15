@@ -123,49 +123,6 @@ extension ButtonStyle where Self == HoverIconButtonStyle {
     static var hoverIcon: HoverIconButtonStyle { HoverIconButtonStyle() }
 }
 
-// MARK: - Model picker
-
-/// Segmented control in the app's own chip language — selected segment gets
-/// the accent, never the system tint. Native segmented controls follow the
-/// system accent color (blue), which would break the one-accent rule.
-struct JudgeModelPicker: View {
-    @Binding var selection: JudgeModel
-    var label: (JudgeModel) -> String = { $0.displayName }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(JudgeModel.allCases) { model in
-                Button {
-                    selection = model
-                } label: {
-                    Text(label(model))
-                        .font(.subheadline)
-                        .foregroundStyle(selection == model ? Color.manasAccent : Color.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            selection == model ? Color.manasAccent.opacity(0.12) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selection == model ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .background(Color.surface1, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.hairline, lineWidth: 0.5)
-        )
-        .animation(.easeOut(duration: 0.15), value: selection)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Model")
-    }
-}
-
 // MARK: - Chips
 
 /// A small capsule with a tinted background, for verdicts and metadata.

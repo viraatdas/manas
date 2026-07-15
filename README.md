@@ -24,8 +24,8 @@ Swift Charts, and SF Symbols.
   checked off) or dismiss it (it stays dismissed on future checks).
 - **Usage strip** — a compact footer line with a 5-dot soft-budget gauge and
   today's tokens · cost · checks. Click it for a slide-down panel with
-  today's total, a per-check-in table, a 7-day sparkline, and the
-  Haiku/Sonnet model dial.
+  today's total, a per-check-in table (including which model ran), and a
+  7-day sparkline.
 - **Persistence** — todos, discoveries, and the full usage history survive
   relaunch (`~/Library/Application Support/Manas/state.json`).
 
@@ -48,8 +48,8 @@ swift run Manas
 ```
 
 A check-in reads only local transcript files under `~/.claude/projects` and
-`~/.codex/sessions`, then makes one `claude -p` call (haiku by default;
-switch to sonnet in settings or the usage panel). A completely empty day —
+`~/.codex/sessions`, then makes one `claude -p` call (always Sonnet — there
+is no model setting). A completely empty day —
 no todos, no sessions — skips the call entirely. On a busy day a pass can
 take a minute or two; the prompt carries your whole day.
 

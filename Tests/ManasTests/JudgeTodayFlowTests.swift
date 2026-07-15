@@ -54,7 +54,6 @@ final class JudgeTodayFlowTests: XCTestCase {
 
     func testJudgeTodayWiresIngestionThroughJudgeIntoStore() async throws {
         let store = AppStore(fileURL: tempStateURL())
-        store.selectedModel = .sonnet
         store.addTodo("Ship the sparkline")
         let todoID = store.todos[0].id
 
@@ -84,7 +83,7 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(store.todos[0].verdict?.status, .inProgress)
         XCTAssertEqual(store.discoveredActivities.map(\.title), ["Fixed flaky CI"])
         XCTAssertEqual(store.usageRecords.count, 1)
-        XCTAssertEqual(store.usageRecords[0].model, "sonnet", "the store's model dial reaches the judge")
+        XCTAssertEqual(store.usageRecords[0].model, "sonnet", "the judge is always asked for sonnet")
         XCTAssertEqual(store.usageRecords[0].tokensIn, 100, "aggregated activities reach the judge")
         XCTAssertEqual(store.lastCheckedAt, store.usageRecords[0].timestamp)
         XCTAssertEqual(store.syncedSourceCount, 2)

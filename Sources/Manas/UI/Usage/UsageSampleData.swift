@@ -10,7 +10,6 @@ enum UsageSampleData {
             .appendingPathComponent("state.json")
         let store = AppStore(fileURL: url)
         store.dailyTokenBudget = 10_000
-        store.selectedModel = .haiku
         store.usageRecords = sampleRecords(now: now)
         store.lastCheckedAt = store.usageRecords.last?.timestamp
         store.syncedSourceCount = 3

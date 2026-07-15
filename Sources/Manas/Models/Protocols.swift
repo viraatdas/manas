@@ -11,8 +11,8 @@ protocol ActivitySource: Sendable {
 /// Judges the day's todos against observed activities and reports what the
 /// check-in cost.
 protocol TodoJudge: Sendable {
-    /// `model` is a `JudgeModel` raw value ("haiku"/"sonnet") or a full API
-    /// model id — pass `store.selectedModel.rawValue`.
+    /// `model` is the model to request — the app always passes
+    /// `store.selectedModel.rawValue` ("sonnet").
     func judge(todos: [Todo], activities: [WorkActivity], model: String) async throws -> JudgeResult
 }
 

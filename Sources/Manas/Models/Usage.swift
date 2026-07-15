@@ -49,25 +49,20 @@ struct CheckInDay: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-/// The user's model dial: cheap and fast by default, better judgment on demand.
+/// Known model families, kept for mapping stored usage records (old raw
+/// values or full API model ids) to friendly names in the usage table. The
+/// judge itself always runs Sonnet — there is no user-facing model choice.
 enum JudgeModel: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
     case haiku
     case sonnet
 
     var id: String { rawValue }
 
-    /// Sentence-case name for the model picker.
+    /// Sentence-case name for the usage table.
     var displayName: String {
         switch self {
         case .haiku: "Haiku"
         case .sonnet: "Sonnet"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .haiku: "Fast and cheap"
-        case .sonnet: "Better judgment, costlier"
         }
     }
 }

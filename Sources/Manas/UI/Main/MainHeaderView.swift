@@ -120,23 +120,14 @@ private struct RefreshButton: View {
     }
 }
 
-/// Small settings surface behind the gear: the model dial and the soft daily
-/// token budget, both bound straight to `AppStore` so they persist.
+/// Small settings surface behind the gear: the soft daily token budget,
+/// bound straight to `AppStore` so it persists.
 struct SettingsPopover: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Model")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                JudgeModelPicker(selection: $store.selectedModel)
-                Text(store.selectedModel.detail)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Daily token budget")
                     .font(.caption)

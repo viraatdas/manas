@@ -14,11 +14,15 @@ final class AppStore {
     var todos: [Todo] = [] { didSet { scheduleSave() } }
     var discoveredActivities: [DiscoveredActivity] = [] { didSet { scheduleSave() } }
     var usageRecords: [UsageRecord] = [] { didSet { scheduleSave() } }
-    var selectedModel: JudgeModel = .haiku { didSet { scheduleSave() } }
     /// Soft daily token budget backing the usage strip's dots — visual, not a limit.
     var dailyTokenBudget: Int = 10_000 { didSet { scheduleSave() } }
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
     var syncedSourceCount: Int = 0 { didSet { scheduleSave() } }
+
+    /// The judge always runs Sonnet; there is no user-facing model choice.
+    /// Not persisted — old state.json files carrying a `selectedModel` key
+    /// still decode (unknown keys are ignored).
+    let selectedModel: JudgeModel = .sonnet
 
     // MARK: - Transient check-in state (not persisted)
 
@@ -51,7 +55,6 @@ final class AppStore {
             todos = state.todos
             discoveredActivities = state.discoveredActivities
             usageRecords = state.usageRecords
-            selectedModel = state.selectedModel
             dailyTokenBudget = state.dailyTokenBudget
             lastCheckedAt = state.lastCheckedAt
             syncedSourceCount = state.syncedSourceCount
@@ -195,7 +198,6 @@ final class AppStore {
         var todos: [Todo]
         var discoveredActivities: [DiscoveredActivity]
         var usageRecords: [UsageRecord]
-        var selectedModel: JudgeModel
         var dailyTokenBudget: Int
         var lastCheckedAt: Date?
         var syncedSourceCount: Int
@@ -206,7 +208,6 @@ final class AppStore {
             todos: todos,
             discoveredActivities: discoveredActivities,
             usageRecords: usageRecords,
-            selectedModel: selectedModel,
             dailyTokenBudget: dailyTokenBudget,
             lastCheckedAt: lastCheckedAt,
             syncedSourceCount: syncedSourceCount

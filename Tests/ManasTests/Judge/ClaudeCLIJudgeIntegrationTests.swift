@@ -37,7 +37,9 @@ final class ClaudeCLIJudgeIntegrationTests: XCTestCase {
         XCTAssertEqual(result.verdicts[todos[0].id]?.evidence.isEmpty, false)
         XCTAssertGreaterThan(result.usage.tokensIn, 0)
         XCTAssertGreaterThan(result.usage.tokensOut, 0)
-        XCTAssertEqual(result.usage.model, "haiku")
+        // Recent CLIs report the full model id they ran; older ones leave
+        // the requested alias in place.
+        XCTAssertTrue(result.usage.model.lowercased().contains("haiku"), "Unexpected model: \(result.usage.model)")
         XCTAssertTrue(result.usage.summary.contains("judged"))
     }
 }

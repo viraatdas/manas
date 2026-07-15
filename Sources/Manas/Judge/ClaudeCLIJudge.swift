@@ -3,8 +3,8 @@ import Foundation
 /// TodoJudge backed by the user's installed claude CLI (subscription auth —
 /// no API key, no SDK). Shells out to
 /// `claude -p <prompt> --output-format json --model <model>`, reads
-/// usage/cost from the CLI's JSON envelope, and parses the model's
-/// strict-JSON reply into verdicts and discoveries.
+/// usage/cost and the model that actually ran from the CLI's JSON envelope,
+/// and parses the model's strict-JSON reply into verdicts and discoveries.
 struct ClaudeCLIJudge: TodoJudge {
     var runner: any CommandRunning
     var locator: ClaudeCLILocator
@@ -41,6 +41,9 @@ struct ClaudeCLIJudge: TodoJudge {
         var tokensIn = 0
         var tokensOut = 0
         var costUSD = 0.0
+        // The usage record logs the model the CLI reports having actually
+        // run, falling back to the requested alias on older CLIs.
+        var reportedModel = model
         var prompt = basePrompt
         var lastError: Error = JudgeError.malformedModelOutput("")
 
@@ -52,10 +55,11 @@ struct ClaudeCLIJudge: TodoJudge {
             tokensIn += reply.tokensIn
             tokensOut += reply.tokensOut
             costUSD += reply.costUSD
+            reportedModel = reply.modelID ?? reportedModel
             do {
                 let output = try JudgeOutputParser.parse(reply.text)
                 return result(
-                    from: output, todos: todos, model: model,
+                    from: output, todos: todos, model: reportedModel,
                     tokensIn: tokensIn, tokensOut: tokensOut, costUSD: costUSD
                 )
             } catch {
