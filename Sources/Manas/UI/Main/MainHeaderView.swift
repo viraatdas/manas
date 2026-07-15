@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 /// Screen 1 header: date navigation on the left; refresh and settings on the
@@ -121,9 +122,18 @@ private struct RefreshButton: View {
 }
 
 /// Small settings surface behind the gear: the soft daily token budget,
-/// bound straight to `AppStore` so it persists.
+/// bound straight to `AppStore` so it persists, and the launch-at-login
+/// toggle backed by `SMAppService`.
 struct SettingsPopover: View {
     @Environment(AppStore.self) private var store
+    @State private var launchAtLogin = false
+    @State private var loginItemCaption: String?
+
+    /// `SMAppService.mainApp` only works from a real .app bundle; under
+    /// `swift run` the executable sits in .build/ and registration would fail.
+    private var isBundled: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
 
     var body: some View {
         @Bindable var store = store
@@ -136,9 +146,54 @@ struct SettingsPopover: View {
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
             }
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(.manasAccent)
+                    .font(.subheadline)
+                    .disabled(!isBundled)
+                if let loginItemCaption {
+                    Text(loginItemCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(16)
         .frame(width: 248)
+        .onAppear { readLoginItemState() }
+        .onChange(of: launchAtLogin) { _, wanted in
+            setLaunchAtLogin(wanted)
+        }
+    }
+
+    private func readLoginItemState() {
+        guard isBundled else {
+            loginItemCaption = "Available when Manas runs as an installed app."
+            return
+        }
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        loginItemCaption = SMAppService.mainApp.status == .requiresApproval
+            ? "Approve Manas in System Settings › Login items."
+            : nil
+    }
+
+    private func setLaunchAtLogin(_ wanted: Bool) {
+        guard isBundled, wanted != (SMAppService.mainApp.status == .enabled) else { return }
+        do {
+            if wanted {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            loginItemCaption = SMAppService.mainApp.status == .requiresApproval
+                ? "Approve Manas in System Settings › Login items."
+                : nil
+        } catch {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            loginItemCaption = "Couldn't update the login item. Try again from System Settings."
+        }
     }
 }
 
