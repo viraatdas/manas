@@ -250,3 +250,16 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Rebuild and reinstall /Applications/Manas.app [out of lane] — The installed app predates both the login-item rework and this caption fix; scripts/make-app.sh && rm -rf /Applications/Manas.app && cp -R dist/Manas.app /Applications/ picks them up
 - **By:** followup-2 · 2026-07-15T22:36:11.643Z
 
+## Plan approved
+- **What:** Approved a 2-task plan for: what ist he status of manas is it working can you launch it?. Tasks: Day-scoped todos: model + store + judge scoping; Timeline UI: Earlier, Today, Upcoming, Plan a day.
+- **Why:** user-approved plan; workers implement these nodes in isolated workspaces, honoring the dependency edges
+- **By:** conductor · 1784160102836
+
+## n0: Todos are now day-scoped. Todo gained day: Date (start-of-day,
+- **Did:** Todos are now day-scoped. Todo gained day: Date (start-of-day, defaults to createdAt day; decodeIfPresent migration backfills old state.json todos — the real ~/Library/Application Support/Manas/state.json was verified to be old-format and its shape is covered by tests). AppStore exposes todos(on:), todosToday, pastDays (newest first) and upcomingDays (soonest first); addTodo(_:on: Date = Date()) inserts at the top of its day group (old call sites compile via the default); moveToToday re-dates an unfinished past todo to today and clears its verdict; addDiscoveredToTodos still lands on today. Judge scoping: judgeToday sends only todosToday, the empty-day CLI skip checks only today, and applyJudgeResult guards verdicts with isDateInToday so past days are frozen and future todos are immune. swift build clean; swift test 161 tests (9 new), 0 failures, 6 env-gated skips. No UI files touched.
+- **Interfaces:** Todo.day: Date + init(day: Date? = nil) + custom init(from:) migration, normalizing every decoded day to start-of-day; DayGroup { day, todos } (Identifiable by day, mirrors CheckInDay — pastDays/upcomingDays return it, so ForEach binds directly) (Sources/Manas/Models/Todo.swift); AppStore.todos(on:)/todosToday/pastDays/upcomingDays/addTodo(_:on:)/moveToToday(_:) + day-guarded applyJudgeResult (Sources/Manas/Store/AppStore.swift); judgeToday scopes to todosToday incl. empty-day skip (Sources/Manas/Store/AppStore+Judge.swift); new tests in AppStoreTests, JudgeTodayFlowTests, ModelCodingTests; DECISIONS.md n0 day-scoping contract section
+- **Follow-ups:**
+  - UI for past (read-only) and upcoming (planning) days [out of lane] — The store now exposes pastDays/upcomingDays and moveToToday, but Sources/Manas/UI was out of this lane — the header date navigation is still local state showing today only
+  - Rebuild and reinstall /Applications/Manas.app [out of lane] — The installed bundle predates day scoping; scripts/make-app.sh && rm -rf /Applications/Manas.app && cp -R dist/Manas.app /Applications/ picks it up (its old-format state.json migrates on first launch)
+- **By:** n0 · 2026-07-16T00:08:59.712Z
+
