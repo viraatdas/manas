@@ -26,6 +26,14 @@ extension AppStore {
         return store
     }
 
+    /// The full timeline: three past days of frozen history, the judged
+    /// today with discoveries, and two planned days ahead.
+    static var previewTimeline: AppStore {
+        let store = previewWithDiscovered
+        store.todos += samplePastTodos() + sampleUpcomingTodos()
+        return store
+    }
+
     private static func scratchStore() -> AppStore {
         AppStore(
             fileURL: FileManager.default.temporaryDirectory
@@ -62,6 +70,44 @@ private func sampleJudgedTodos() -> [Todo] {
         ),
         Todo(text: "Book a dentist appointment"),
         Todo(text: "Morning standup", isDone: true),
+    ]
+}
+
+private func samplePastTodos() -> [Todo] {
+    [
+        Todo(
+            text: "Review the ingestion PR",
+            day: day(-1),
+            isDone: true
+        ),
+        Todo(
+            text: "Draft the launch email",
+            day: day(-1),
+            verdict: Verdict(
+                status: .notStarted,
+                evidence: "No session touched any writing that day",
+                judgedAt: day(-1)
+            )
+        ),
+        Todo(
+            text: "Refactor the judge prompt",
+            day: day(-2),
+            isDone: true
+        ),
+        Todo(text: "Call the accountant", day: day(-2)),
+        Todo(
+            text: "Clean up the test fixtures",
+            day: day(-4),
+            isDone: true
+        ),
+    ]
+}
+
+private func sampleUpcomingTodos() -> [Todo] {
+    [
+        Todo(text: "Prep the demo script", day: day(1)),
+        Todo(text: "Book flights for the offsite", day: day(1)),
+        Todo(text: "Pack for the offsite", day: day(2)),
     ]
 }
 
@@ -103,4 +149,10 @@ private func sampleUsageRecords() -> [UsageRecord] {
 
 private func todayAt(_ hour: Int, _ minute: Int) -> Date {
     Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
+}
+
+/// Start of the day `offset` days from today.
+private func day(_ offset: Int) -> Date {
+    let calendar = Calendar.current
+    return calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: Date())) ?? Date()
 }

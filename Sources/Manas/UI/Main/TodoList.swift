@@ -42,19 +42,21 @@ struct AddTodoField: View {
     }
 }
 
-/// The judged todo list — the primary content of Screen 1. One flat card of
-/// rows; a gentle empty state when there is nothing on the list.
+/// Today's judged todo list — the primary content of Screen 1. One flat
+/// card of rows; a gentle empty state when there is nothing on the list.
+/// Past and future days render in their own timeline sections.
 struct TodoListSection: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        if store.todos.isEmpty {
+        let todos = store.todosToday
+        if todos.isEmpty {
             emptyState
         } else {
             VStack(spacing: 0) {
-                ForEach(store.todos) { todo in
+                ForEach(todos) { todo in
                     TodoRow(todo: todo)
-                    if todo.id != store.todos.last?.id {
+                    if todo.id != todos.last?.id {
                         Divider().padding(.leading, 42)
                     }
                 }
