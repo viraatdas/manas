@@ -3,13 +3,21 @@ import XCTest
 @testable import Manas
 
 private struct StubSource: ActivitySource {
+    let source: WorkSource
     let name: String
     let activities: [WorkActivity]
     let error: (any Error)?
     /// Delay lets tests exercise genuinely concurrent completion.
     let delay: Duration
 
-    init(name: String, activities: [WorkActivity] = [], error: (any Error)? = nil, delay: Duration = .zero) {
+    init(
+        source: WorkSource = .claude,
+        name: String,
+        activities: [WorkActivity] = [],
+        error: (any Error)? = nil,
+        delay: Duration = .zero
+    ) {
+        self.source = source
         self.name = name
         self.activities = activities
         self.error = error
@@ -37,11 +45,13 @@ final class ActivityAggregatorTests: XCTestCase {
     func testMergesConcurrentSourcesSortedByStartTime() async {
         let aggregator = ActivityAggregator(sources: [
             StubSource(
+                source: .claude,
                 name: "Claude Code",
                 activities: [activity(summary: "afternoon work", startingAt: "2026-07-10T15:00:00Z")],
                 delay: .milliseconds(30)
             ),
             StubSource(
+                source: .codex,
                 name: "Codex",
                 activities: [activity(summary: "morning work", startingAt: "2026-07-10T09:00:00Z", source: .codex)]
             ),
@@ -57,8 +67,8 @@ final class ActivityAggregatorTests: XCTestCase {
     func testDegradesGracefullyWhenOneSourceFails() async {
         let aggregator = ActivityAggregator(sources: [
             StubSource(name: "Claude Code", activities: [activity(summary: "real work", startingAt: "2026-07-10T10:00:00Z")]),
-            StubSource(name: "Codex", error: StubError()),
-            StubSource(name: "Granola", activities: []),
+            StubSource(source: .codex, name: "Codex", error: StubError()),
+            StubSource(source: .granola, name: "Granola", activities: []),
         ])
 
         let result = await aggregator.fetchActivities(for: day)
@@ -67,12 +77,13 @@ final class ActivityAggregatorTests: XCTestCase {
         XCTAssertEqual(result.syncedSourceCount, 2)
         XCTAssertEqual(result.failedSourceNames, ["Codex"])
         XCTAssertEqual(result.activities.map(\.summary), ["real work"])
+        XCTAssertEqual(result.sourceStatuses.first(where: { $0.source == .codex })?.state, .failed)
     }
 
     func testAllSourcesFailingStillReturnsAResult() async {
         let aggregator = ActivityAggregator(sources: [
-            StubSource(name: "Claude Code", error: StubError()),
-            StubSource(name: "Codex", error: StubError()),
+            StubSource(source: .claude, name: "Claude Code", error: StubError()),
+            StubSource(source: .codex, name: "Codex", error: StubError()),
         ])
 
         let result = await aggregator.fetchActivities(for: day)
@@ -88,6 +99,25 @@ final class ActivityAggregatorTests: XCTestCase {
     }
 
     func testStandardLineupCoversClaudeAndCodex() {
-        XCTAssertEqual(ActivityAggregator.standard.sources.map(\.name), ["Claude Code", "Codex"])
+        XCTAssertEqual(
+            ActivityAggregator.standard.sources.map(\.name),
+            ["Claude Code", "Codex", "Arc", "Screen Time", "Messages"]
+        )
+    }
+
+    func testPermissionFailureIsNotReportedAsAnEmptySuccessfulSync() async {
+        let aggregator = ActivityAggregator(sources: [
+            StubSource(
+                source: .messages,
+                name: "Messages",
+                error: ActivitySourceFailure.permissionRequired("Grant access")
+            ),
+        ])
+
+        let result = await aggregator.fetchActivities(for: day)
+
+        XCTAssertEqual(result.syncedSourceCount, 0)
+        XCTAssertEqual(result.sourceStatuses.first?.state, .permissionRequired)
+        XCTAssertEqual(result.sourceStatuses.first?.detail, "Grant access")
     }
 }

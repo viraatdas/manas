@@ -12,6 +12,7 @@ import Foundation
 /// rollouts only have `response_item` user messages, which mix real prompts
 /// with AGENTS.md/environment boilerplate that has to be filtered out.
 struct CodexSource: ActivitySource {
+    var source: WorkSource { .codex }
     var name: String { "Codex" }
 
     let sessionsDirectory: URL

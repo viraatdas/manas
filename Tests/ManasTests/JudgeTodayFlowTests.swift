@@ -12,6 +12,7 @@ final class JudgeTodayFlowTests: XCTestCase {
     }
 
     private struct StubSource: ActivitySource {
+        var source: WorkSource = .claude
         var name = "stub"
         var activities: [WorkActivity] = []
         var shouldThrow = false

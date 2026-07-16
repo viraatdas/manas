@@ -86,10 +86,17 @@ extension AppStore {
         aggregator: ActivityAggregator = .standard,
         judge: any TodoJudge = ClaudeCLIJudge(timeout: AppStore.judgeTimeout)
     ) async throws {
+        let configured = Set(aggregator.sources.map(\.source))
+        sourceStatuses = sourceStatuses.map { status in
+            configured.contains(status.source)
+                ? ActivitySourceStatus(source: status.source, state: .syncing, activityCount: 0)
+                : status
+        }
         let aggregated = await aggregator.fetchActivities(for: Date())
         // Recorded even if judging below fails — the metadata row reports
         // ingestion, not judgment.
         syncedSourceCount = aggregated.syncedSourceCount
+        sourceStatuses = aggregated.sourceStatuses
         try Task.checkCancellation()
         // Only today is judged: past days are frozen and future days are
         // plans, so neither belongs in the prompt.

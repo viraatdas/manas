@@ -10,6 +10,7 @@ import Foundation
 /// children; sidechain entries inside a session file are skipped via their
 /// `isSidechain` flag.
 struct ClaudeCodeSource: ActivitySource {
+    var source: WorkSource { .claude }
     var name: String { "Claude Code" }
 
     let projectsDirectory: URL

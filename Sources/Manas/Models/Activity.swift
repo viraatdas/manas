@@ -5,6 +5,77 @@ enum WorkSource: String, Codable, Hashable, Sendable, CaseIterable {
     case claude
     case codex
     case granola
+    case arc
+    case screenTime = "screen_time"
+    case messages
+
+    var displayName: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        case .granola: "Granola"
+        case .arc: "Arc"
+        case .screenTime: "Screen Time"
+        case .messages: "Messages"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .claude, .codex: "terminal"
+        case .granola: "person.2"
+        case .arc: "globe"
+        case .screenTime: "hourglass"
+        case .messages: "message"
+        }
+    }
+}
+
+/// What happened when one local activity source was checked. These values are
+/// transient: only the source-derived verdict/discovery is persisted, never
+/// raw browser or message content.
+struct ActivitySourceStatus: Identifiable, Hashable, Sendable {
+    enum State: String, Hashable, Sendable {
+        case waiting
+        case syncing
+        case ready
+        case permissionRequired
+        case unavailable
+        case failed
+    }
+
+    var source: WorkSource
+    var state: State
+    var activityCount: Int
+    var detail: String?
+
+    var id: WorkSource { source }
+
+    static func waiting(_ source: WorkSource) -> ActivitySourceStatus {
+        ActivitySourceStatus(source: source, state: .waiting, activityCount: 0)
+    }
+}
+
+/// A typed source failure lets the aggregator distinguish a privacy grant
+/// from a missing optional app or a genuinely malformed database.
+enum ActivitySourceFailure: Error, LocalizedError, Sendable {
+    case permissionRequired(String)
+    case unavailable(String)
+    case readFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionRequired(let detail), .unavailable(let detail), .readFailed(let detail): detail
+        }
+    }
+
+    var statusState: ActivitySourceStatus.State {
+        switch self {
+        case .permissionRequired: .permissionRequired
+        case .unavailable: .unavailable
+        case .readFailed: .failed
+        }
+    }
 }
 
 /// Something the sources saw the user doing that wasn't on the todo list

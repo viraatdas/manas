@@ -32,6 +32,15 @@ final class AppStore {
     /// The last check-in's failure, sentence-case and UI-ready; nil once a
     /// check starts or succeeds.
     var lastCheckInError: String?
+    /// Per-source health for the current app session. Raw source activity is
+    /// deliberately not persisted; only derived todo evidence is saved.
+    var sourceStatuses: [ActivitySourceStatus] = [
+        .waiting(.claude),
+        .waiting(.codex),
+        .waiting(.arc),
+        .waiting(.screenTime),
+        .waiting(.messages),
+    ]
 
     @ObservationIgnored var autoCheckTask: Task<Void, Never>?
     @ObservationIgnored var checkInTask: Task<Void, Never>?

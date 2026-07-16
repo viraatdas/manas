@@ -2,7 +2,7 @@
 
 The control panel for your day. Manas is a native macOS app: you write your
 todo list, and it quietly checks in on your day by itself — reading your
-local Claude Code and Codex session transcripts, having Claude judge how
+local Claude Code and Codex sessions, Arc history, Screen Time, and Messages, having Claude judge how
 each todo is actually going, and surfacing work you did but never wrote
 down. Every token a check-in costs is on display in the usage strip.
 
@@ -16,6 +16,10 @@ Swift Charts, and SF Symbols.
   plus a refresh button in the header for an on-demand pass (it spins while
   a check runs). The header's "Last checked 2:14 pm · 2 sources synced" line
   is the heartbeat; failures appear as a quiet caption in the footer.
+- **Five local activity sources** — Claude Code and Codex sessions, Arc page
+  titles, Screen Time app usage, and same-day iMessage text. Sources sync
+  independently, so a permission problem never hides the activity that is
+  still available.
 - **Todos with verdicts** — each todo gets a chip (Done / In progress /
   Not started / Unknown) plus one line of evidence pulled from your real
   coding sessions, with accept/dismiss controls.
@@ -53,17 +57,26 @@ swift test
 swift run Manas
 ```
 
-A check-in reads only local transcript files under `~/.claude/projects` and
-`~/.codex/sessions`, then makes one `claude -p` call (always Sonnet — there
+A check-in reads local transcript files under `~/.claude/projects` and
+`~/.codex/sessions`, Arc's Chromium history database, the local Screen Time
+store, and the local Messages database, then makes one `claude -p` call (always Sonnet — there
 is no model setting). A completely empty day —
 no todos, no sessions — skips the call entirely. On a busy day a pass can
 take a minute or two; the prompt carries your whole day.
 
+Messages and Screen Time normally require enabling `/Applications/Manas.app`
+in **System Settings → Privacy & Security → Full Disk Access**, followed by a
+full quit and relaunch. Access is read-only. Manas never joins Messages to
+contact names or addresses; it redacts emails, phone numbers, and links, and
+reduces Arc URLs to page titles and host names. The resulting same-day snippets
+are sent through the installed Claude CLI for todo judging. Raw source rows are
+never written to `state.json` or application logs.
+
 ## Layout
 
 - `Sources/Manas/Models` — todos, verdicts, activities, usage records
-- `Sources/Manas/Ingestion` — Claude Code + Codex transcript readers and the
-  concurrent aggregator
+- `Sources/Manas/Ingestion` — Claude Code, Codex, Arc, Screen Time, and
+  Messages readers plus the concurrent, permission-aware aggregator
 - `Sources/Manas/Judge` — the `claude` CLI judge: locator, process runner,
   prompt, and strict-JSON output parsing
 - `Sources/Manas/Store` — `AppStore`: observable state, debounced atomic

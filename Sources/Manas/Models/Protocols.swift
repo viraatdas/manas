@@ -4,6 +4,7 @@ import Foundation
 /// meetings. Source workers implement this; the sync pipeline fans out over
 /// every registered source for the selected day.
 protocol ActivitySource: Sendable {
+    var source: WorkSource { get }
     var name: String { get }
     func fetchActivities(for date: Date) async throws -> [WorkActivity]
 }
