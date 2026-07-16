@@ -106,6 +106,65 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(store.usageRecords.count, 1)
     }
 
+    func testJudgeSeesOnlyTodaysTodosAndOnlyTodayReceivesVerdicts() async throws {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: Date())!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date())!
+
+        store.addTodo("Yesterday's leftover", on: yesterday)
+        store.addTodo("Today's work")
+        store.addTodo("Tomorrow's plan", on: tomorrow)
+        let pastID = store.todos(on: yesterday)[0].id
+        let todayID = store.todosToday[0].id
+        let futureID = store.todos(on: tomorrow)[0].id
+
+        // The stub returns a verdict for EVERY id in the store, so this also
+        // proves applyJudgeResult drops the out-of-day ones.
+        let allIDs = store.todos.map(\.id)
+        let judge = StubJudge { todos, activities, model in
+            let prompt = JudgePromptBuilder.build(todos: todos, activities: activities)
+            XCTAssertEqual(todos.map(\.id), [todayID], "only today's todos reach the judge")
+            XCTAssertTrue(prompt.contains("Today's work"))
+            XCTAssertFalse(prompt.contains("Yesterday's leftover"), "past todos stay out of the prompt")
+            XCTAssertFalse(prompt.contains("Tomorrow's plan"), "future todos stay out of the prompt")
+            XCTAssertFalse(prompt.contains(pastID.uuidString))
+            XCTAssertFalse(prompt.contains(futureID.uuidString))
+            return JudgeResult(
+                verdicts: Dictionary(uniqueKeysWithValues: allIDs.map {
+                    ($0, Verdict(status: .inProgress, evidence: "Echoed for every id"))
+                }),
+                usage: UsageRecord(model: model, tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+            )
+        }
+
+        let activity = WorkActivity(source: .claude, summary: "Worked on Manas", startedAt: Date())
+        try await store.judgeToday(
+            aggregator: ActivityAggregator(sources: [StubSource(activities: [activity])]),
+            judge: judge
+        )
+
+        XCTAssertNil(store.todos(on: yesterday)[0].verdict, "past todos are immune to verdicts")
+        XCTAssertEqual(store.todosToday[0].verdict?.status, .inProgress)
+        XCTAssertNil(store.todos(on: tomorrow)[0].verdict, "future todos are immune to verdicts")
+    }
+
+    func testDayWithOnlyPastAndFutureTodosSkipsTheCLI() async throws {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        store.addTodo("Yesterday's leftover", on: calendar.date(byAdding: .day, value: -1, to: Date())!)
+        store.addTodo("Tomorrow's plan", on: calendar.date(byAdding: .day, value: 1, to: Date())!)
+        let judge = StubJudge { _, _, _ in
+            XCTFail("out-of-day todos alone must not trigger a CLI call")
+            throw JudgeError.cliNotFound
+        }
+
+        try await store.judgeToday(aggregator: ActivityAggregator(sources: [StubSource()]), judge: judge)
+
+        XCTAssertTrue(store.usageRecords.isEmpty)
+        XCTAssertNotNil(store.lastCheckedAt, "the check still counts as having looked")
+    }
+
     func testEmptyDaySkipsTheCLIEntirely() async throws {
         let store = AppStore(fileURL: tempStateURL())
         let judge = StubJudge { _, _, _ in

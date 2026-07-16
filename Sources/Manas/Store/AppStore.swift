@@ -71,12 +71,21 @@ final class AppStore {
     // MARK: - Todos
 
     @discardableResult
-    func addTodo(_ text: String) -> Todo? {
+    func addTodo(_ text: String, on day: Date = Date()) -> Todo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let todo = Todo(text: trimmed)
-        todos.insert(todo, at: 0)
+        let todo = Todo(text: trimmed, day: day)
+        insert(todo)
         return todo
+    }
+
+    /// New todos go on top of their day's group. A day's first todo lands at
+    /// the front of the array — cross-day array order is irrelevant since
+    /// the grouped accessors filter by day.
+    private func insert(_ todo: Todo) {
+        let calendar = Calendar.current
+        let index = todos.firstIndex { calendar.isDate($0.day, inSameDayAs: todo.day) } ?? 0
+        todos.insert(todo, at: index)
     }
 
     func removeTodo(_ id: Todo.ID) {
@@ -97,6 +106,50 @@ final class AppStore {
         }
     }
 
+    /// Brings an unfinished past todo forward to the top of today. It will
+    /// be re-judged fresh against today's activity, so the stale verdict is
+    /// cleared. Finished todos and today/future todos are left alone.
+    func moveToToday(_ id: Todo.ID) {
+        let today = Calendar.current.startOfDay(for: Date())
+        guard let index = todos.firstIndex(where: { $0.id == id }),
+              !todos[index].isDone,
+              todos[index].day < today
+        else { return }
+        var todo = todos.remove(at: index)
+        todo.day = today
+        todo.verdict = nil
+        insert(todo)
+    }
+
+    // MARK: - Day groups
+
+    /// The todos belonging to the same calendar day as `day`, in list order.
+    func todos(on day: Date) -> [Todo] {
+        let calendar = Calendar.current
+        return todos.filter { calendar.isDate($0.day, inSameDayAs: day) }
+    }
+
+    var todosToday: [Todo] { todos(on: Date()) }
+
+    /// Days before today that have todos, newest first — read-only history.
+    var pastDays: [DayGroup] {
+        let today = Calendar.current.startOfDay(for: Date())
+        return dayGroups { $0 < today }.sorted { $0.day > $1.day }
+    }
+
+    /// Days after today that have todos, soonest first — planned-ahead work.
+    var upcomingDays: [DayGroup] {
+        let today = Calendar.current.startOfDay(for: Date())
+        return dayGroups { $0 > today }.sorted { $0.day < $1.day }
+    }
+
+    /// Groups the todos whose day satisfies `matching`. `Todo.day` is always
+    /// start-of-day, so it is the group key as-is.
+    private func dayGroups(matching: (Date) -> Bool) -> [DayGroup] {
+        Dictionary(grouping: todos.filter { matching($0.day) }, by: \.day)
+            .map { DayGroup(day: $0.key, todos: $0.value) }
+    }
+
     // MARK: - Discovered activities
 
     func dismissDiscovered(_ id: DiscoveredActivity.ID) {
@@ -114,12 +167,13 @@ final class AppStore {
         else { return nil }
         discoveredActivities[index].resolution = .added
         let activity = discoveredActivities[index]
+        // Discoveries are work observed today, so the todo lands on today.
         let todo = Todo(
             text: activity.title,
             isDone: true,
             verdict: Verdict(status: .done, evidence: activity.evidence, accepted: true)
         )
-        todos.insert(todo, at: 0)
+        insert(todo)
         return todo
     }
 
@@ -128,7 +182,12 @@ final class AppStore {
     /// Applies one judge pass: verdicts onto matching todos, the refreshed
     /// discovery list, and the usage record for the cost strip.
     func applyJudgeResult(_ result: JudgeResult) {
+        let calendar = Calendar.current
         for index in todos.indices {
+            // Only today is ever judged: past days are frozen history and
+            // future days haven't happened yet, so neither can receive a
+            // verdict even if the judge echoes back a stale id.
+            guard calendar.isDateInToday(todos[index].day) else { continue }
             if var verdict = result.verdicts[todos[index].id] {
                 // Re-checks run automatically all day; a verdict the user
                 // already accepted stays settled unless the judge's call
