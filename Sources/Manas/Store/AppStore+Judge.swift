@@ -50,6 +50,26 @@ extension AppStore {
         _ = beginCheckIn(aggregator: aggregator, judge: judge)
     }
 
+    /// Probes every local source without building a prompt or invoking the
+    /// Claude CLI. Onboarding uses this to show a truthful, live permissions
+    /// screen before the first automatic check-in begins.
+    func refreshSourceHealth(aggregator: ActivityAggregator = .standard) async {
+        guard !isCheckingIn, !isRefreshingSourceHealth else { return }
+        isRefreshingSourceHealth = true
+        defer { isRefreshingSourceHealth = false }
+
+        let configured = Set(aggregator.sources.map(\.source))
+        sourceStatuses = sourceStatuses.map { status in
+            configured.contains(status.source)
+                ? ActivitySourceStatus(source: status.source, state: .syncing, activityCount: 0)
+                : status
+        }
+        let aggregated = await aggregator.fetchActivities(for: Date())
+        guard !Task.isCancelled else { return }
+        syncedSourceCount = aggregated.syncedSourceCount
+        sourceStatuses = aggregated.sourceStatuses
+    }
+
     /// Starts a check-in unless one is running; returns the task so the
     /// auto-cadence can await completion before sleeping.
     @discardableResult

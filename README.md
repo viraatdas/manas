@@ -12,6 +12,10 @@ Swift Charts, and SF Symbols.
 
 ## What it does
 
+- **A real first-run setup** — a three-step, skippable welcome flow shows how
+  evidence changes a todo, checks all five local sources without spending any
+  Claude tokens, and lets you add a real first todo before the automatic judge
+  starts. Reopen it any time with **⌘/** or **Help → Welcome to Manas**.
 - **Automatic check-ins** — one when the app launches, then one every hour,
   plus a refresh button in the header for an on-demand pass (it spins while
   a check runs). The header's "Last checked 2:14 pm · 2 sources synced" line
@@ -82,7 +86,7 @@ never written to `state.json` or application logs.
 - `Sources/Manas/Store` — `AppStore`: observable state, debounced atomic
   JSON persistence, and the automatic check-in engine
 - `Sources/Manas/UI` — Screen 1 (day view), Screens 2+3 (usage strip and
-  expanded panel)
+  expanded panel), and the first-run onboarding flow
 
 Tests run without the CLI. A few opt-in live tests spend real tokens:
 `MANAS_CLAUDE_INTEGRATION=1 swift test --filter Integration`.

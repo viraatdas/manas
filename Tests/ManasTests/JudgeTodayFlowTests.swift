@@ -180,6 +180,24 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(store.syncedSourceCount, 1)
     }
 
+    func testSourceHealthRefreshNeverInvokesJudgeOrRecordsAUsageCheck() async {
+        let store = AppStore(fileURL: tempStateURL())
+        let aggregator = ActivityAggregator(sources: [
+            StubSource(source: .claude, name: "Claude Code"),
+            StubSource(source: .messages, name: "Messages", shouldThrow: true),
+        ])
+
+        await store.refreshSourceHealth(aggregator: aggregator)
+
+        XCTAssertFalse(store.isRefreshingSourceHealth)
+        XCTAssertFalse(store.isCheckingIn)
+        XCTAssertEqual(store.syncedSourceCount, 1)
+        XCTAssertEqual(store.sourceStatuses.first(where: { $0.source == .claude })?.state, .ready)
+        XCTAssertEqual(store.sourceStatuses.first(where: { $0.source == .messages })?.state, .failed)
+        XCTAssertTrue(store.usageRecords.isEmpty, "permission setup must not spend Claude tokens")
+        XCTAssertNil(store.lastCheckedAt, "a permissions probe is not a completed check-in")
+    }
+
     // MARK: - Check-in coordination
 
     private func waitUntil(

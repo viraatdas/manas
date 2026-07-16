@@ -25,9 +25,12 @@ struct ManasApp: App {
         Window("Manas", id: "main") {
             ContentView()
                 .environment(store)
-                .frame(minWidth: 460, minHeight: 620)
-                // Checks run by themselves: once now, then on a timer.
-                .task { store.startAutoCheckIns() }
+                .frame(
+                    minWidth: 460,
+                    maxWidth: .infinity,
+                    minHeight: 620,
+                    maxHeight: .infinity
+                )
                 // Debounced saves can trail the last mutation by up to 500ms;
                 // flush on quit so nothing is lost.
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
@@ -35,5 +38,13 @@ struct ManasApp: App {
                 }
         }
         .defaultSize(width: 560, height: 780)
+        .commands {
+            CommandGroup(replacing: .help) {
+                Button("Welcome to Manas") {
+                    NotificationCenter.default.post(name: .showManasOnboarding, object: nil)
+                }
+                .keyboardShortcut("/", modifiers: [.command])
+            }
+        }
     }
 }

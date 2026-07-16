@@ -66,7 +66,9 @@ final class TimelineLayoutTests: XCTestCase {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         try dump(
-            ContentView().environment(store).frame(width: 520, height: 760),
+            ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
+                .environment(store)
+                .frame(width: 520, height: 760),
             name: "day-pager-today", to: outDir
         )
         try dump(

@@ -12,6 +12,7 @@
 - `/Applications/Manas.app` existed before this task but predates the current repository timeline changes; always rebuild, reinstall, and verify the installed bundle before reporting it as current.
 - SwiftUI `LazyVStack` plus `ScrollViewReader.scrollTo` mispositions the initial day when page heights differ (today is taller because it contains discoveries); the snap pager uses a bounded eager `VStack` so programmatic Today/chevron targets have exact offsets.
 - On macOS, `ViewAlignedScrollTargetBehavior` can rewrite an exact `ScrollViewReader.scrollTo` boundary to an adjacent day. Keep alignment enabled for wheel gestures but bypass it briefly for chevron/Today jumps, then confirm the visible day from measured page positions.
+- First launch defers the token-spending auto check until onboarding finishes. The source setup page calls `refreshSourceHealth` instead, which probes all local readers and updates permission state without invoking Claude; finishing or skipping then starts the normal hourly cadence.
 
 ## Execute: Dead-ends tried
 

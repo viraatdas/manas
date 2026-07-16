@@ -29,6 +29,10 @@ final class AppStore {
     /// True while a check-in is running — spins the header refresh button
     /// and blocks overlapping checks.
     var isCheckingIn = false
+    /// True while onboarding is probing local source access without invoking
+    /// the judge. Kept separate so first launch can verify permissions before
+    /// spending any Claude tokens.
+    var isRefreshingSourceHealth = false
     /// The last check-in's failure, sentence-case and UI-ready; nil once a
     /// check starts or succeeds.
     var lastCheckInError: String?
