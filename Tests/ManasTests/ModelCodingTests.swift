@@ -139,7 +139,10 @@ final class ModelCodingTests: XCTestCase {
     /// Raw values are the on-disk format — guard them against accidental renames.
     func testStableRawValues() {
         XCTAssertEqual(Verdict.Status.allCases.map(\.rawValue), ["done", "inProgress", "notStarted", "unknown"])
-        XCTAssertEqual(WorkSource.allCases.map(\.rawValue), ["claude", "codex", "granola"])
+        XCTAssertEqual(
+            WorkSource.allCases.map(\.rawValue),
+            ["claude", "codex", "granola", "arc", "screen_time", "messages"]
+        )
         XCTAssertEqual(JudgeModel.allCases.map(\.rawValue), ["haiku", "sonnet"])
     }
 }

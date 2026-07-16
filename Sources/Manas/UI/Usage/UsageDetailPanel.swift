@@ -7,16 +7,16 @@ import SwiftUI
 /// separate window.
 struct UsageDetailPanel: View {
     @Environment(AppStore.self) private var store
+    var day: Date = Date()
 
     var body: some View {
-        let now = Date()
-        let totals = UsageMath.totals(of: store.usageRecords, on: now)
-        let todaysRecords = store.records(on: now).sorted { $0.timestamp > $1.timestamp }
-        let series = UsageMath.dailySeries(of: store.usageRecords, days: 7, endingOn: now)
+        let totals = UsageMath.totals(of: store.usageRecords, on: day)
+        let dayRecords = store.records(on: day).sorted { $0.timestamp > $1.timestamp }
+        let series = UsageMath.dailySeries(of: store.usageRecords, days: 7, endingOn: day)
 
         VStack(alignment: .leading, spacing: 14) {
             metricCard(totals)
-            sessionTable(todaysRecords)
+            sessionTable(dayRecords)
             sparkline(series)
         }
         .padding(12)
@@ -28,7 +28,7 @@ struct UsageDetailPanel: View {
 
     private func metricCard(_ totals: UsageMath.DayTotals) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Today's total")
+            Text("\(DayLabel.title(for: day)) total")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -53,7 +53,7 @@ struct UsageDetailPanel: View {
 
     private func sessionTable(_ records: [UsageRecord]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Check-ins today")
+            Text("Check-ins · \(DayLabel.title(for: day).lowercased())")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if records.isEmpty {
@@ -61,7 +61,7 @@ struct UsageDetailPanel: View {
                     Image(systemName: "sparkles")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Text("No check-ins yet today — the first one runs on its own")
+                    Text(emptyCheckInCopy)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -75,6 +75,12 @@ struct UsageDetailPanel: View {
                 sessionRows(records)
             }
         }
+    }
+
+    private var emptyCheckInCopy: String {
+        Calendar.current.isDateInToday(day)
+            ? "No check-ins yet — the first one runs on its own"
+            : "No check-ins were recorded for this day"
     }
 
     private func sessionRows(_ records: [UsageRecord]) -> some View {

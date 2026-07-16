@@ -7,13 +7,15 @@ import SwiftUI
 struct MainFooterView: View {
     @Environment(AppStore.self) private var store
     @State private var isUsageExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var day: Date = Date()
 
     var body: some View {
         VStack(spacing: 0) {
             hairline
             if isUsageExpanded {
                 VStack(spacing: 0) {
-                    UsageDetailPanel()
+                    UsageDetailPanel(day: day)
                         .padding(.horizontal, 12)
                         .frame(maxWidth: ContentView.contentMaxWidth)
                         .frame(maxWidth: .infinity)
@@ -22,7 +24,7 @@ struct MainFooterView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             HStack(spacing: 12) {
-                UsageStripView(isExpanded: $isUsageExpanded)
+                UsageStripView(isExpanded: $isUsageExpanded, day: day)
                     // The strip keeps its single line; a long error message
                     // truncates instead.
                     .fixedSize(horizontal: true, vertical: false)
@@ -43,7 +45,7 @@ struct MainFooterView: View {
             .frame(maxWidth: .infinity)
         }
         .clipped()
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isUsageExpanded)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: isUsageExpanded)
         .animation(.default, value: store.lastCheckInError)
         .background(Color.manasBackground)
     }

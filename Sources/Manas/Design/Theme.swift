@@ -1,9 +1,8 @@
 import SwiftUI
 
-// Manas is light mode with a native macOS feel: warm off-white surfaces,
-// generous whitespace, and a single warm coral accent doing all the work.
-// Everything not defined here pulls from system colors so the app adapts if
-// dark mode is ever added. Icons are always SF Symbols. Text uses system text
+// Manas uses semantic macOS surfaces, generous whitespace, and a single warm
+// coral accent. System colors keep the hierarchy crisp in either appearance.
+// Icons are always SF Symbols. Text uses system text
 // styles (.subheadline, .caption, ...) — never fixed point sizes. Copy is
 // sentence case everywhere. No gradients, no heavy shadows: flat cards with
 // hairline borders.
@@ -15,13 +14,17 @@ extension Color {
     /// selected states, and verdict emphasis — and nothing else.
     static let manasAccent = Color(red: 216 / 255, green: 90 / 255, blue: 48 / 255)
 
-    /// Warm off-white window surface (#FAF8F5). The default background.
-    static let manasBackground = Color(red: 250 / 255, green: 248 / 255, blue: 245 / 255)
+    /// Native window surface. Avoids the previous cream-on-cream cast and
+    /// follows the user's macOS appearance automatically.
+    static let manasBackground = Color(nsColor: .windowBackgroundColor)
 
     /// Slightly darker warm surface (#F2EFE9) for visually quieter secondary
     /// sections (e.g. discovered activities). Sits on `manasBackground`
     /// without a border.
-    static let surface1 = Color(red: 242 / 255, green: 239 / 255, blue: 233 / 255)
+    static let surface1 = Color(nsColor: .controlBackgroundColor)
+
+    /// Stronger inset surface for the selected day's task list.
+    static let surfaceRaised = Color(nsColor: .textBackgroundColor)
 
     /// Hairline border color, straight from the system.
     static let hairline = Color(nsColor: .separatorColor)
@@ -37,7 +40,7 @@ struct ManasCardModifier: ViewModifier {
         content
             .padding(padding)
             .background(
-                Color(nsColor: .textBackgroundColor),
+                Color.surfaceRaised,
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
             .overlay(
@@ -72,8 +75,8 @@ struct GhostButtonStyle: ButtonStyle {
             configuration.label
                 .font(.subheadline)
                 .foregroundStyle(configuration.isPressed ? Color.manasAccent.opacity(0.7) : Color.manasAccent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
                 .background(
                     Color.manasAccent.opacity(configuration.isPressed ? 0.12 : (isHovered ? 0.08 : 0)),
                     in: RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -104,6 +107,7 @@ struct HoverIconButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
+                .frame(minWidth: 30, minHeight: 30)
                 .background(
                     Color.primary.opacity(
                         isEnabled && (isHovered || configuration.isPressed)

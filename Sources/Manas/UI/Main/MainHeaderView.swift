@@ -11,19 +11,23 @@ struct MainHeaderView: View {
     @Binding var selectedDate: Date
     @State private var showingSettings = false
 
-    private var isToday: Bool { Calendar.current.isDateInToday(selectedDate) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
                 dayButton(systemImage: "chevron.left", byAdding: -1)
                     .accessibilityLabel("Previous day")
-                Text(selectedDate, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.title3.weight(.semibold))
                 dayButton(systemImage: "chevron.right", byAdding: 1)
-                    .disabled(isToday)
                     .accessibilityLabel("Next day")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(DayLabel.title(for: selectedDate))
+                        .font(.title3.weight(.semibold))
+                    Text(selectedDate, format: .dateTime.weekday(.wide).month(.wide).day())
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.leading, 3)
                 Spacer(minLength: 0)
+                SourceHealthButton()
                 RefreshButton()
                 Button {
                     showingSettings = true
@@ -31,7 +35,7 @@ struct MainHeaderView: View {
                     Image(systemName: "gearshape")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 30, height: 30)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.hoverIcon)
@@ -43,6 +47,7 @@ struct MainHeaderView: View {
             Text(metadata)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .padding(.leading, 72)
                 .contentTransition(.opacity)
                 .animation(.default, value: metadata)
         }
@@ -57,7 +62,7 @@ struct MainHeaderView: View {
             Image(systemName: systemImage)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
+                .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverIcon)
@@ -73,9 +78,8 @@ struct MainHeaderView: View {
         } else {
             parts.append("Not checked yet")
         }
-        if store.syncedSourceCount > 0 {
-            let noun = store.syncedSourceCount == 1 ? "source" : "sources"
-            parts.append("\(store.syncedSourceCount) \(noun) synced")
+        if !store.sourceStatuses.isEmpty {
+            parts.append("\(store.syncedSourceCount) of \(store.sourceStatuses.count) sources")
         }
         return parts.joined(separator: " · ")
     }
@@ -86,6 +90,7 @@ struct MainHeaderView: View {
 private struct RefreshButton: View {
     @Environment(AppStore.self) private var store
     @State private var rotation = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -95,7 +100,7 @@ private struct RefreshButton: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .rotationEffect(.degrees(rotation))
-                .frame(width: 24, height: 24)
+                .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverIcon)
@@ -116,6 +121,7 @@ private struct RefreshButton: View {
 
     private func startSpinning() {
         rotation = 0
+        guard !reduceMotion else { return }
         withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
             rotation = 360
         }

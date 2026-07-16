@@ -6,11 +6,13 @@ import SwiftUI
 struct UsageStripView: View {
     @Environment(AppStore.self) private var store
     @Binding var isExpanded: Bool
+    var day: Date = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let dotCount = 5
 
     var body: some View {
-        let totals = UsageMath.totals(of: store.usageRecords, on: Date())
+        let totals = UsageMath.totals(of: store.usageRecords, on: day)
         let filled = UsageMath.filledDots(
             tokens: totals.tokens,
             budget: store.dailyTokenBudget,
@@ -19,7 +21,7 @@ struct UsageStripView: View {
         let nearBudget = UsageMath.isNearBudget(tokens: totals.tokens, budget: store.dailyTokenBudget)
 
         Button {
-            withAnimation(.easeInOut(duration: 0.22)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                 isExpanded.toggle()
             }
         } label: {
@@ -62,13 +64,13 @@ struct UsageStripView: View {
     private func summaryText(_ totals: UsageMath.DayTotals) -> String {
         let tokensWord = totals.tokens == 1 ? "token" : "tokens"
         let checksWord = totals.checks == 1 ? "check" : "checks"
-        return "\(UsageMath.formattedTokens(totals.tokens)) \(tokensWord) today"
+        return "\(UsageMath.formattedTokens(totals.tokens)) \(tokensWord)"
             + " · \(UsageMath.formattedCost(totals.costUSD))"
             + " · \(totals.checks) \(checksWord)"
     }
 
     private func accessibilityText(_ totals: UsageMath.DayTotals) -> String {
-        "\(summaryText(totals)). \(isExpanded ? "Collapses" : "Expands") usage details."
+        "\(summaryText(totals)) for \(DayLabel.title(for: day)). \(isExpanded ? "Collapses" : "Expands") usage details."
     }
 }
 

@@ -4,88 +4,97 @@ import XCTest
 
 @testable import Manas
 
-/// Layout behavior of the day-timeline sections, measured through real
-/// NSHostingView layout passes (the same offscreen technique as the settings
-/// popover tests).
 @MainActor
 final class TimelineLayoutTests: XCTestCase {
-    func testEarlierIsHiddenWithoutPastDays() {
-        let empty = fittingSize(of: EarlierSection(), store: .previewEmpty)
-        XCTAssertEqual(empty.height, 0, accuracy: 0.5, "No past days — Earlier should render nothing.")
+    func testPagerBuildsAContiguousWindowCenteredOnToday() {
+        let calendar = Calendar.current
+        let dates = DayPager.dates(around: Date(), radius: 4, calendar: calendar)
+
+        XCTAssertEqual(dates.count, 9)
+        XCTAssertTrue(calendar.isDateInToday(dates[4]))
+        for pair in zip(dates, dates.dropFirst()) {
+            XCTAssertEqual(calendar.dateComponents([.day], from: pair.0, to: pair.1).day, 1)
+        }
     }
 
-    func testEarlierCollapsesToASingleRowAndExpandsToCards() {
+    func testPagerMovementNormalizesTimeAndMovesExactlyOneDay() {
+        let calendar = Calendar.current
+        let lateToday = calendar.date(bySettingHour: 23, minute: 45, second: 0, of: Date())!
+        let previous = DayPager.moved(lateToday, by: -1, calendar: calendar)!
+        let next = DayPager.moved(lateToday, by: 1, calendar: calendar)!
+
+        XCTAssertEqual(previous, calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date())))
+        XCTAssertEqual(next, calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())))
+    }
+
+    func testDateScopedPagesRenderEmptyAndPopulatedStates() {
         let store = AppStore.previewTimeline
-        let collapsed = fittingSize(of: EarlierSection(), store: store)
-        let expanded = fittingSize(of: EarlierSection(initiallyExpanded: true), store: store)
+        let today = Calendar.current.startOfDay(for: Date())
+        let emptyFuture = Calendar.current.date(byAdding: .day, value: 10, to: today)!
+        let populated = fittingSize(of: DayPageView(day: today), store: store)
+        let empty = fittingSize(of: DayPageView(day: emptyFuture), store: store)
 
-        XCTAssertGreaterThan(collapsed.height, 0, "Past days exist — the disclosure row should show.")
-        XCTAssertLessThan(collapsed.height, 44, "Collapsed Earlier should be a single compact row.")
-        XCTAssertGreaterThan(
-            expanded.height, collapsed.height + 100,
-            "Expanded Earlier should reveal one card per past day."
-        )
+        XCTAssertGreaterThan(populated.height, 200)
+        XCTAssertGreaterThan(empty.height, 150)
+        XCTAssertNotEqual(populated.height, empty.height, "Each day must render its own store-backed content.")
     }
 
-    func testUpcomingShowsOneSectionPerFutureDayPlusThePlanButton() {
-        let planOnly = fittingSize(of: UpcomingSection(), store: .previewEmpty)
-        let withDays = fittingSize(of: UpcomingSection(), store: .previewTimeline)
+    func testSourceHealthPopoverIncludesPermissionRecoveryWithoutClipping() {
+        let store = AppStore.previewEmpty
+        store.sourceStatuses = [
+            ActivitySourceStatus(source: .claude, state: .ready, activityCount: 2),
+            ActivitySourceStatus(
+                source: .messages,
+                state: .permissionRequired,
+                activityCount: 0,
+                detail: "Allow Manas in Full Disk Access to read Messages."
+            ),
+        ]
+        let size = fittingSize(of: SourceHealthPopover(), store: store, width: 330)
 
-        XCTAssertGreaterThan(planOnly.height, 0, "The plan-a-day button shows even with nothing planned.")
-        XCTAssertGreaterThan(
-            withDays.height, planOnly.height + 100,
-            "Planned future days should each add a day section above the button."
-        )
+        XCTAssertEqual(size.width, 330, accuracy: 1)
+        XCTAssertGreaterThan(size.height, 220)
     }
 
-    /// Optional diagnostic: MANAS_TIMELINE_DUMP=<dir> writes PNGs of the
-    /// timeline states for visual inspection.
+    /// Optional diagnostic: MANAS_TIMELINE_DUMP=<dir> writes the redesigned
+    /// pager, adjacent days, and permission state for visual inspection.
     func testDumpTimelineSnapshots() throws {
         guard let outDir = ProcessInfo.processInfo.environment["MANAS_TIMELINE_DUMP"] else {
             throw XCTSkip("Set MANAS_TIMELINE_DUMP=<dir> to dump timeline snapshots.")
         }
         let store = AppStore.previewTimeline
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
         try dump(
-            ContentView().environment(store).frame(width: 520, height: 1560),
-            name: "timeline-full", to: outDir
+            ContentView().environment(store).frame(width: 520, height: 760),
+            name: "day-pager-today", to: outDir
         )
         try dump(
-            EarlierSection(initiallyExpanded: true)
+            DayPageView(day: calendar.date(byAdding: .day, value: -1, to: today)!)
                 .environment(store)
-                .padding(24)
-                .frame(width: 520)
-                .background(Color.manasBackground),
-            name: "earlier-expanded", to: outDir
+                .frame(width: 520, height: 560),
+            name: "day-pager-yesterday", to: outDir
         )
         try dump(
-            UpcomingSection()
+            DayPageView(day: calendar.date(byAdding: .day, value: 1, to: today)!)
                 .environment(store)
-                .padding(24)
-                .frame(width: 520)
-                .background(Color.manasBackground),
-            name: "upcoming", to: outDir
+                .frame(width: 520, height: 560),
+            name: "day-pager-tomorrow", to: outDir
+        )
+        store.sourceStatuses[3] = ActivitySourceStatus(
+            source: .screenTime,
+            state: .permissionRequired,
+            activityCount: 0,
+            detail: "Allow Manas in Full Disk Access to read Screen Time."
         )
         try dump(
-            PlanDayPicker { _ in }.background(Color.manasBackground),
-            name: "plan-day-picker", to: outDir
-        )
-        let planned = Calendar.current.date(
-            byAdding: .day, value: 3,
-            to: Calendar.current.startOfDay(for: Date())
-        )!
-        try dump(
-            UpcomingSection(initiallyPlanned: [planned])
-                .environment(store)
-                .padding(24)
-                .frame(width: 520)
-                .background(Color.manasBackground),
-            name: "upcoming-planned-empty", to: outDir
+            SourceHealthPopover().environment(store),
+            name: "source-health-permission", to: outDir
         )
     }
 
-    /// Optional diagnostic: MANAS_SEED_STATE=<path> writes the timeline
-    /// preview data as a state file, for launching the app against scratch
-    /// data (pair with MANAS_STATE_FILE and MANAS_DISABLE_AUTO_CHECKS).
+    /// Optional diagnostic: MANAS_SEED_STATE=<path> writes preview state for
+    /// a real-window launch paired with MANAS_STATE_FILE and disabled checks.
     func testSeedScratchState() throws {
         guard let path = ProcessInfo.processInfo.environment["MANAS_SEED_STATE"] else {
             throw XCTSkip("Set MANAS_SEED_STATE=<path> to write a seeded state file.")
@@ -101,8 +110,12 @@ final class TimelineLayoutTests: XCTestCase {
         print("SEEDED_STATE: \(path)")
     }
 
-    private func fittingSize(of view: some View, store: AppStore) -> CGSize {
-        let host = NSHostingView(rootView: AnyView(view.environment(store).frame(width: 472)))
+    private func fittingSize(
+        of view: some View,
+        store: AppStore,
+        width: CGFloat = 472
+    ) -> CGSize {
+        let host = NSHostingView(rootView: AnyView(view.environment(store).frame(width: width)))
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         host.layoutSubtreeIfNeeded()
         return host.fittingSize

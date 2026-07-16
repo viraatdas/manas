@@ -1,94 +1,144 @@
 import SwiftUI
 
-/// The rounded add field pinned above the todo list. Submits on return and
-/// keeps focus so several todos can be entered in a row; the border warms to
-/// the accent while focused.
+/// Date-scoped add field. The visible pager day and this field always share
+/// the same normalized date, so adding while looking at Friday cannot land on
+/// today by accident.
 struct AddTodoField: View {
     @Environment(AppStore.self) private var store
+    var day: Date
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
+    init(day: Date = Date()) {
+        self.day = Calendar.current.startOfDay(for: day)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Image(systemName: "plus")
-                .font(.subheadline)
-                .foregroundStyle(.tertiary)
-            TextField("Add a todo", text: $draft)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isFocused ? Color.manasAccent : .secondary)
+            TextField(placeholder, text: $draft)
                 .textFieldStyle(.plain)
                 .font(.body)
                 .focused($isFocused)
                 .onSubmit(submit)
+                .accessibilityLabel(placeholder)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            Color(nsColor: .textBackgroundColor),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .strokeBorder(
-                    isFocused ? Color.manasAccent.opacity(0.45) : Color.hairline,
+                    isFocused ? Color.manasAccent.opacity(0.7) : Color.hairline,
                     lineWidth: isFocused ? 1 : 0.5
                 )
         )
         .animation(.easeOut(duration: 0.15), value: isFocused)
     }
 
+    private var placeholder: String {
+        switch Calendar.current.dateComponents(
+            [.day],
+            from: Calendar.current.startOfDay(for: Date()),
+            to: day
+        ).day {
+        case 0: "Add to today"
+        case -1: "Add to yesterday"
+        case 1: "Add to tomorrow"
+        default: "Add to \(day.formatted(.dateTime.weekday(.wide)))"
+        }
+    }
+
     private func submit() {
-        guard store.addTodo(draft) != nil else { return }
+        guard store.addTodo(draft, on: day) != nil else { return }
         draft = ""
         isFocused = true
     }
 }
 
-/// Today's judged todo list — the primary content of Screen 1. One flat
-/// card of rows; a gentle empty state when there is nothing on the list.
-/// Past and future days render in their own timeline sections.
 struct TodoListSection: View {
     @Environment(AppStore.self) private var store
+    var day: Date
+
+    init(day: Date = Date()) {
+        self.day = Calendar.current.startOfDay(for: day)
+    }
+
+    private var mode: TodoRow.Mode {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return .today }
+        return day < calendar.startOfDay(for: Date()) ? .history : .planned
+    }
 
     var body: some View {
-        let todos = store.todosToday
+        let todos = store.todos(on: day)
         if todos.isEmpty {
-            emptyState
+            DayEmptyState(day: day)
         } else {
             VStack(spacing: 0) {
                 ForEach(todos) { todo in
-                    TodoRow(todo: todo)
+                    TodoRow(todo: todo, mode: mode)
                     if todo.id != todos.last?.id {
-                        Divider().padding(.leading, 42)
+                        Divider().padding(.leading, 46)
                     }
                 }
             }
             .manasCard(padding: 0)
         }
     }
+}
 
-    private var emptyState: some View {
+private struct DayEmptyState: View {
+    var day: Date
+
+    private var copy: (icon: String, title: String, detail: String) {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) {
+            return (
+                "checklist",
+                "Your day is open",
+                "Add a todo above. Manas will compare it with what you actually do."
+            )
+        }
+        if day < calendar.startOfDay(for: Date()) {
+            return ("calendar.badge.checkmark", "Nothing was planned", "This day has no saved todos.")
+        }
+        return ("calendar.badge.plus", "Nothing planned yet", "Add a todo above to give this day a head start.")
+    }
+
+    var body: some View {
+        let copy = copy
         VStack(spacing: 8) {
-            Image(systemName: "checklist")
+            Image(systemName: copy.icon)
                 .font(.title2)
-                .foregroundStyle(.tertiary)
-            Text("Nothing planned yet")
+                .foregroundStyle(.secondary)
+            Text(copy.title)
+                .font(.headline)
+            Text(copy.detail)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("Add a todo above — Manas checks in on your day by itself.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
+        .padding(.vertical, 54)
     }
 }
 
-/// One todo: checkbox and text, plus — while an unsettled verdict exists — an
-/// indented sub-row with the verdict chip, one-line evidence, and
-/// accept/dismiss ghost buttons. Checked-off items collapse to strikethrough
-/// secondary text with no chip. Rows pick up a soft highlight on hover.
+/// One visual vocabulary for today, settled history, and future planning.
+/// Only the behavior varies by mode; row alignment and controls stay stable.
 struct TodoRow: View {
+    enum Mode {
+        case today
+        case history
+        case planned
+    }
+
     @Environment(AppStore.self) private var store
     var todo: Todo
+    var mode: Mode = .today
     @State private var isHovered = false
 
     var body: some View {
@@ -98,38 +148,56 @@ struct TodoRow: View {
                 Text(todo.text)
                     .font(.body)
                     .strikethrough(todo.isDone)
-                    .foregroundStyle(todo.isDone ? .secondary : .primary)
-                if !todo.isDone, let verdict = todo.verdict, verdict.accepted != false {
+                    .foregroundStyle(todo.isDone || mode == .history ? .secondary : .primary)
+                    .textSelection(.enabled)
+                if !todo.isDone, mode != .planned,
+                   let verdict = todo.verdict, verdict.accepted != false {
                     verdictSubRow(verdict)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if mode == .history, !todo.isDone {
+                Button("Move to today") {
+                    store.moveToToday(todo.id)
+                }
+                .buttonStyle(.ghost)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.primary.opacity(isHovered ? 0.025 : 0))
+        .background(Color.primary.opacity(isHovered ? 0.035 : 0))
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 
+    @ViewBuilder
     private var checkbox: some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        if mode == .history {
+            checkboxImage
+                .accessibilityLabel(todo.isDone ? "Done" : "Not done")
+        } else {
+            Button {
                 store.toggleDone(todo.id)
+            } label: {
+                checkboxImage
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
-        } label: {
-            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
-                .font(.body)
-                .foregroundStyle(todo.isDone ? Color.manasAccent : Color(nsColor: .tertiaryLabelColor))
-                .contentTransition(.symbolEffect(.replace))
+            .buttonStyle(.plain)
+            .accessibilityLabel(todo.isDone ? "Mark as not done" : "Mark as done")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(todo.isDone ? "Mark as not done" : "Mark as done")
+    }
+
+    private var checkboxImage: some View {
+        Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
+            .font(.body)
+            .foregroundStyle(todo.isDone ? Color.manasAccent : Color(nsColor: .tertiaryLabelColor))
+            .contentTransition(.symbolEffect(.replace))
     }
 
     private func verdictSubRow(_ verdict: Verdict) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Chip(
                     text: verdict.status.label,
                     systemImage: verdict.status.systemImage,
@@ -140,7 +208,7 @@ struct TodoRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            if verdict.accepted == nil {
+            if mode == .today, verdict.accepted == nil {
                 HStack(spacing: 2) {
                     Button("Accept") {
                         store.setVerdictAccepted(todo.id, accepted: true)
@@ -149,36 +217,23 @@ struct TodoRow: View {
                     Button("Dismiss", action: dismissVerdict)
                         .buttonStyle(.ghost)
                 }
-                .padding(.leading, -8)
+                .padding(.leading, -9)
             }
         }
     }
 
-    /// Dismissing throws the verdict away entirely, so the row goes back to a
-    /// plain todo the judge can weigh in on next check.
     private func dismissVerdict() {
         guard let index = store.todos.firstIndex(where: { $0.id == todo.id }) else { return }
         store.todos[index].verdict = nil
     }
 }
 
-#Preview("Todo list, judged") {
+#Preview("Date-scoped todo list") {
     VStack(spacing: 16) {
         AddTodoField()
         TodoListSection()
     }
     .environment(AppStore.previewJudged)
-    .padding(24)
-    .frame(width: 520)
-    .background(Color.manasBackground)
-}
-
-#Preview("Todo list, empty") {
-    VStack(spacing: 16) {
-        AddTodoField()
-        TodoListSection()
-    }
-    .environment(AppStore.previewEmpty)
     .padding(24)
     .frame(width: 520)
     .background(Color.manasBackground)

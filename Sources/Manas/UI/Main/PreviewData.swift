@@ -15,7 +15,14 @@ extension AppStore {
         store.todos = sampleJudgedTodos()
         store.usageRecords = sampleUsageRecords()
         store.lastCheckedAt = todayAt(14, 14)
-        store.syncedSourceCount = 2
+        store.syncedSourceCount = 5
+        store.sourceStatuses = [
+            ActivitySourceStatus(source: .claude, state: .ready, activityCount: 2),
+            ActivitySourceStatus(source: .codex, state: .ready, activityCount: 1),
+            ActivitySourceStatus(source: .arc, state: .ready, activityCount: 12),
+            ActivitySourceStatus(source: .screenTime, state: .ready, activityCount: 8),
+            ActivitySourceStatus(source: .messages, state: .ready, activityCount: 3),
+        ]
         return store
     }
 
@@ -119,9 +126,9 @@ private func sampleDiscoveredActivities() -> [DiscoveredActivity] {
             source: .claude
         ),
         DiscoveredActivity(
-            title: "Q3 roadmap sync",
-            evidence: "Granola: 30 min with the product team at 1:00 pm",
-            source: .granola
+            title: "Confirmed the offsite dinner",
+            evidence: "A Messages conversation confirmed the reservation at 1:00 pm",
+            source: .messages
         ),
     ]
 }

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Builds Manas.app from the SPM package: release binary, icon, Info.plist,
-# ad-hoc signature. Output lands at dist/Manas.app (repo-relative).
+# and signature. Output lands at dist/Manas.app (repo-relative).
 #
 #   scripts/make-app.sh
 #
 # Install/update the real app afterwards with:
-#   rm -rf /Applications/Manas.app && cp -R dist/Manas.app /Applications/
+#   ditto dist/Manas.app /Applications/Manas.app
 #
-# Ad-hoc signing (codesign -s -) is enough for a locally built app to run on
-# this machine; notarization is deliberately out of scope (no public release).
+# A Developer ID identity is preferred when one is available so Full Disk
+# Access remains attached to a stable code requirement across local rebuilds.
+# Set MANAS_CODESIGN_IDENTITY to override it; otherwise the script falls back
+# to ad-hoc signing. Notarization is deliberately out of scope here.
 
 set -euo pipefail
 
@@ -69,8 +71,20 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Signing (ad-hoc)"
-codesign --force --deep -s - "$APP"
+SIGN_IDENTITY="${MANAS_CODESIGN_IDENTITY:-}"
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F\" '/Developer ID Application/ { print $2; exit }')"
+fi
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  echo "==> Signing (ad-hoc fallback)"
+  codesign --force --deep -s - "$APP"
+else
+  echo "==> Signing ($SIGN_IDENTITY)"
+  codesign --force --deep --timestamp=none -s "$SIGN_IDENTITY" "$APP"
+fi
 codesign --verify --strict "$APP"
 
 echo "==> Done: $APP"

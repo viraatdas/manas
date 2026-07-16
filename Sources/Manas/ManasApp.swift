@@ -25,8 +25,7 @@ struct ManasApp: App {
         Window("Manas", id: "main") {
             ContentView()
                 .environment(store)
-                .frame(minWidth: 420, minHeight: 600)
-                .preferredColorScheme(.light)
+                .frame(minWidth: 460, minHeight: 620)
                 // Checks run by themselves: once now, then on a timer.
                 .task { store.startAutoCheckIns() }
                 // Debounced saves can trail the last mutation by up to 500ms;
@@ -35,6 +34,6 @@ struct ManasApp: App {
                     store.saveNow()
                 }
         }
-        .defaultSize(width: 520, height: 760)
+        .defaultSize(width: 560, height: 780)
     }
 }

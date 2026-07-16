@@ -26,12 +26,12 @@ Swift Charts, and SF Symbols.
 - **Discovered activities** — "You might have also done this": feature-level
   work found in your sessions that wasn't on the list. Add it (arrives
   checked off) or dismiss it (it stays dismissed on future checks).
-- **A day timeline** — the main screen scrolls through your days. Past days
-  collapse into a single "Earlier · 3 days" row above today; expand it for
-  read-only history cards where unfinished todos offer "Move to today".
-  Below today, each planned future day is a muted section with its own add
-  field (future todos are never judged), and "+ Plan a day…" opens a
-  calendar of future dates to start a new day's list.
+- **A snapping day timeline** — scroll vertically to settle on the previous
+  or next calendar day, or use the chevrons for an exact one-day jump. A
+  floating **Today** button (also ⌘T) returns immediately, with a quiet tick
+  when a wheel/trackpad gesture crosses into another day. Past days are
+  read-only history with "Move to today" for unfinished work; future days
+  are planning lists and are never sent to the judge.
 - **Usage strip** — a compact footer line with a 5-dot soft-budget gauge and
   today's tokens · cost · checks. Click it for a slide-down panel with
   today's total, a per-check-in table (including which model ran), and a
