@@ -25,6 +25,53 @@ final class ModelCodingTests: XCTestCase {
         XCTAssertEqual(try roundTrip(todo), todo)
     }
 
+    func testTodoDayNormalizesToStartOfDay() {
+        let midDay = date
+        XCTAssertEqual(
+            Todo(text: "A", createdAt: midDay).day,
+            Calendar.current.startOfDay(for: midDay),
+            "day defaults to the created-at calendar day"
+        )
+        let futureAfternoon = midDay.addingTimeInterval(86_400 * 3 + 5_000)
+        XCTAssertEqual(
+            Todo(text: "B", createdAt: midDay, day: futureAfternoon).day,
+            Calendar.current.startOfDay(for: futureAfternoon),
+            "an explicit day is normalized to its start of day"
+        )
+    }
+
+    /// Todos persisted before day scoping have no `day` key — they must
+    /// decode with day backfilled from their created-at calendar day.
+    func testTodoWithoutDayKeyBackfillsFromCreatedAt() throws {
+        let legacyJSON = #"""
+        {
+          "id": "6F1E9C6A-2C3B-4E5D-8F9A-0B1C2D3E4F5A",
+          "text": "Ship the sparkline",
+          "createdAt": "2025-07-08T18:40:00Z",
+          "isDone": false
+        }
+        """#
+        let todo = try AppStore.makeDecoder().decode(Todo.self, from: Data(legacyJSON.utf8))
+        XCTAssertEqual(todo.day, Calendar.current.startOfDay(for: todo.createdAt))
+    }
+
+    /// A `day` written mid-day — by a hand-edit, or by a machine in another
+    /// timezone — still decodes to start-of-day, so grouping by `day` holds.
+    func testTodoDecodesUnnormalizedDayToStartOfDay() throws {
+        let json = #"""
+        {
+          "id": "6F1E9C6A-2C3B-4E5D-8F9A-0B1C2D3E4F5A",
+          "text": "Ship the sparkline",
+          "createdAt": "2025-07-08T18:40:00Z",
+          "day": "2025-07-09T13:37:00Z",
+          "isDone": false
+        }
+        """#
+        let todo = try AppStore.makeDecoder().decode(Todo.self, from: Data(json.utf8))
+        XCTAssertEqual(todo.day, Calendar.current.startOfDay(for: todo.day))
+        XCTAssertNotEqual(todo.day, todo.createdAt)
+    }
+
     func testDiscoveredActivityRoundTrip() throws {
         let activity = DiscoveredActivity(
             title: "Reviewed PR #42",

@@ -95,6 +95,151 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.todos.map(\.text), ["Water the plants"])
     }
 
+    /// state.json written before todos were day-scoped has no `day` key on
+    /// any todo — it must load without data loss, each todo backfilled to
+    /// its created-at calendar day.
+    func testLegacyStateWithoutDayKeysBackfillsFromCreatedAt() throws {
+        let url = tempStateURL()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let legacyJSON = #"""
+        {
+          "todos": [
+            {"id": "6F1E9C6A-2C3B-4E5D-8F9A-0B1C2D3E4F5A", "text": "Ship the sparkline", "createdAt": "2025-07-08T18:40:00Z", "isDone": false,
+             "verdict": {"status": "inProgress", "evidence": "Session touched Charts", "judgedAt": "2025-07-08T19:00:00Z"}},
+            {"id": "0A1B2C3D-4E5F-6789-ABCD-EF0123456789", "text": "Water the plants", "createdAt": "2025-07-07T09:05:00Z", "isDone": true}
+          ],
+          "discoveredActivities": [],
+          "usageRecords": [],
+          "dailyTokenBudget": 25000,
+          "syncedSourceCount": 2
+        }
+        """#
+        try Data(legacyJSON.utf8).write(to: url)
+
+        let store = AppStore(fileURL: url)
+        XCTAssertEqual(store.todos.map(\.text), ["Ship the sparkline", "Water the plants"], "no todo is lost")
+        for todo in store.todos {
+            XCTAssertEqual(todo.day, Calendar.current.startOfDay(for: todo.createdAt))
+        }
+        XCTAssertEqual(store.todos[0].verdict?.status, .inProgress, "verdicts survive the migration")
+        XCTAssertTrue(store.todos[1].isDone)
+    }
+
+    func testAddTodoOnFutureDayAndDayGroups() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let lastWeek = calendar.date(byAdding: .day, value: -6, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextWeek = calendar.date(byAdding: .day, value: 6, to: today)!
+
+        store.addTodo("Old chore", on: lastWeek)
+        store.addTodo("Yesterday's task", on: yesterday)
+        store.addTodo("Today first", on: Date())
+        store.addTodo("Today second")
+        store.addTodo("Plan far ahead", on: nextWeek)
+        store.addTodo("Plan tomorrow", on: tomorrow)
+
+        XCTAssertEqual(store.todos(on: yesterday).map(\.text), ["Yesterday's task"])
+        XCTAssertEqual(
+            store.todosToday.map(\.text), ["Today second", "Today first"],
+            "new todos go on top of their own day's group"
+        )
+        XCTAssertEqual(store.todos(on: tomorrow).map(\.text), ["Plan tomorrow"])
+
+        XCTAssertEqual(store.pastDays.map(\.day), [yesterday, lastWeek], "past days come newest first")
+        XCTAssertEqual(store.pastDays.map { $0.todos.map(\.text) }, [["Yesterday's task"], ["Old chore"]])
+        XCTAssertEqual(store.upcomingDays.map(\.day), [tomorrow, nextWeek], "upcoming days come soonest first")
+        XCTAssertEqual(store.upcomingDays.map { $0.todos.map(\.text) }, [["Plan tomorrow"], ["Plan far ahead"]])
+        XCTAssertFalse(
+            store.pastDays.contains { calendar.isDate($0.day, inSameDayAs: today) }
+                || store.upcomingDays.contains { calendar.isDate($0.day, inSameDayAs: today) },
+            "today belongs to neither group"
+        )
+    }
+
+    func testMoveToTodayRedatesUnfinishedPastTodoAndClearsVerdict() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+
+        store.addTodo("Already here")
+        store.addTodo("Carry me over", on: yesterday)
+        let id = store.todos(on: yesterday)[0].id
+        store.todos[store.todos.firstIndex { $0.id == id }!].verdict =
+            Verdict(status: .notStarted, evidence: "Yesterday showed no related work", judgedAt: date)
+
+        store.moveToToday(id)
+
+        XCTAssertEqual(
+            store.todosToday.map(\.text), ["Carry me over", "Already here"],
+            "the carried-over todo lands on top of today"
+        )
+        XCTAssertTrue(store.pastDays.isEmpty)
+        let moved = store.todosToday[0]
+        XCTAssertEqual(moved.id, id)
+        XCTAssertEqual(moved.day, today)
+        XCTAssertNil(moved.verdict, "the stale verdict is cleared for a fresh judgment")
+    }
+
+    func testMoveToTodayIgnoresFinishedTodayAndFutureTodos() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        store.addTodo("Finished yesterday", on: yesterday)
+        store.toggleDone(store.todos(on: yesterday)[0].id)
+        store.addTodo("Today already", on: Date())
+        store.addTodo("Planned ahead", on: tomorrow)
+
+        for todo in store.todos {
+            store.moveToToday(todo.id)
+        }
+
+        XCTAssertEqual(store.todos(on: yesterday).map(\.text), ["Finished yesterday"], "done past todos stay put")
+        XCTAssertEqual(store.todosToday.map(\.text), ["Today already"])
+        XCTAssertEqual(store.todos(on: tomorrow).map(\.text), ["Planned ahead"], "future todos never move")
+    }
+
+    func testApplyJudgeResultNeverTouchesPastOrFutureTodos() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        store.addTodo("Frozen history", on: yesterday)
+        let frozenVerdict = Verdict(status: .done, evidence: "Settled yesterday", judgedAt: date, accepted: true)
+        store.todos[0].verdict = frozenVerdict
+        store.addTodo("Today's work")
+        store.addTodo("Future plan", on: tomorrow)
+
+        let pastID = store.todos(on: yesterday)[0].id
+        let todayID = store.todosToday[0].id
+        let futureID = store.todos(on: tomorrow)[0].id
+
+        // A confused judge echoes verdicts for every id it has ever seen.
+        store.applyJudgeResult(JudgeResult(
+            verdicts: [
+                pastID: Verdict(status: .notStarted, evidence: "Stale re-judgment", judgedAt: date),
+                todayID: Verdict(status: .inProgress, evidence: "Session touched it", judgedAt: date),
+                futureID: Verdict(status: .done, evidence: "Impossible foresight", judgedAt: date),
+            ],
+            usage: UsageRecord(timestamp: date, model: "sonnet", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+        ))
+
+        XCTAssertEqual(
+            store.todos(on: yesterday)[0].verdict, frozenVerdict,
+            "a past day's verdict is frozen — even a direct id match cannot change it"
+        )
+        XCTAssertEqual(store.todosToday[0].verdict?.status, .inProgress)
+        XCTAssertNil(store.todos(on: tomorrow)[0].verdict, "future todos are immune to verdicts")
+    }
+
     func testTodoHelpers() {
         let store = AppStore(fileURL: tempStateURL())
         XCTAssertNil(store.addTodo("   "), "blank todos are rejected")

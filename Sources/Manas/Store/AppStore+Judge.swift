@@ -87,15 +87,18 @@ extension AppStore {
         // ingestion, not judgment.
         syncedSourceCount = aggregated.syncedSourceCount
         try Task.checkCancellation()
-        // A completely empty day (no todos, nothing observed) isn't worth a
-        // CLI call — and auto-checks would otherwise pile up zero-token
-        // records. Mark the check and stop.
-        guard !todos.isEmpty || !aggregated.activities.isEmpty else {
+        // Only today is judged: past days are frozen and future days are
+        // plans, so neither belongs in the prompt.
+        let todosToday = self.todosToday
+        // A completely empty day (no todos today, nothing observed) isn't
+        // worth a CLI call — and auto-checks would otherwise pile up
+        // zero-token records. Mark the check and stop.
+        guard !todosToday.isEmpty || !aggregated.activities.isEmpty else {
             lastCheckedAt = Date()
             return
         }
         let result = try await judge.judge(
-            todos: todos,
+            todos: todosToday,
             activities: aggregated.activities,
             model: selectedModel.rawValue
         )
