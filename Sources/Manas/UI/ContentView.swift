@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Screen 1: the day's control panel. Header with date navigation, refresh,
-/// and sync metadata; the add field pinned above the judged todo list;
-/// discovered activities below; and the usage footer. Checks run
+/// Screen 1: the day's control panel, laid out as a scrolling timeline.
+/// Header with date navigation, refresh, and sync metadata; the add field
+/// pinned above the scroll. Inside the scroll, top to bottom: collapsed
+/// Earlier history, today's judged todo list and discovered activities,
+/// muted Upcoming day sections, and the plan-a-day button. Checks run
 /// automatically — there is no run button.
 struct ContentView: View {
     @Environment(AppStore.self) private var store
@@ -25,8 +27,10 @@ struct ContentView: View {
             .frame(maxWidth: Self.contentMaxWidth)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    EarlierSection()
                     TodoListSection()
                     DiscoveredSection()
+                    UpcomingSection()
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
@@ -59,8 +63,14 @@ struct ContentView: View {
         .frame(width: 520, height: 760)
 }
 
+#Preview("Timeline") {
+    ContentView()
+        .environment(AppStore.previewTimeline)
+        .frame(width: 520, height: 760)
+}
+
 #Preview("Wide") {
     ContentView()
-        .environment(AppStore.previewWithDiscovered)
+        .environment(AppStore.previewTimeline)
         .frame(width: 900, height: 760)
 }

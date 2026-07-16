@@ -63,6 +63,11 @@ final class AppStore {
     }
 
     static var defaultStateURL: URL {
+        // Dev/verification seam: point a launched app at a scratch state
+        // file so screenshot runs never read or write the real one.
+        if let override = ProcessInfo.processInfo.environment["MANAS_STATE_FILE"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("Manas/state.json")

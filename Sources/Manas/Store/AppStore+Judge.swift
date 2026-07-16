@@ -19,6 +19,10 @@ extension AppStore {
         aggregator: ActivityAggregator = .standard,
         judge: (any TodoJudge)? = nil
     ) {
+        // Dev/verification seam: screenshot runs set
+        // MANAS_DISABLE_AUTO_CHECKS=1 so launching the app doesn't spend a
+        // real CLI check-in on scratch data.
+        guard ProcessInfo.processInfo.environment["MANAS_DISABLE_AUTO_CHECKS"] == nil else { return }
         guard autoCheckTask == nil else { return }
         autoCheckTask = Task { [weak self] in
             while !Task.isCancelled {
