@@ -116,7 +116,7 @@ struct TodoListSection: View {
     private var displayGroups: [TodoGroup] {
         var groups = store.todoGroups(on: day)
         guard mode == .today else { return groups }
-        for bucket in AppStore.suggestedTodoGroups {
+        for bucket in store.standingGroups {
             let key = TodoGroupName.key(for: bucket)
             let exists = groups.contains { $0.group.map { TodoGroupName.key(for: $0) } == key }
             if !exists {
@@ -136,6 +136,12 @@ private struct TodoGroupBlock: View {
 
     private var doneCount: Int { group.todos.filter(\.isDone).count }
 
+    /// Built-in Work and Personal always stand; only custom groups delete.
+    private func isDeletable(_ label: String) -> Bool {
+        let key = TodoGroupName.key(for: label)
+        return !AppStore.suggestedTodoGroups.contains { TodoGroupName.key(for: $0) == key }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if showsHeader, let label = group.group {
@@ -152,6 +158,13 @@ private struct TodoGroupBlock: View {
                 }
                 .padding(.horizontal, 4)
                 .accessibilityElement(children: .combine)
+                .contextMenu {
+                    if isDeletable(label) {
+                        Button("Delete group", role: .destructive) {
+                            store.deleteGroup(label)
+                        }
+                    }
+                }
             }
 
             content
@@ -317,10 +330,8 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
-            if mode != .history {
-                groupMenu
-                    .opacity(isHovered ? 1 : 0.35)
-            }
+            actionsMenu
+                .opacity(isHovered ? 1 : 0.35)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -329,29 +340,37 @@ struct TodoRow: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 
-    /// Move this todo into a group (or clear it). New groups are named from the
-    /// add field's picker; this menu reassigns among the groups already in use.
-    private var groupMenu: some View {
+    /// Per-todo actions: move it between groups (dragging is the fast path) and
+    /// delete it. New groups are named from the add field's picker.
+    private var actionsMenu: some View {
         Menu {
-            Button {
-                store.setTodoGroup(todo.id, group: nil)
-            } label: {
-                if todo.group == nil { Label("No group", systemImage: "checkmark") }
-                else { Text("No group") }
-            }
-            if !store.availableTodoGroups.isEmpty {
-                Divider()
-                ForEach(store.availableTodoGroups, id: \.self) { group in
+            if mode != .history {
+                Menu("Move to group") {
                     Button {
-                        store.setTodoGroup(todo.id, group: group)
+                        store.setTodoGroup(todo.id, group: nil)
                     } label: {
-                        if todo.group == group { Label(group, systemImage: "checkmark") }
-                        else { Text(group) }
+                        if todo.group == nil { Label("No group", systemImage: "checkmark") }
+                        else { Text("No group") }
+                    }
+                    if !store.availableTodoGroups.isEmpty {
+                        Divider()
+                        ForEach(store.availableTodoGroups, id: \.self) { group in
+                            Button {
+                                store.setTodoGroup(todo.id, group: group)
+                            } label: {
+                                if todo.group == group { Label(group, systemImage: "checkmark") }
+                                else { Text(group) }
+                            }
+                        }
                     }
                 }
+                Divider()
+            }
+            Button("Delete", role: .destructive) {
+                store.removeTodo(todo.id)
             }
         } label: {
-            Image(systemName: "folder")
+            Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 24, height: 24)
@@ -360,8 +379,8 @@ struct TodoRow: View {
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Move to group")
-        .accessibilityLabel("Move \(todo.text) to a group")
+        .help("Todo actions")
+        .accessibilityLabel("Actions for \(todo.text)")
     }
 
     @ViewBuilder

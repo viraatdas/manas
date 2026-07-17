@@ -19,6 +19,9 @@ final class AppStore {
     /// User-chosen emoji per group, keyed by the group's case-folded key.
     /// Built-in groups fall back to a default when absent (see `emoji(forGroup:)`).
     var groupEmojis: [String: String] = [:] { didSet { scheduleSave() } }
+    /// Groups the user created, in creation order. Kept even while empty so a
+    /// new group shows up as a standing bucket the moment it's made.
+    var customGroups: [String] = [] { didSet { scheduleSave() } }
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
     var syncedSourceCount: Int = 0 { didSet { scheduleSave() } }
 
@@ -78,6 +81,7 @@ final class AppStore {
             usageRecords = state.usageRecords
             dailyTokenBudget = state.dailyTokenBudget
             groupEmojis = state.groupEmojis ?? [:]
+            customGroups = state.customGroups ?? []
             lastCheckedAt = state.lastCheckedAt
             syncedSourceCount = state.syncedSourceCount
         }
@@ -114,15 +118,49 @@ final class AppStore {
 
     static let suggestedTodoGroups = TodoGroupName.suggestions
 
-    /// Groups offered in the picker: the built-in Work and Personal first, then
-    /// any custom groups already in use, alphabetically. A custom group stays
-    /// available as long as at least one todo uses it.
+    /// The groups that always show as standing buckets on today: the built-in
+    /// Work and Personal, plus every group the user created (even empty ones).
+    var standingGroups: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for label in Self.suggestedTodoGroups + customGroups
+        where seen.insert(TodoGroupName.key(for: label)).inserted {
+            result.append(label)
+        }
+        return result
+    }
+
+    /// Groups offered in the picker: the standing groups first (Work, Personal,
+    /// then created groups), then any other group already used by a todo.
     var availableTodoGroups: [String] {
-        var seen = Set(Self.suggestedTodoGroups.map { TodoGroupName.key(for: $0) })
-        let custom = groupNamesInUse
-            .filter { seen.insert(TodoGroupName.key(for: $0)).inserted }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        return Self.suggestedTodoGroups + custom
+        var seen = Set(standingGroups.map { TodoGroupName.key(for: $0) })
+        let extra = groupNamesInUse.filter { seen.insert(TodoGroupName.key(for: $0)).inserted }
+        return standingGroups + extra
+    }
+
+    /// Registers a user-created group so it appears as a bucket right away,
+    /// before any todo is dropped into it. Returns the canonical label.
+    @discardableResult
+    func createGroup(_ rawValue: String, emoji: String? = nil) -> String? {
+        guard let group = canonicalTodoGroup(rawValue) else { return nil }
+        let key = TodoGroupName.key(for: group)
+        if !standingGroups.contains(where: { TodoGroupName.key(for: $0) == key }) {
+            customGroups.append(group)
+        }
+        if emoji != nil { setGroupEmoji(group, emoji: emoji) }
+        return group
+    }
+
+    /// Deletes a group: clears it from every todo, drops its emoji, and removes
+    /// it from the created list. Built-in Work and Personal always remain
+    /// available even after their todos are cleared.
+    func deleteGroup(_ group: String) {
+        let key = TodoGroupName.key(for: group)
+        for index in todos.indices where todos[index].group.map({ TodoGroupName.key(for: $0) }) == key {
+            todos[index].group = nil
+        }
+        customGroups.removeAll { TodoGroupName.key(for: $0) == key }
+        groupEmojis[key] = nil
     }
 
     /// The emoji badge for a group: the user's choice, else a built-in default,
@@ -150,7 +188,7 @@ final class AppStore {
     func canonicalTodoGroup(_ rawValue: String?) -> String? {
         guard let normalized = TodoGroupName.normalized(rawValue) else { return nil }
         let key = TodoGroupName.key(for: normalized)
-        return groupNamesInUse.first { TodoGroupName.key(for: $0) == key } ?? normalized
+        return availableTodoGroups.first { TodoGroupName.key(for: $0) == key } ?? normalized
     }
 
     @discardableResult
@@ -384,9 +422,10 @@ final class AppStore {
         var discoveredActivities: [DiscoveredActivity]
         var usageRecords: [UsageRecord]
         var dailyTokenBudget: Int
-        // Optional so state.json files written before per-group emojis decode
+        // Optional so state.json files written before these fields decode
         // cleanly instead of tripping the "start fresh" fallback.
         var groupEmojis: [String: String]?
+        var customGroups: [String]?
         var lastCheckedAt: Date?
         var syncedSourceCount: Int
     }
@@ -398,6 +437,7 @@ final class AppStore {
             usageRecords: usageRecords,
             dailyTokenBudget: dailyTokenBudget,
             groupEmojis: groupEmojis,
+            customGroups: customGroups,
             lastCheckedAt: lastCheckedAt,
             syncedSourceCount: syncedSourceCount
         )

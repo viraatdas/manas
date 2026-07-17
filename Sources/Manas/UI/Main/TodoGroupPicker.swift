@@ -180,8 +180,9 @@ private struct TodoGroupPickerPopover: View {
     }
 
     private func addGroup() {
-        guard let group = store.canonicalTodoGroup(newGroup) else { return }
-        store.setGroupEmoji(group, emoji: newGroupEmoji.isEmpty ? nil : newGroupEmoji)
+        guard let group = store.createGroup(
+            newGroup, emoji: newGroupEmoji.isEmpty ? nil : newGroupEmoji
+        ) else { return }
         selection = group
         newGroup = ""
         newGroupEmoji = ""

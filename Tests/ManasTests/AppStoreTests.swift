@@ -276,6 +276,42 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(groups[2].todos.map(\.text), ["Rotate keys"])
     }
 
+    func testCreatedGroupBecomesAStandingBucketBeforeAnyTodo() {
+        let store = AppStore(fileURL: tempStateURL())
+        let group = store.createGroup("Vancouver trip", emoji: "✈️")
+
+        XCTAssertEqual(group, "Vancouver trip")
+        XCTAssertTrue(store.standingGroups.contains("Vancouver trip"), "a created group shows even while empty")
+        XCTAssertEqual(store.availableTodoGroups, ["Work", "Personal", "Vancouver trip"])
+        XCTAssertEqual(store.emoji(forGroup: "Vancouver trip"), "✈️")
+        // Creating the same name again does not duplicate it.
+        store.createGroup("vancouver trip")
+        XCTAssertEqual(store.customGroups, ["Vancouver trip"])
+    }
+
+    func testDeleteGroupClearsItFromTodosAndRemovesTheBucket() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.createGroup("Errands", emoji: "🧾")
+        store.addTodo("Buy milk", group: "Errands")
+        XCTAssertEqual(store.todosToday.first?.group, "Errands")
+
+        store.deleteGroup("Errands")
+        XCTAssertNil(store.todosToday.first?.group, "deleting a group ungroups its todos")
+        XCTAssertFalse(store.standingGroups.contains("Errands"))
+        XCTAssertEqual(store.emoji(forGroup: "Errands"), "📁", "the custom emoji is dropped with the group")
+    }
+
+    func testCustomGroupsSurviveRelaunch() {
+        let url = tempStateURL()
+        let store = AppStore(fileURL: url)
+        store.createGroup("Reading", emoji: "📓")
+        store.saveNow()
+
+        let reloaded = AppStore(fileURL: url)
+        XCTAssertTrue(reloaded.standingGroups.contains("Reading"))
+        XCTAssertEqual(reloaded.emoji(forGroup: "Reading"), "📓")
+    }
+
     func testBuiltInGroupsLeadAndEmojisResolveWithDefaults() {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Rotate the keys", group: "Exla infra")
