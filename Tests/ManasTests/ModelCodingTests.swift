@@ -14,7 +14,7 @@ final class ModelCodingTests: XCTestCase {
         let todo = Todo(
             text: "Ship the sparkline",
             createdAt: date,
-            section: "Projects",
+            group: "Manas",
             isDone: false,
             verdict: Verdict(status: .inProgress, evidence: "Session touched Charts", judgedAt: date, accepted: true)
         )
@@ -54,17 +54,34 @@ final class ModelCodingTests: XCTestCase {
         """#
         let todo = try AppStore.makeDecoder().decode(Todo.self, from: Data(legacyJSON.utf8))
         XCTAssertEqual(todo.day, Calendar.current.startOfDay(for: todo.createdAt))
-        XCTAssertNil(todo.section, "todos written before sections remain unsectioned")
+        XCTAssertNil(todo.group, "todos written before grouping remain ungrouped")
     }
 
-    func testTodoSectionNamesNormalizeWhitespaceBuiltInCasingAndLength() {
-        XCTAssertEqual(Todo(text: "A", section: "  personal   ").section, "Personal")
-        XCTAssertEqual(Todo(text: "B", section: "Client    work").section, "Client work")
-        XCTAssertNil(Todo(text: "C", section: "   ").section)
+    func testTodoGroupNamesNormalizeWhitespaceAndLength() {
+        XCTAssertEqual(Todo(text: "A", group: "  Exla   infra ").group, "Exla infra")
+        XCTAssertNil(Todo(text: "B", group: "   ").group)
         XCTAssertEqual(
-            Todo(text: "D", section: String(repeating: "x", count: 80)).section?.count,
-            TodoSectionName.maximumLength
+            Todo(text: "C", group: String(repeating: "x", count: 80)).group?.count,
+            TodoGroupName.maximumLength
         )
+    }
+
+    /// state.json written by the interim manual-sections build carries a
+    /// `section` key; its value seeds the group so existing organization is
+    /// preserved when the app upgrades to automatic grouping.
+    func testLegacySectionKeyMigratesIntoGroup() throws {
+        let legacyJSON = #"""
+        {
+          "id": "6F1E9C6A-2C3B-4E5D-8F9A-0B1C2D3E4F5A",
+          "text": "Ship the sparkline",
+          "createdAt": "2025-07-08T18:40:00Z",
+          "day": "2025-07-08T00:00:00Z",
+          "section": "Projects",
+          "isDone": false
+        }
+        """#
+        let todo = try AppStore.makeDecoder().decode(Todo.self, from: Data(legacyJSON.utf8))
+        XCTAssertEqual(todo.group, "Projects", "the legacy section value seeds the new group")
     }
 
     /// A `day` written mid-day — by a hand-edit, or by a machine in another
@@ -89,7 +106,8 @@ final class ModelCodingTests: XCTestCase {
             title: "Reviewed PR #42",
             evidence: "45 minutes in the manas repo",
             source: .codex,
-            resolution: .dismissed
+            resolution: .dismissed,
+            group: "Manas"
         )
         XCTAssertEqual(try roundTrip(activity), activity)
     }
@@ -142,7 +160,8 @@ final class ModelCodingTests: XCTestCase {
         let todoID = UUID()
         let result = JudgeResult(
             verdicts: [todoID: Verdict(status: .done, evidence: "Merged at 2:01 PM", judgedAt: date)],
-            discovered: [DiscoveredActivity(title: "Debugged flaky CI", evidence: "codex session", source: .codex)],
+            groups: [todoID: "Manas"],
+            discovered: [DiscoveredActivity(title: "Debugged flaky CI", evidence: "codex session", source: .codex, group: "Manas")],
             usage: UsageRecord(timestamp: date, model: "haiku", tokensIn: 2000, tokensOut: 140, costUSD: 0.03, summary: "1 todo judged, 1 discovered")
         )
         XCTAssertEqual(try roundTrip(result), result)

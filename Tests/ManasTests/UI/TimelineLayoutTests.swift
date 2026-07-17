@@ -6,53 +6,61 @@ import XCTest
 
 @MainActor
 final class TimelineLayoutTests: XCTestCase {
-    func testPagerBuildsAContiguousWindowCenteredOnToday() {
+    func testFeedOrdersPastOldestFirstThenTodayThenFuture() {
         let calendar = Calendar.current
-        let dates = DayPager.dates(around: Date(), radius: 4, calendar: calendar)
+        let today = calendar.startOfDay(for: Date())
+        let past = [
+            calendar.date(byAdding: .day, value: -1, to: today)!,
+            calendar.date(byAdding: .day, value: -4, to: today)!,
+        ]
+        let days = DayFeed.days(past: past, today: today, futureHorizon: 7, calendar: calendar)
 
-        XCTAssertEqual(dates.count, 9)
-        XCTAssertTrue(calendar.isDateInToday(dates[4]))
-        for pair in zip(dates, dates.dropFirst()) {
-            XCTAssertEqual(calendar.dateComponents([.day], from: pair.0, to: pair.1).day, 1)
-        }
+        // Oldest past first, Today in the middle, then seven future days.
+        XCTAssertEqual(days.count, 2 + 1 + 7)
+        XCTAssertEqual(days.prefix(2).map(\.kind), [.past, .past])
+        XCTAssertEqual(days[0].date, calendar.date(byAdding: .day, value: -4, to: today))
+        XCTAssertEqual(days[1].date, calendar.date(byAdding: .day, value: -1, to: today))
+        XCTAssertEqual(days[2].kind, .today)
+        XCTAssertEqual(days[2].date, today)
+        XCTAssertTrue(days.suffix(7).allSatisfy { $0.kind == .future })
+        XCTAssertEqual(days[3].date, calendar.date(byAdding: .day, value: 1, to: today))
     }
 
-    func testPagerMovementNormalizesTimeAndMovesExactlyOneDay() {
+    func testFeedFutureHorizonAlwaysMaterializesTomorrowOnward() {
         let calendar = Calendar.current
-        let lateToday = calendar.date(bySettingHour: 23, minute: 45, second: 0, of: Date())!
-        let previous = DayPager.moved(lateToday, by: -1, calendar: calendar)!
-        let next = DayPager.moved(lateToday, by: 1, calendar: calendar)!
+        let today = calendar.startOfDay(for: Date())
+        let days = DayFeed.days(past: [], today: today, futureHorizon: 14, calendar: calendar)
 
-        XCTAssertEqual(previous, calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date())))
-        XCTAssertEqual(next, calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())))
+        XCTAssertEqual(days.first?.kind, .today, "with no past todos, Today leads the feed")
+        XCTAssertEqual(days.filter { $0.kind == .future }.count, 14)
     }
 
-    func testHorizontalPagerLeavesNeighboringDaysVisible() {
-        XCTAssertEqual(DayPager.pageWidth(in: 460), 372, accuracy: 0.1)
-        XCTAssertEqual(DayPager.pageWidth(in: 560), 472, accuracy: 0.1)
-        XCTAssertLessThan(DayPager.pageWidth(in: 460), 460)
-        XCTAssertLessThan(DayPager.pageWidth(in: 560), 560)
-    }
-
-    func testDateScopedPagesRenderEmptyAndPopulatedStates() {
+    func testDayFeedSectionRendersEmptyAndPopulatedStates() {
         let store = AppStore.previewTimeline
         let today = Calendar.current.startOfDay(for: Date())
         let emptyFuture = Calendar.current.date(byAdding: .day, value: 10, to: today)!
-        let populated = fittingSize(of: DayPageView(day: today), store: store)
-        let empty = fittingSize(of: DayPageView(day: emptyFuture), store: store)
+        let populated = fittingSize(
+            of: DayFeedSection(feedDay: FeedDay(date: today, kind: .today)), store: store
+        )
+        let empty = fittingSize(
+            of: DayFeedSection(feedDay: FeedDay(date: emptyFuture, kind: .future)), store: store
+        )
 
         XCTAssertGreaterThan(populated.height, 200)
-        XCTAssertGreaterThan(empty.height, 150)
-        XCTAssertNotEqual(populated.height, empty.height, "Each day must render its own store-backed content.")
+        XCTAssertGreaterThan(empty.height, 30, "an empty future day still shows its add field")
+        XCTAssertNotEqual(populated.height, empty.height, "Each day renders its own store-backed content.")
     }
 
-    func testSectionedTodoListRendersAtCompactContentWidth() {
+    func testGroupedTodoListRendersAtCompactContentWidth() {
         let store = AppStore.previewJudged
         let size = fittingSize(of: TodoListSection(), store: store, width: 412)
 
-        XCTAssertEqual(store.todoSectionGroups(on: Date()).map(\.section), ["Work", "Personal", "Projects"])
+        XCTAssertEqual(
+            store.todoGroups(on: Date()).map(\.group), [nil, "Manas", "Launch"],
+            "the ungrouped cluster leads, then the judge's labeled groups"
+        )
         XCTAssertEqual(size.width, 412, accuracy: 1)
-        XCTAssertGreaterThan(size.height, 300, "all three section cards should contribute to layout")
+        XCTAssertGreaterThan(size.height, 300, "the ungrouped cluster and both group cards contribute to layout")
     }
 
     func testSourceHealthPopoverIncludesPermissionRecoveryWithoutClipping() {
@@ -85,19 +93,19 @@ final class TimelineLayoutTests: XCTestCase {
             ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
                 .environment(store)
                 .frame(width: 520, height: 760),
-            name: "day-pager-today", to: outDir
+            name: "day-feed-today", to: outDir
         )
         try dump(
-            DayPageView(day: calendar.date(byAdding: .day, value: -1, to: today)!)
+            DayFeedSection(feedDay: FeedDay(date: calendar.date(byAdding: .day, value: -1, to: today)!, kind: .past))
                 .environment(store)
                 .frame(width: 520, height: 560),
-            name: "day-pager-yesterday", to: outDir
+            name: "day-feed-yesterday", to: outDir
         )
         try dump(
-            DayPageView(day: calendar.date(byAdding: .day, value: 1, to: today)!)
+            DayFeedSection(feedDay: FeedDay(date: calendar.date(byAdding: .day, value: 1, to: today)!, kind: .future))
                 .environment(store)
                 .frame(width: 520, height: 560),
-            name: "day-pager-tomorrow", to: outDir
+            name: "day-feed-tomorrow", to: outDir
         )
         store.sourceStatuses[3] = ActivitySourceStatus(
             source: .screenTime,

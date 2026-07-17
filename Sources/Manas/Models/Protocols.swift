@@ -21,11 +21,20 @@ protocol TodoJudge: Sendable {
 struct JudgeResult: Codable, Hashable, Sendable {
     /// Verdicts keyed by `Todo.id`.
     var verdicts: [UUID: Verdict]
+    /// Automatic project/theme group labels keyed by `Todo.id`. Only ids the
+    /// judge clustered appear; the rest stay at their current group.
+    var groups: [UUID: String]
     var discovered: [DiscoveredActivity]
     var usage: UsageRecord
 
-    init(verdicts: [UUID: Verdict] = [:], discovered: [DiscoveredActivity] = [], usage: UsageRecord) {
+    init(
+        verdicts: [UUID: Verdict] = [:],
+        groups: [UUID: String] = [:],
+        discovered: [DiscoveredActivity] = [],
+        usage: UsageRecord
+    ) {
         self.verdicts = verdicts
+        self.groups = groups
         self.discovered = discovered
         self.usage = usage
     }

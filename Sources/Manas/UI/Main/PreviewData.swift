@@ -51,9 +51,13 @@ extension AppStore {
 
 private func sampleJudgedTodos() -> [Todo] {
     [
+        // Two ungrouped one-offs lead as the unlabeled cluster, then the
+        // judge's "Manas" and "Launch" clusters follow.
+        Todo(text: "Book a dentist appointment"),
+        Todo(text: "Morning standup", isDone: true),
         Todo(
             text: "Ship the usage strip",
-            section: "Work",
+            group: "Manas",
             verdict: Verdict(
                 status: .done,
                 evidence: "Built UsageStripView in the 2:01 pm Claude session",
@@ -62,7 +66,7 @@ private func sampleJudgedTodos() -> [Todo] {
         ),
         Todo(
             text: "Wire up the session parser",
-            section: "Work",
+            group: "Manas",
             verdict: Verdict(
                 status: .inProgress,
                 evidence: "Codex session touched Sources/Manas/Ingest at 11:32 am",
@@ -71,15 +75,13 @@ private func sampleJudgedTodos() -> [Todo] {
         ),
         Todo(
             text: "Write the launch blog post",
-            section: "Projects",
+            group: "Launch",
             verdict: Verdict(
                 status: .notStarted,
                 evidence: "No session touched any writing today",
                 judgedAt: todayAt(14, 14)
             )
         ),
-        Todo(text: "Book a dentist appointment", section: "Personal"),
-        Todo(text: "Morning standup", section: "Work", isDone: true),
     ]
 }
 
@@ -88,13 +90,13 @@ private func samplePastTodos() -> [Todo] {
         Todo(
             text: "Review the ingestion PR",
             day: day(-1),
-            section: "Work",
+            group: "Manas",
             isDone: true
         ),
         Todo(
             text: "Draft the launch email",
             day: day(-1),
-            section: "Work",
+            group: "Launch",
             verdict: Verdict(
                 status: .notStarted,
                 evidence: "No session touched any writing that day",
@@ -104,24 +106,25 @@ private func samplePastTodos() -> [Todo] {
         Todo(
             text: "Refactor the judge prompt",
             day: day(-2),
-            section: "Projects",
+            group: "Manas",
             isDone: true
         ),
-        Todo(text: "Call the accountant", day: day(-2), section: "Personal"),
+        Todo(text: "Call the accountant", day: day(-2)),
         Todo(
             text: "Clean up the test fixtures",
             day: day(-4),
-            section: "Projects",
+            group: "Manas",
             isDone: true
         ),
     ]
 }
 
 private func sampleUpcomingTodos() -> [Todo] {
+    // Future days stay flat and ungrouped; the judge never touches them.
     [
-        Todo(text: "Prep the demo script", day: day(1), section: "Work"),
-        Todo(text: "Book flights for the offsite", day: day(1), section: "Work"),
-        Todo(text: "Pack for the offsite", day: day(2), section: "Personal"),
+        Todo(text: "Prep the demo script", day: day(1)),
+        Todo(text: "Book flights for the offsite", day: day(1)),
+        Todo(text: "Pack for the offsite", day: day(2)),
     ]
 }
 
@@ -130,7 +133,8 @@ private func sampleDiscoveredActivities() -> [DiscoveredActivity] {
         DiscoveredActivity(
             title: "Refactored the transcript reader",
             evidence: "45 min in manas/ingest across the 10:05 am Claude session",
-            source: .claude
+            source: .claude,
+            group: "Manas"
         ),
         DiscoveredActivity(
             title: "Confirmed the offsite dinner",

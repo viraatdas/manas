@@ -94,6 +94,9 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
     var evidence: String
     var source: WorkSource
     var resolution: Resolution
+    /// Automatic project/theme cluster from the judge, inherited by the todo
+    /// if the user adds this discovery to their list. nil stays ungrouped.
+    var group: String?
 
     var isAdded: Bool { resolution == .added }
     var isDismissed: Bool { resolution == .dismissed }
@@ -103,13 +106,41 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         title: String,
         evidence: String,
         source: WorkSource,
-        resolution: Resolution = .pending
+        resolution: Resolution = .pending,
+        group: String? = nil
     ) {
         self.id = id
         self.title = title
         self.evidence = evidence
         self.source = source
         self.resolution = resolution
+        self.group = TodoGroupName.normalized(group)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, evidence, source, resolution, group
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        evidence = try container.decode(String.self, forKey: .evidence)
+        source = try container.decode(WorkSource.self, forKey: .source)
+        resolution = try container.decode(Resolution.self, forKey: .resolution)
+        group = TodoGroupName.normalized(
+            try container.decodeIfPresent(String.self, forKey: .group)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(evidence, forKey: .evidence)
+        try container.encode(source, forKey: .source)
+        try container.encode(resolution, forKey: .resolution)
+        try container.encodeIfPresent(group, forKey: .group)
     }
 }
 

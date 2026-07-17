@@ -37,7 +37,12 @@ struct ClaudeCLIJudge: TodoJudge {
             throw JudgeError.cliNotFound
         }
 
-        let basePrompt = JudgePromptBuilder.build(todos: todos, activities: activities)
+        // Today's todos already carry the groups from earlier passes; feeding
+        // those labels back keeps clusters stable across hourly re-checks.
+        let existingGroups = Self.groupNames(in: todos)
+        let basePrompt = JudgePromptBuilder.build(
+            todos: todos, activities: activities, existingGroups: existingGroups
+        )
         var tokensIn = 0
         var tokensOut = 0
         var costUSD = 0.0
@@ -107,12 +112,19 @@ struct ClaudeCLIJudge: TodoJudge {
         let judgedAt = now()
         let todoIDs = Set(todos.map(\.id))
         var verdicts: [UUID: Verdict] = [:]
+        var groups: [UUID: String] = [:]
         for item in output.verdicts {
             guard let id = UUID(uuidString: item.todoID), todoIDs.contains(id) else { continue }
             verdicts[id] = Verdict(status: item.status, evidence: item.evidence, judgedAt: judgedAt)
+            if let group = TodoGroupName.normalized(item.group) {
+                groups[id] = group
+            }
         }
         let discovered = output.discovered.map { item in
-            DiscoveredActivity(title: item.title, evidence: item.evidence, source: item.source)
+            DiscoveredActivity(
+                title: item.title, evidence: item.evidence,
+                source: item.source, group: item.group
+            )
         }
         let usage = UsageRecord(
             timestamp: judgedAt,
@@ -122,7 +134,21 @@ struct ClaudeCLIJudge: TodoJudge {
             costUSD: costUSD,
             summary: summaryLine(judged: verdicts.count, discovered: discovered.count)
         )
-        return JudgeResult(verdicts: verdicts, discovered: discovered, usage: usage)
+        return JudgeResult(verdicts: verdicts, groups: groups, discovered: discovered, usage: usage)
+    }
+
+    /// Distinct group labels already on the passed todos, first-appearance
+    /// order, so the prompt can ask the model to reuse them.
+    private static func groupNames(in todos: [Todo]) -> [String] {
+        var seen = Set<String>()
+        var labels: [String] = []
+        for todo in todos {
+            guard let group = todo.group else { continue }
+            if seen.insert(TodoGroupName.key(for: group)).inserted {
+                labels.append(group)
+            }
+        }
+        return labels
     }
 
     private func summaryLine(judged: Int, discovered: Int) -> String {

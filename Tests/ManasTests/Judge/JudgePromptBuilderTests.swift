@@ -6,7 +6,7 @@ final class JudgePromptBuilderTests: XCTestCase {
 
     func testPromptContainsTodoIDsAndText() {
         let todos = [
-            Todo(text: "Ship the sparkline", createdAt: date, section: "Work"),
+            Todo(text: "Ship the sparkline", createdAt: date, group: "Manas"),
             Todo(text: "Review the ingestion PR", createdAt: date),
         ]
         let prompt = JudgePromptBuilder.build(todos: todos, activities: [])
@@ -14,7 +14,25 @@ final class JudgePromptBuilderTests: XCTestCase {
             XCTAssertTrue(prompt.contains(todo.id.uuidString), "Prompt should carry the todo id verbatim")
             XCTAssertTrue(prompt.contains(todo.text))
         }
-        XCTAssertTrue(prompt.contains("section: Work"))
+        XCTAssertTrue(prompt.contains("current group: Manas"))
+    }
+
+    func testPromptListsExistingGroupsAndAsksForGroupAssignment() {
+        let prompt = JudgePromptBuilder.build(
+            todos: [Todo(text: "A", createdAt: date)],
+            activities: [],
+            existingGroups: ["Manas", "Exla infra"]
+        )
+        XCTAssertTrue(prompt.contains("## Groups already in use"))
+        XCTAssertTrue(prompt.contains("- Manas"))
+        XCTAssertTrue(prompt.contains("- Exla infra"))
+        XCTAssertTrue(prompt.contains("\"group\""), "the reply shape requests a group per item")
+        XCTAssertTrue(prompt.contains("Reuse a label"), "the model is told to reuse existing labels")
+    }
+
+    func testEmptyExistingGroupsMarkedNone() {
+        let prompt = JudgePromptBuilder.build(todos: [], activities: [])
+        XCTAssertTrue(prompt.contains("## Groups already in use\n(none yet)"))
     }
 
     func testPromptContainsActivityDetails() {

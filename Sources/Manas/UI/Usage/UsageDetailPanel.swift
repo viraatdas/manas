@@ -17,6 +17,9 @@ struct UsageDetailPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             metricCard(totals)
             sessionTable(dayRecords)
+            if Calendar.current.isDateInToday(day) {
+                codingSessionsCard(store.codingSessionsToday)
+            }
             sparkline(series)
         }
         .padding(12)
@@ -119,6 +122,84 @@ struct UsageDetailPanel: View {
                 .padding(.leading, 64)
         }
         .font(.caption)
+    }
+
+    // MARK: - Coding sessions today
+
+    /// The coding-agent tokens the day actually cost, kept visually distinct
+    /// from Manas's own check-in cost above: these are the user's Claude Code
+    /// and Codex subscription usage, observed, not billed by Manas.
+    private func codingSessionsCard(_ sessions: [CodingSessionSummary]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Coding sessions today")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if !sessions.isEmpty {
+                    Text(sessionsSummaryLabel(sessions))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if sessions.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text("No coding sessions observed yet today")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .manasCard()
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
+                        codingSessionRow(session)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                        if index != sessions.count - 1 {
+                            Divider().padding(.leading, 32)
+                        }
+                    }
+                }
+                .manasCard(padding: 0)
+            }
+        }
+    }
+
+    private func codingSessionRow(_ session: CodingSessionSummary) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: session.source.systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.title)
+                    .lineLimit(1)
+                Text("\(session.source.displayName) · \(timeRange(session))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 8)
+            Text(UsageMath.formattedTokens(session.totalTokens))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
+    }
+
+    private func sessionsSummaryLabel(_ sessions: [CodingSessionSummary]) -> String {
+        let total = sessions.reduce(0) { $0 + $1.totalTokens }
+        let count = "\(sessions.count) \(sessions.count == 1 ? "session" : "sessions")"
+        return "\(count) · \(UsageMath.formattedTokens(total)) tokens"
+    }
+
+    private func timeRange(_ session: CodingSessionSummary) -> String {
+        let start = session.startedAt.formatted(date: .omitted, time: .shortened)
+        guard let end = session.endedAt else { return start }
+        return "\(start) to \(end.formatted(date: .omitted, time: .shortened))"
     }
 
     // MARK: - 7-day sparkline

@@ -27,23 +27,28 @@ Swift Charts, and SF Symbols.
 - **Todos with verdicts** — each todo gets a chip (Done / In progress /
   Not started / Unknown) plus one line of evidence pulled from your real
   coding sessions, with accept/dismiss controls.
-- **Lightweight sections** — split any day into Work, Personal, Projects, or
-  a custom section from the add field. Section cards keep those contexts
-  separate, and each todo's action menu can move it without rewriting it.
+- **Automatic grouping** — the judge clusters related todos under a short
+  project/theme label (for example "Manas" or "Exla infra") with no manual
+  management. Ungrouped one-offs stay in a plain cluster at the top, labeled
+  groups follow, and labels are reused across the day's re-checks so clusters
+  stay stable. Anything you add from a discovered activity inherits its group.
 - **Discovered activities** — "You might have also done this": feature-level
   work found in your sessions that wasn't on the list. Add it (arrives
   checked off) or dismiss it (it stays dismissed on future checks).
-- **A horizontal day carousel** — swipe left or right to settle on the
-  previous or next calendar day, with neighboring pages kept visible for
-  context. Each day's list still scrolls vertically on its own. The chevrons
-  make exact one-day jumps, while a floating **Today** button (also ⌘T)
-  returns immediately. Past days are read-only history with "Move to today"
-  for unfinished work; future days are planning lists and are never sent to
-  the judge.
+- **A continuous day feed** — one vertical scroll with Today anchored at the
+  top and primary. Scroll up into past days (read-only history with
+  "Move to today" for unfinished work, gently dimmed); scroll down into future
+  days, which always show an inline add field so planning ahead is
+  scroll-down-and-type. Day headers pin as their section scrolls, and a
+  floating **Today** pill (also ⌘T) reappears to bring you back whenever Today
+  is off-screen. Future days are planning lists and are never sent to the
+  judge.
 - **Usage strip** — a compact footer line with a 5-dot soft-budget gauge and
   today's tokens · cost · checks. Click it for a slide-down panel with
-  today's total, a per-check-in table (including which model ran), and a
-  7-day sparkline.
+  today's total, a per-check-in table (including which model ran), a
+  "Coding sessions today" card showing how many tokens each observed Claude
+  Code and Codex session spent (their subscription usage, kept separate from
+  Manas's own check-in cost), and a 7-day sparkline.
 - **Persistence** — todos, discoveries, and the full usage history survive
   relaunch (`~/Library/Application Support/Manas/state.json`).
 

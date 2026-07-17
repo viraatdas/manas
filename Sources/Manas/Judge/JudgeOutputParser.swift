@@ -6,12 +6,14 @@ struct ModelJudgeOutput: Hashable, Sendable {
         var todoID: String
         var status: Verdict.Status
         var evidence: String
+        var group: String?
     }
 
     struct DiscoveryItem: Hashable, Sendable {
         var title: String
         var evidence: String
         var source: WorkSource
+        var group: String?
     }
 
     var verdicts: [VerdictItem]
@@ -113,7 +115,8 @@ enum JudgeOutputParser {
             return ModelJudgeOutput.VerdictItem(
                 todoID: todoID,
                 status: Verdict.Status(lenient: item.status),
-                evidence: item.evidence ?? ""
+                evidence: item.evidence ?? "",
+                group: item.group
             )
         }
         let discovered = raw.discovered.compactMap { item -> ModelJudgeOutput.DiscoveryItem? in
@@ -121,7 +124,8 @@ enum JudgeOutputParser {
             return ModelJudgeOutput.DiscoveryItem(
                 title: title,
                 evidence: item.evidence ?? "",
-                source: item.source.flatMap { WorkSource(rawValue: $0.lowercased()) } ?? .claude
+                source: item.source.flatMap { WorkSource(rawValue: $0.lowercased()) } ?? .claude,
+                group: item.group
             )
         }
         return ModelJudgeOutput(verdicts: verdicts, discovered: discovered)
@@ -166,6 +170,7 @@ enum JudgeOutputParser {
         var todoID: String?
         var status: String?
         var evidence: String?
+        var group: String?
 
         enum CodingKeys: String, CodingKey {
             case todoID
@@ -174,6 +179,7 @@ enum JudgeOutputParser {
             case id
             case status
             case evidence
+            case group
         }
 
         init(from decoder: Decoder) throws {
@@ -181,6 +187,7 @@ enum JudgeOutputParser {
             todoID = container.lenientString(.todoID, .todo_id, .todoId, .id)
             status = container.lenientString(.status)
             evidence = container.lenientString(.evidence)
+            group = container.lenientString(.group)
         }
     }
 
@@ -188,6 +195,7 @@ enum JudgeOutputParser {
         var title: String?
         var evidence: String?
         var source: String?
+        var group: String?
     }
 }
 

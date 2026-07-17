@@ -28,7 +28,7 @@ final class AppStoreTests: XCTestCase {
         let todo = Todo(
             text: "Ship the sparkline",
             createdAt: date,
-            section: "Projects",
+            group: "Manas",
             verdict: Verdict(status: .inProgress, evidence: "Session touched Charts", judgedAt: date)
         )
         store.todos = [todo]
@@ -255,30 +255,58 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.todos.map(\.text), ["First"])
     }
 
-    func testTodoSectionsGroupCanonicallyAndCanBeReassigned() {
+    func testTodoGroupsClusterUngroupedFirstThenByFirstAppearance() {
         let store = AppStore(fileURL: tempStateURL())
-        store.addTodo("Loose task")
-        store.addTodo("Call mom", section: " personal ")
-        store.addTodo("Ship release", section: "work")
-        store.addTodo("Sketch the concept", section: "Client   work")
-        store.addTodo("Build the concept", section: "client work")
+        let today = Calendar.current.startOfDay(for: Date())
+        store.todos = [
+            Todo(text: "Ship release", day: today, group: "Manas"),
+            Todo(text: "Loose task", day: today),
+            Todo(text: "Fix parser", day: today, group: "Manas"),
+            Todo(text: "Rotate keys", day: today, group: "Exla infra"),
+            Todo(text: "Reply to Sam", day: today),
+        ]
 
+        let groups = store.todoGroups(on: Date())
         XCTAssertEqual(
-            store.availableTodoSections,
-            ["Work", "Personal", "Projects", "Client work"],
-            "built-ins stay first and duplicate custom names reuse one spelling"
+            groups.map(\.group), [nil, "Manas", "Exla infra"],
+            "the ungrouped cluster leads, then each label in first-appearance order"
         )
+        XCTAssertEqual(groups[0].todos.map(\.text), ["Loose task", "Reply to Sam"])
+        XCTAssertEqual(groups[1].todos.map(\.text), ["Ship release", "Fix parser"])
+        XCTAssertEqual(groups[2].todos.map(\.text), ["Rotate keys"])
+    }
 
-        var groups = store.todoSectionGroups(on: Date())
-        XCTAssertEqual(groups.map(\.section), ["Work", "Personal", "Client work", nil])
-        XCTAssertEqual(groups[2].todos.map(\.text), ["Build the concept", "Sketch the concept"])
-        XCTAssertEqual(groups.last?.todos.map(\.text), ["Loose task"])
+    func testJudgeGroupsCanonicalizeToAnExistingSpelling() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship the panel")
+        store.addTodo("Fix the sparkline")
+        let first = store.todosToday.first { $0.text == "Ship the panel" }!.id
+        let second = store.todosToday.first { $0.text == "Fix the sparkline" }!.id
+        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
 
-        let personalID = store.todosToday.first { $0.text == "Call mom" }!.id
-        store.setTodoSection(personalID, section: "projects")
-        groups = store.todoSectionGroups(on: Date())
-        XCTAssertEqual(groups.map(\.section), ["Work", "Projects", "Client work", nil])
-        XCTAssertEqual(store.todosToday.first { $0.id == personalID }?.section, "Projects")
+        store.applyJudgeResult(JudgeResult(groups: [first: "Manas"], usage: usage))
+        // A later pass returns a different casing; it must reuse the label
+        // already in use rather than forking a second cluster.
+        store.applyJudgeResult(JudgeResult(groups: [second: "  manas "], usage: usage))
+
+        XCTAssertEqual(store.todosToday.first { $0.id == first }?.group, "Manas")
+        XCTAssertEqual(store.todosToday.first { $0.id == second }?.group, "Manas")
+        XCTAssertEqual(store.groupNamesInUse, ["Manas"])
+    }
+
+    func testJudgeGroupsApplyToTodayOnly() {
+        let store = AppStore(fileURL: tempStateURL())
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
+        store.addTodo("Past task", on: yesterday)
+        store.addTodo("Today task")
+        let pastID = store.todos(on: yesterday)[0].id
+        let todayID = store.todosToday[0].id
+        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(groups: [pastID: "Manas", todayID: "Manas"], usage: usage))
+
+        XCTAssertNil(store.todos(on: yesterday)[0].group, "past days are frozen and never regrouped")
+        XCTAssertEqual(store.todosToday[0].group, "Manas")
     }
 
     func testApplyJudgeResult() {
@@ -395,13 +423,16 @@ final class AppStoreTests: XCTestCase {
 
     func testAddDiscoveredToTodos() {
         let store = AppStore(fileURL: tempStateURL())
-        let discovered = DiscoveredActivity(title: "Reviewed PR #42", evidence: "claude session", source: .claude)
+        let discovered = DiscoveredActivity(
+            title: "Reviewed PR #42", evidence: "claude session", source: .claude, group: "Manas"
+        )
         store.discoveredActivities = [discovered]
 
         let todo = store.addDiscoveredToTodos(discovered.id)
         XCTAssertEqual(todo?.text, "Reviewed PR #42")
         XCTAssertEqual(todo?.isDone, true)
         XCTAssertEqual(todo?.verdict?.status, .done)
+        XCTAssertEqual(todo?.group, "Manas", "a promoted discovery inherits the judge's group")
         XCTAssertTrue(store.discoveredActivities[0].isAdded)
         XCTAssertNil(store.addDiscoveredToTodos(discovered.id), "already-added items can't be added twice")
     }

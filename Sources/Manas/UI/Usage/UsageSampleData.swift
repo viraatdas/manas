@@ -13,7 +13,31 @@ enum UsageSampleData {
         store.usageRecords = sampleRecords(now: now)
         store.lastCheckedAt = store.usageRecords.last?.timestamp
         store.syncedSourceCount = 3
+        store.codingSessionsToday = sampleCodingSessions(now: now)
         return store
+    }
+
+    /// Today's observed coding sessions for the "Coding sessions today" card,
+    /// ranked busiest first the way the check-in flow ranks them.
+    static func sampleCodingSessions(now: Date = Date()) -> [CodingSessionSummary] {
+        let calendar = Calendar.current
+        func at(_ hour: Int, _ minute: Int) -> Date {
+            calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
+        }
+        return [
+            CodingSessionSummary(
+                source: .claude, title: "manas",
+                startedAt: at(8, 5), endedAt: at(12, 40), totalTokens: 2_412_000
+            ),
+            CodingSessionSummary(
+                source: .codex, title: "exla-infra",
+                startedAt: at(13, 10), endedAt: at(14, 2), totalTokens: 486_000
+            ),
+            CodingSessionSummary(
+                source: .claude, title: "dotfiles",
+                startedAt: at(15, 30), endedAt: at(15, 48), totalTokens: 74_500
+            ),
+        ]
     }
 
     /// Seven days of check-ins: one empty day, a mid-week spike, and a today

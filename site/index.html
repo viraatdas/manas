@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Manas — the control panel of your day</title>
-<meta name="description" content="Manas is a native macOS app. Write your todo list; it quietly checks your real Claude Code and Codex sessions and tells you how your day is actually going.">
-<meta property="og:title" content="Manas — the control panel of your day">
-<meta property="og:description" content="A native macOS app that judges your todo list against your real coding sessions, shows every token it spends, and knows where the day went.">
+<title>Manas: the control panel of your day</title>
+<meta name="description" content="Manas is a native macOS app. It reads your whole day, Screen Time, browser history, messages, and your real coding sessions, to check whether you are actually on track, and adds the things you did but never wrote down.">
+<meta property="og:title" content="Manas: the control panel of your day">
+<meta property="og:description" content="A native macOS app that uses your Screen Time, browser history, and real coding sessions to check whether you are on track, adds the work you never wrote down, and shows every token it spends.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://manas.viraat.dev">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23D85A30'/%3E%3Ctext x='32' y='44' font-family='-apple-system,Helvetica,Arial,sans-serif' font-size='36' font-weight='600' fill='%23FAF8F5' text-anchor='middle'%3EM%3C/text%3E%3C/svg%3E">
@@ -306,9 +306,11 @@
 
   <section class="hero">
     <h1 class="rise d1">The control panel of <em>your day</em>.</h1>
-    <p class="lede rise d2">You write the todo list. Manas quietly reads your real
-    <strong>Claude Code and Codex sessions</strong>, has Claude judge how each todo is
-    actually going, and surfaces the work you did but never wrote down.</p>
+    <p class="lede rise d2">You write the todo list. Manas reads your
+    <strong>whole-day context</strong>, your Screen Time, browser history, and messages,
+    not just your Claude Code and Codex sessions, and has Claude judge whether you are
+    actually on track. It even updates your list with the things you did but never wrote
+    down, added for you and already checked off.</p>
   </section>
 
   <section class="window-frame rise d3" aria-label="A preview of the Manas app window">
@@ -325,7 +327,7 @@
         </div>
         <div class="todo">
           <div class="line"><span class="box"></span><span class="text">Wire the judge into the UI</span></div>
-          <div class="verdict"><span class="chip progress">In progress</span><span>4:03–5:16 pm session in manas — check-in engine wired</span></div>
+          <div class="verdict"><span class="chip progress">In progress</span><span>4:03 to 5:16 pm session in manas, check-in engine wired</span></div>
         </div>
         <div class="todo">
           <div class="line"><span class="box"></span><span class="text">Water the plants</span></div>
@@ -353,7 +355,7 @@
     <div class="feature-grid">
       <div class="feature">
         <h3>Todos judged against real work</h3>
-        <p>Each todo gets a verdict — done, in progress, not started — with one line of
+        <p>Each todo gets a verdict (done, in progress, or not started) with one line of
         evidence pulled from your local Claude Code and Codex transcripts.</p>
       </div>
       <div class="feature">
@@ -368,7 +370,7 @@
       </div>
       <div class="feature">
         <h3>Calendar aware</h3>
-        <p>Your Mac calendar in the flow of the day — and typing “@6:30pm” on a todo
+        <p>Your Mac calendar in the flow of the day, and typing “@6:30pm” on a todo
         puts a real event on it.</p>
       </div>
       <div class="feature">
@@ -379,7 +381,7 @@
       <div class="feature">
         <h3>Message awareness</h3>
         <p>Knows when the afternoon disappeared into iMessage, and says so
-        without judgment. Well — with exactly one line of judgment.</p>
+        without judgment. Well, with exactly one line of judgment.</p>
       </div>
     </div>
   </section>
@@ -387,9 +389,9 @@
   <section class="quiet">
     <h2>local first</h2>
     <div class="card">
-      <p><strong>No API keys, no accounts, no telemetry.</strong> Manas reads local files —
-      <span style="font-family: var(--mono); font-size: 13px;">~/.claude/projects</span> and
-      <span style="font-family: var(--mono); font-size: 13px;">~/.codex/sessions</span> — and
+      <p><strong>No API keys, no accounts, no telemetry.</strong> Manas reads local files
+      (<span style="font-family: var(--mono); font-size: 13px;">~/.claude/projects</span> and
+      <span style="font-family: var(--mono); font-size: 13px;">~/.codex/sessions</span>), and
       judging shells out to the <span style="font-family: var(--mono); font-size: 13px;">claude</span> CLI
       you already have, on your existing subscription.</p>
       <p>Built with SwiftUI, Swift Charts, and SF Symbols. Requires macOS 14+.

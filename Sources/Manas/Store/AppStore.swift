@@ -36,6 +36,11 @@ final class AppStore {
     /// The last check-in's failure, sentence-case and UI-ready; nil once a
     /// check starts or succeeds.
     var lastCheckInError: String?
+    /// Coding-agent sessions observed in the latest check-in, for the usage
+    /// panel's "Coding sessions today" card. Transient and refreshed on every
+    /// check-in (auto or manual); ranked by tokens spent. These are the coding
+    /// agents' own subscription tokens, kept apart from Manas's check-in cost.
+    var codingSessionsToday: [CodingSessionSummary] = []
     /// Per-source health for the current app session. Raw source activity is
     /// deliberately not persisted; only derived todo evidence is saved.
     var sourceStatuses: [ActivitySourceStatus] = [
@@ -88,38 +93,35 @@ final class AppStore {
 
     // MARK: - Todos
 
-    static let suggestedTodoSections = TodoSectionName.suggestions
-
-    /// Built-in choices first, followed by custom section names already in
-    /// use. A custom section therefore remains available across every day as
-    /// long as at least one saved todo uses it.
-    var availableTodoSections: [String] {
-        var seen = Set(Self.suggestedTodoSections.map { TodoSectionName.key(for: $0) })
-        var custom: [String] = []
+    /// The distinct group labels currently in use across all days, in
+    /// first-appearance order — the stable set the judge is asked to reuse so
+    /// clusters don't churn between hourly re-checks.
+    var groupNamesInUse: [String] {
+        var seen = Set<String>()
+        var labels: [String] = []
         for todo in todos {
-            guard let section = todo.section else { continue }
-            if seen.insert(TodoSectionName.key(for: section)).inserted {
-                custom.append(section)
+            guard let group = todo.group else { continue }
+            if seen.insert(TodoGroupName.key(for: group)).inserted {
+                labels.append(group)
             }
         }
-        return Self.suggestedTodoSections + custom.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
+        return labels
     }
 
-    /// Trims and canonicalizes a section name, reusing an existing spelling
-    /// when the user enters the same name with different case or spacing.
-    func canonicalTodoSection(_ rawValue: String?) -> String? {
-        guard let normalized = TodoSectionName.normalized(rawValue) else { return nil }
-        let key = TodoSectionName.key(for: normalized)
-        return availableTodoSections.first { TodoSectionName.key(for: $0) == key } ?? normalized
+    /// Canonicalizes an incoming group label, reusing an existing spelling
+    /// when the same theme comes back with different case or spacing so a
+    /// re-check never forks "Manas" and "manas" into two clusters.
+    func canonicalTodoGroup(_ rawValue: String?) -> String? {
+        guard let normalized = TodoGroupName.normalized(rawValue) else { return nil }
+        let key = TodoGroupName.key(for: normalized)
+        return groupNamesInUse.first { TodoGroupName.key(for: $0) == key } ?? normalized
     }
 
     @discardableResult
-    func addTodo(_ text: String, on day: Date = Date(), section: String? = nil) -> Todo? {
+    func addTodo(_ text: String, on day: Date = Date()) -> Todo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let todo = Todo(text: trimmed, day: day, section: canonicalTodoSection(section))
+        let todo = Todo(text: trimmed, day: day)
         insert(todo)
         return todo
     }
@@ -135,11 +137,6 @@ final class AppStore {
 
     func removeTodo(_ id: Todo.ID) {
         todos.removeAll { $0.id == id }
-    }
-
-    func setTodoSection(_ id: Todo.ID, section: String?) {
-        guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
-        todos[index].section = canonicalTodoSection(section)
     }
 
     func toggleDone(_ id: Todo.ID) {
@@ -181,25 +178,33 @@ final class AppStore {
 
     var todosToday: [Todo] { todos(on: Date()) }
 
-    /// Stable section order for one day: built-in sections, custom sections
-    /// alphabetically, then unsectioned items. Groups retain each day's todo
-    /// order so newly added items stay at the top of their chosen section.
-    func todoSectionGroups(on day: Date) -> [TodoSectionGroup] {
+    /// One day's todos clustered by the judge's automatic group: the unlabeled
+    /// cluster of ungrouped todos leads, then each labeled group in the order
+    /// its first todo appears. Each group keeps the day's todo order so newly
+    /// added items stay on top.
+    func todoGroups(on day: Date) -> [TodoGroup] {
         let dayTodos = todos(on: day)
-        let namedKeys = Set(dayTodos.compactMap(\.section).map { TodoSectionName.key(for: $0) })
-        var groups = availableTodoSections.compactMap { section -> TodoSectionGroup? in
-            let key = TodoSectionName.key(for: section)
-            guard namedKeys.contains(key) else { return nil }
-            return TodoSectionGroup(
-                section: section,
-                todos: dayTodos.filter { todo in
-                    todo.section.map { TodoSectionName.key(for: $0) } == key
-                }
-            )
+        var groups: [TodoGroup] = []
+
+        let ungrouped = dayTodos.filter { $0.group == nil }
+        if !ungrouped.isEmpty {
+            groups.append(TodoGroup(group: nil, todos: ungrouped))
         }
-        let unsectioned = dayTodos.filter { $0.section == nil }
-        if !unsectioned.isEmpty {
-            groups.append(TodoSectionGroup(section: nil, todos: unsectioned))
+
+        var order: [String] = []
+        var byKey: [String: (label: String, todos: [Todo])] = [:]
+        for todo in dayTodos {
+            guard let group = todo.group else { continue }
+            let key = TodoGroupName.key(for: group)
+            if byKey[key] == nil {
+                order.append(key)
+                byKey[key] = (label: group, todos: [])
+            }
+            byKey[key]?.todos.append(todo)
+        }
+        for key in order {
+            guard let entry = byKey[key] else { continue }
+            groups.append(TodoGroup(group: entry.label, todos: entry.todos))
         }
         return groups
     }
@@ -240,9 +245,11 @@ final class AppStore {
         else { return nil }
         discoveredActivities[index].resolution = .added
         let activity = discoveredActivities[index]
-        // Discoveries are work observed today, so the todo lands on today.
+        // Discoveries are work observed today, so the todo lands on today and
+        // inherits the judge's group so it clusters with its related work.
         let todo = Todo(
             text: activity.title,
+            group: activity.group,
             isDone: true,
             verdict: Verdict(status: .done, evidence: activity.evidence, accepted: true)
         )
@@ -270,6 +277,14 @@ final class AppStore {
                     verdict.accepted = true
                 }
                 todos[index].verdict = verdict
+            }
+            // A returned group clusters the todo; canonicalize so the same
+            // theme keeps one spelling. An omitted group leaves the todo's
+            // current cluster alone rather than flickering it back to
+            // ungrouped between checks.
+            if let group = result.groups[todos[index].id],
+               let canonical = canonicalTodoGroup(group) {
+                todos[index].group = canonical
             }
         }
         // Every pass re-observes the whole day, so its discoveries supersede

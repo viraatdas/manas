@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// The day control panel. The header, add field, pager position, todo list,
-/// and usage footer share one selected date. Horizontal paging settles on
-/// adjacent calendar days; checks still run automatically for today.
+/// The day control panel. A fixed header and usage footer bracket one
+/// continuous vertical day feed: scroll up into past days, down into future
+/// ones, with Today anchored and primary. Checks still run automatically for
+/// today.
 struct ContentView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("hasCompletedManasOnboarding") private var hasCompletedOnboarding = false
-    @State private var selectedDate = Calendar.current.startOfDay(for: Date())
     @State private var isOnboardingPresented = false
 
     private let showsOnboardingOnFirstLaunch: Bool
@@ -56,18 +56,15 @@ struct ContentView: View {
 
     private var dayControlPanel: some View {
         VStack(spacing: 0) {
-            Group {
-                MainHeaderView(selectedDate: $selectedDate)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
-                AddTodoField(day: selectedDate)
-                    .padding(.bottom, 14)
-            }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: Self.contentMaxWidth)
+            MainHeaderView()
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+                .padding(.horizontal, 24)
+                .frame(maxWidth: Self.contentMaxWidth)
+                .frame(maxWidth: .infinity)
             Divider()
-            DayPager(selectedDate: $selectedDate)
-            MainFooterView(day: selectedDate)
+            DayFeed()
+            MainFooterView()
         }
     }
 

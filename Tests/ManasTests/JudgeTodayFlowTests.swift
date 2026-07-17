@@ -91,6 +91,47 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(todoID, store.todos[0].id)
     }
 
+    func testCheckInCapturesCodingSessionsRankedByTokens() async throws {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship it")
+        let claudeSmall = WorkActivity(
+            source: .claude, projectPath: "/Users/x/code/dotfiles",
+            summary: "tweaked config", startedAt: Date(), tokensUsed: 74_500
+        )
+        let claudeBig = WorkActivity(
+            source: .claude, projectPath: "/Users/x/code/manas",
+            summary: "built the panel", startedAt: Date(), tokensUsed: 2_412_000
+        )
+        let codex = WorkActivity(
+            source: .codex, projectPath: "/Users/x/code/exla-infra",
+            summary: "fixed CI", startedAt: Date(), tokensUsed: 486_000
+        )
+        // Non-coding sources carry no token cost and must be dropped.
+        let arc = WorkActivity(source: .arc, summary: "read docs", startedAt: Date())
+        let aggregator = ActivityAggregator(sources: [
+            StubSource(name: "claude", activities: [claudeSmall, claudeBig]),
+            StubSource(source: .codex, name: "codex", activities: [codex]),
+            StubSource(source: .arc, name: "arc", activities: [arc]),
+        ])
+        let judge = StubJudge { _, _, model in
+            JudgeResult(usage: UsageRecord(model: model, tokensIn: 10, tokensOut: 5, costUSD: 0, summary: "judged"))
+        }
+
+        try await store.judgeToday(aggregator: aggregator, judge: judge)
+
+        XCTAssertEqual(
+            store.codingSessionsToday.map(\.title),
+            ["manas", "exla-infra", "dotfiles"],
+            "coding sessions rank by tokens spent, busiest first, project-named"
+        )
+        XCTAssertEqual(store.codingSessionsToday.map(\.source), [.claude, .codex, .claude])
+        XCTAssertEqual(store.codingSessionsToday.map(\.totalTokens), [2_412_000, 486_000, 74_500])
+        XCTAssertFalse(
+            store.codingSessionsToday.contains { $0.source == .arc },
+            "non-coding sources never appear in the coding-sessions card"
+        )
+    }
+
     func testFailedSourceStillCountsTheOthers() async throws {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Anything")

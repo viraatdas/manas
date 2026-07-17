@@ -68,6 +68,19 @@ extension AppStore {
         guard !Task.isCancelled else { return }
         syncedSourceCount = aggregated.syncedSourceCount
         sourceStatuses = aggregated.sourceStatuses
+        codingSessionsToday = Self.codingSessions(from: aggregated)
+    }
+
+    /// The coding-agent sessions from one aggregation, ranked by tokens spent
+    /// (busiest first) so the usage panel leads with where the day's tokens
+    /// actually went. Non-coding sources are dropped.
+    static func codingSessions(from aggregated: AggregatedActivities) -> [CodingSessionSummary] {
+        aggregated.activities
+            .compactMap(CodingSessionSummary.init(activity:))
+            .sorted {
+                if $0.totalTokens != $1.totalTokens { return $0.totalTokens > $1.totalTokens }
+                return $0.startedAt < $1.startedAt
+            }
     }
 
     /// Starts a check-in unless one is running; returns the task so the
@@ -117,6 +130,9 @@ extension AppStore {
         // ingestion, not judgment.
         syncedSourceCount = aggregated.syncedSourceCount
         sourceStatuses = aggregated.sourceStatuses
+        // Refreshed every pass so the usage panel always reflects the latest
+        // observed coding sessions, even on a day with no todos to judge.
+        codingSessionsToday = Self.codingSessions(from: aggregated)
         try Task.checkCancellation()
         // Only today is judged: past days are frozen and future days are
         // plans, so neither belongs in the prompt.

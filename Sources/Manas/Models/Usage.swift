@@ -49,6 +49,54 @@ struct CheckInDay: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+/// One coding agent's contribution to today, summarized for the usage panel's
+/// "Coding sessions today" card. Derived from observed `WorkActivity`;
+/// transient (never persisted) and refreshed on every check-in. These tokens
+/// are the coding agent's own subscription usage and are kept separate from
+/// Manas's own judge check-in cost, budget dots, and sparkline.
+struct CodingSessionSummary: Identifiable, Hashable, Sendable {
+    var id: UUID
+    /// Always `.claude` or `.codex`.
+    var source: WorkSource
+    /// Project name when known, otherwise a short summary of the work.
+    var title: String
+    var startedAt: Date
+    /// nil while a session is still open.
+    var endedAt: Date?
+    var totalTokens: Int
+
+    init(
+        id: UUID = UUID(),
+        source: WorkSource,
+        title: String,
+        startedAt: Date,
+        endedAt: Date? = nil,
+        totalTokens: Int
+    ) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.totalTokens = totalTokens
+    }
+
+    /// Folds one observed coding `WorkActivity` into a panel row, or nil for
+    /// non-coding sources (Arc, Screen Time, Messages carry no token cost).
+    init?(activity: WorkActivity) {
+        guard activity.source == .claude || activity.source == .codex else { return nil }
+        let projectName = activity.projectPath.map { URL(fileURLWithPath: $0).lastPathComponent }
+        self.init(
+            id: activity.id,
+            source: activity.source,
+            title: projectName ?? activity.summary,
+            startedAt: activity.startedAt,
+            endedAt: activity.endedAt,
+            totalTokens: activity.tokensUsed ?? 0
+        )
+    }
+}
+
 /// Known model families, kept for mapping stored usage records (old raw
 /// values or full API model ids) to friendly names in the usage table. The
 /// judge itself always runs Sonnet — there is no user-facing model choice.

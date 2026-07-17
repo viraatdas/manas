@@ -1,11 +1,12 @@
 import Foundation
 
-/// Lightweight names used to separate one day into contexts without adding
-/// a separate project-management hierarchy. Names are persisted directly on
-/// todos; built-in suggestions stay stable and custom names are normalized.
-enum TodoSectionName {
-    static let suggestions = ["Work", "Personal", "Projects"]
-    static let maximumLength = 40
+/// Normalization for the automatic group labels the judge assigns (a short
+/// project or theme name such as "Manas" or "Exla infra"). Groups are never
+/// managed by hand; this only trims, collapses whitespace, and clips length so
+/// the judge's labels stay tidy, plus a case/diacritic-insensitive key so the
+/// same theme with different capitalization clusters together.
+enum TodoGroupName {
+    static let maximumLength = 30
 
     static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
@@ -13,9 +14,7 @@ enum TodoSectionName {
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         guard !collapsed.isEmpty else { return nil }
-
-        let clipped = String(collapsed.prefix(maximumLength))
-        return suggestions.first { key(for: $0) == key(for: clipped) } ?? clipped
+        return String(collapsed.prefix(maximumLength))
     }
 
     static func key(for value: String) -> String {
@@ -23,7 +22,8 @@ enum TodoSectionName {
     }
 }
 
-/// A user todo, optionally annotated with the judge's latest verdict.
+/// A user todo, optionally annotated with the judge's latest verdict and the
+/// project/theme group the judge clustered it into.
 struct Todo: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var text: String
@@ -31,9 +31,9 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
     /// The calendar day (start of day) this todo belongs to. Past days are
     /// frozen history, future days are plans; only today's todos get judged.
     var day: Date
-    /// Optional context such as Work, Personal, or Projects. Older todos have
-    /// no section and continue to decode into the unsectioned group.
-    var section: String?
+    /// Automatic project/theme cluster assigned by the judge (e.g. "Manas").
+    /// nil until the judge groups it; ungrouped todos render first, unlabeled.
+    var group: String?
     var isDone: Bool
     var verdict: Verdict?
 
@@ -42,7 +42,7 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         text: String,
         createdAt: Date = Date(),
         day: Date? = nil,
-        section: String? = nil,
+        group: String? = nil,
         isDone: Bool = false,
         verdict: Verdict? = nil
     ) {
@@ -50,13 +50,13 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         self.text = text
         self.createdAt = createdAt
         self.day = Calendar.current.startOfDay(for: day ?? createdAt)
-        self.section = TodoSectionName.normalized(section)
+        self.group = TodoGroupName.normalized(group)
         self.isDone = isDone
         self.verdict = verdict
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, createdAt, day, section, isDone, verdict
+        case id, text, createdAt, day, group, section, isDone, verdict
     }
 
     init(from decoder: Decoder) throws {
@@ -71,20 +71,35 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         day = Calendar.current.startOfDay(
             for: try container.decodeIfPresent(Date.self, forKey: .day) ?? createdAt
         )
-        section = TodoSectionName.normalized(
-            try container.decodeIfPresent(String.self, forKey: .section)
-        )
+        // `group` supersedes the earlier manual `section` field; if only the
+        // legacy key is present its value seeds the group so existing
+        // organization survives the migration.
+        let decodedGroup = try container.decodeIfPresent(String.self, forKey: .group)
+        let legacySection = try container.decodeIfPresent(String.self, forKey: .section)
+        group = TodoGroupName.normalized(decodedGroup ?? legacySection)
         isDone = try container.decode(Bool.self, forKey: .isDone)
         verdict = try container.decodeIfPresent(Verdict.self, forKey: .verdict)
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(day, forKey: .day)
+        try container.encodeIfPresent(group, forKey: .group)
+        try container.encode(isDone, forKey: .isDone)
+        try container.encodeIfPresent(verdict, forKey: .verdict)
+    }
 }
 
-/// One section of a single day, in the order the UI renders it.
-struct TodoSectionGroup: Identifiable, Hashable, Sendable {
-    var section: String?
+/// One project/theme group of a single day, in the order the UI renders it.
+/// A nil `group` is the leading unlabeled cluster of ungrouped todos.
+struct TodoGroup: Identifiable, Hashable, Sendable {
+    var group: String?
     var todos: [Todo]
 
-    var id: String { section.map { TodoSectionName.key(for: $0) } ?? "__unsectioned__" }
+    var id: String { group.map { TodoGroupName.key(for: $0) } ?? "__ungrouped__" }
 }
 
 /// One calendar day's todos, as rendered by the day-grouped lists.

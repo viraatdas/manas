@@ -2,30 +2,25 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Screen 1 header: date navigation on the left; refresh and settings on the
-/// right; a muted metadata row ("Last checked 2:14 pm · 2 sources synced")
-/// underneath. The spinning refresh icon is the only visible sign that a
-/// check-in is running.
+/// Screen 1 header: the Manas wordmark and today's date on the left; source
+/// health, refresh, and settings on the right; a muted metadata row
+/// ("Last checked 2:14 pm · 2 sources synced") underneath. Days are navigated
+/// by scrolling the feed, so the header no longer pages between dates. The
+/// spinning refresh icon is the only visible sign that a check-in is running.
 struct MainHeaderView: View {
     @Environment(AppStore.self) private var store
-    @Binding var selectedDate: Date
     @State private var showingSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                dayButton(systemImage: "chevron.left", byAdding: -1)
-                    .accessibilityLabel("Previous day")
-                dayButton(systemImage: "chevron.right", byAdding: 1)
-                    .accessibilityLabel("Next day")
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(DayLabel.title(for: selectedDate))
+                    Text("Manas")
                         .font(.title3.weight(.semibold))
-                    Text(selectedDate, format: .dateTime.weekday(.wide).month(.wide).day())
+                    Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day())
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.leading, 3)
                 Spacer(minLength: 0)
                 SourceHealthButton()
                 RefreshButton()
@@ -47,25 +42,9 @@ struct MainHeaderView: View {
             Text(metadata)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .padding(.leading, 72)
                 .contentTransition(.opacity)
                 .animation(.default, value: metadata)
         }
-    }
-
-    private func dayButton(systemImage: String, byAdding days: Int) -> some View {
-        Button {
-            if let moved = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) {
-                selectedDate = moved
-            }
-        } label: {
-            Image(systemName: systemImage)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 30, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.hoverIcon)
     }
 
     private var metadata: String {
@@ -182,7 +161,7 @@ struct SettingsPopover: View {
 }
 
 #Preview("Header") {
-    MainHeaderView(selectedDate: .constant(Date()))
+    MainHeaderView()
         .environment(AppStore.previewJudged)
         .padding(24)
         .frame(width: 520)

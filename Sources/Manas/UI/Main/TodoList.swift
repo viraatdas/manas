@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Date-scoped add field. The visible pager day and this field always share
 /// the same normalized date, so adding while looking at Friday cannot land on
-/// today by accident.
+/// today by accident. Todos arrive ungrouped; the judge clusters them.
 struct AddTodoField: View {
     private enum FocusedField: Hashable {
         case todo
@@ -11,7 +11,6 @@ struct AddTodoField: View {
     @Environment(AppStore.self) private var store
     var day: Date
     @State private var draft = ""
-    @State private var selectedSection: String?
     @FocusState private var focusedField: FocusedField?
 
     init(day: Date = Date()) {
@@ -28,14 +27,7 @@ struct AddTodoField: View {
                 .font(.body)
                 .focused($focusedField, equals: .todo)
                 .onSubmit(submit)
-                .accessibilityLabel(todoAccessibilityLabel)
-
-            Divider()
-                .frame(height: 19)
-
-            TodoSectionPickerButton(selection: $selectedSection) {
-                focusedField = .todo
-            }
+                .accessibilityLabel(placeholder)
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 11)
@@ -51,14 +43,9 @@ struct AddTodoField: View {
     }
 
     private func submit() {
-        guard store.addTodo(draft, on: day, section: selectedSection) != nil else { return }
+        guard store.addTodo(draft, on: day) != nil else { return }
         draft = ""
         focusedField = .todo
-    }
-
-    private var todoAccessibilityLabel: String {
-        guard let selectedSection else { return placeholder }
-        return "\(placeholder), in \(selectedSection)"
     }
 }
 
@@ -96,13 +83,13 @@ struct TodoListSection: View {
         if todos.isEmpty {
             DayEmptyState(day: day)
         } else {
-            let groups = store.todoSectionGroups(on: day)
+            let groups = store.todoGroups(on: day)
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(groups) { group in
-                    TodoSectionBlock(
+                    TodoGroupBlock(
                         group: group,
                         mode: mode,
-                        showsHeader: group.section != nil || groups.count > 1
+                        showsHeader: group.group != nil
                     )
                 }
             }
@@ -110,8 +97,8 @@ struct TodoListSection: View {
     }
 }
 
-private struct TodoSectionBlock: View {
-    var group: TodoSectionGroup
+private struct TodoGroupBlock: View {
+    var group: TodoGroup
     var mode: TodoRow.Mode
     var showsHeader: Bool
 
@@ -119,9 +106,9 @@ private struct TodoSectionBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if showsHeader {
+            if showsHeader, let label = group.group {
                 HStack(spacing: 7) {
-                    Text(group.section ?? "Other")
+                    Text(label)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     Text("\(doneCount)/\(group.todos.count)")
@@ -218,48 +205,12 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
-            todoActionsMenu
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color.primary.opacity(isHovered ? 0.035 : 0))
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
-    }
-
-    private var todoActionsMenu: some View {
-        Menu {
-            Menu("Move to section") {
-                todoSectionChoice(title: "No section", section: nil)
-                Divider()
-                ForEach(store.availableTodoSections, id: \.self) { section in
-                    todoSectionChoice(title: section, section: section)
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .menuIndicator(.hidden)
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Actions for \(todo.text)")
-    }
-
-    @ViewBuilder
-    private func todoSectionChoice(title: String, section: String?) -> some View {
-        Button {
-            store.setTodoSection(todo.id, section: section)
-        } label: {
-            if todo.section == section {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
     }
 
     @ViewBuilder
