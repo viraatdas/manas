@@ -4,10 +4,15 @@ import SwiftUI
 /// the same normalized date, so adding while looking at Friday cannot land on
 /// today by accident.
 struct AddTodoField: View {
+    private enum FocusedField: Hashable {
+        case todo
+    }
+
     @Environment(AppStore.self) private var store
     var day: Date
     @State private var draft = ""
-    @FocusState private var isFocused: Bool
+    @State private var selectedSection: String?
+    @FocusState private var focusedField: FocusedField?
 
     init(day: Date = Date()) {
         self.day = Calendar.current.startOfDay(for: day)
@@ -17,13 +22,20 @@ struct AddTodoField: View {
         HStack(spacing: 9) {
             Image(systemName: "plus")
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(isFocused ? Color.manasAccent : .secondary)
+                .foregroundStyle(focusedField != nil ? Color.manasAccent : .secondary)
             TextField(placeholder, text: $draft)
                 .textFieldStyle(.plain)
                 .font(.body)
-                .focused($isFocused)
+                .focused($focusedField, equals: .todo)
                 .onSubmit(submit)
-                .accessibilityLabel(placeholder)
+                .accessibilityLabel(todoAccessibilityLabel)
+
+            Divider()
+                .frame(height: 19)
+
+            TodoSectionPickerButton(selection: $selectedSection) {
+                focusedField = .todo
+            }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 11)
@@ -31,14 +43,27 @@ struct AddTodoField: View {
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .strokeBorder(
-                    isFocused ? Color.manasAccent.opacity(0.7) : Color.hairline,
-                    lineWidth: isFocused ? 1 : 0.5
+                    focusedField != nil ? Color.manasAccent.opacity(0.7) : Color.hairline,
+                    lineWidth: focusedField != nil ? 1 : 0.5
                 )
         )
-        .animation(.easeOut(duration: 0.15), value: isFocused)
+        .animation(.easeOut(duration: 0.15), value: focusedField)
     }
 
-    private var placeholder: String {
+    private func submit() {
+        guard store.addTodo(draft, on: day, section: selectedSection) != nil else { return }
+        draft = ""
+        focusedField = .todo
+    }
+
+    private var todoAccessibilityLabel: String {
+        guard let selectedSection else { return placeholder }
+        return "\(placeholder), in \(selectedSection)"
+    }
+}
+
+private extension AddTodoField {
+    var placeholder: String {
         switch Calendar.current.dateComponents(
             [.day],
             from: Calendar.current.startOfDay(for: Date()),
@@ -49,12 +74,6 @@ struct AddTodoField: View {
         case 1: "Add to tomorrow"
         default: "Add to \(day.formatted(.dateTime.weekday(.wide)))"
         }
-    }
-
-    private func submit() {
-        guard store.addTodo(draft, on: day) != nil else { return }
-        draft = ""
-        isFocused = true
     }
 }
 
@@ -77,10 +96,47 @@ struct TodoListSection: View {
         if todos.isEmpty {
             DayEmptyState(day: day)
         } else {
+            let groups = store.todoSectionGroups(on: day)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(groups) { group in
+                    TodoSectionBlock(
+                        group: group,
+                        mode: mode,
+                        showsHeader: group.section != nil || groups.count > 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct TodoSectionBlock: View {
+    var group: TodoSectionGroup
+    var mode: TodoRow.Mode
+    var showsHeader: Bool
+
+    private var doneCount: Int { group.todos.filter(\.isDone).count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if showsHeader {
+                HStack(spacing: 7) {
+                    Text(group.section ?? "Other")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(doneCount)/\(group.todos.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 4)
+                .accessibilityElement(children: .combine)
+            }
+
             VStack(spacing: 0) {
-                ForEach(todos) { todo in
+                ForEach(group.todos) { todo in
                     TodoRow(todo: todo, mode: mode)
-                    if todo.id != todos.last?.id {
+                    if todo.id != group.todos.last?.id {
                         Divider().padding(.leading, 46)
                     }
                 }
@@ -162,12 +218,48 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
+            todoActionsMenu
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color.primary.opacity(isHovered ? 0.035 : 0))
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+
+    private var todoActionsMenu: some View {
+        Menu {
+            Menu("Move to section") {
+                todoSectionChoice(title: "No section", section: nil)
+                Divider()
+                ForEach(store.availableTodoSections, id: \.self) { section in
+                    todoSectionChoice(title: section, section: section)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityLabel("Actions for \(todo.text)")
+    }
+
+    @ViewBuilder
+    private func todoSectionChoice(title: String, section: String?) -> some View {
+        Button {
+            store.setTodoSection(todo.id, section: section)
+        } label: {
+            if todo.section == section {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 
     @ViewBuilder

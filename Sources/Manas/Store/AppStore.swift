@@ -88,11 +88,38 @@ final class AppStore {
 
     // MARK: - Todos
 
+    static let suggestedTodoSections = TodoSectionName.suggestions
+
+    /// Built-in choices first, followed by custom section names already in
+    /// use. A custom section therefore remains available across every day as
+    /// long as at least one saved todo uses it.
+    var availableTodoSections: [String] {
+        var seen = Set(Self.suggestedTodoSections.map { TodoSectionName.key(for: $0) })
+        var custom: [String] = []
+        for todo in todos {
+            guard let section = todo.section else { continue }
+            if seen.insert(TodoSectionName.key(for: section)).inserted {
+                custom.append(section)
+            }
+        }
+        return Self.suggestedTodoSections + custom.sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }
+    }
+
+    /// Trims and canonicalizes a section name, reusing an existing spelling
+    /// when the user enters the same name with different case or spacing.
+    func canonicalTodoSection(_ rawValue: String?) -> String? {
+        guard let normalized = TodoSectionName.normalized(rawValue) else { return nil }
+        let key = TodoSectionName.key(for: normalized)
+        return availableTodoSections.first { TodoSectionName.key(for: $0) == key } ?? normalized
+    }
+
     @discardableResult
-    func addTodo(_ text: String, on day: Date = Date()) -> Todo? {
+    func addTodo(_ text: String, on day: Date = Date(), section: String? = nil) -> Todo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let todo = Todo(text: trimmed, day: day)
+        let todo = Todo(text: trimmed, day: day, section: canonicalTodoSection(section))
         insert(todo)
         return todo
     }
@@ -108,6 +135,11 @@ final class AppStore {
 
     func removeTodo(_ id: Todo.ID) {
         todos.removeAll { $0.id == id }
+    }
+
+    func setTodoSection(_ id: Todo.ID, section: String?) {
+        guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
+        todos[index].section = canonicalTodoSection(section)
     }
 
     func toggleDone(_ id: Todo.ID) {
@@ -148,6 +180,29 @@ final class AppStore {
     }
 
     var todosToday: [Todo] { todos(on: Date()) }
+
+    /// Stable section order for one day: built-in sections, custom sections
+    /// alphabetically, then unsectioned items. Groups retain each day's todo
+    /// order so newly added items stay at the top of their chosen section.
+    func todoSectionGroups(on day: Date) -> [TodoSectionGroup] {
+        let dayTodos = todos(on: day)
+        let namedKeys = Set(dayTodos.compactMap(\.section).map { TodoSectionName.key(for: $0) })
+        var groups = availableTodoSections.compactMap { section -> TodoSectionGroup? in
+            let key = TodoSectionName.key(for: section)
+            guard namedKeys.contains(key) else { return nil }
+            return TodoSectionGroup(
+                section: section,
+                todos: dayTodos.filter { todo in
+                    todo.section.map { TodoSectionName.key(for: $0) } == key
+                }
+            )
+        }
+        let unsectioned = dayTodos.filter { $0.section == nil }
+        if !unsectioned.isEmpty {
+            groups.append(TodoSectionGroup(section: nil, todos: unsectioned))
+        }
+        return groups
+    }
 
     /// Days before today that have todos, newest first — read-only history.
     var pastDays: [DayGroup] {

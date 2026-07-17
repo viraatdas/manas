@@ -1,14 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// A continuous vertical run of calendar days. Each ordinary day occupies at
-/// least the viewport, and view-aligned targeting settles the wheel/trackpad
-/// on the next or previous date instead of between two days.
+/// A horizontal day carousel. Each date is a fixed-width page with a small
+/// neighboring-page peek, while the page itself scrolls vertically when its
+/// todo list is long. Horizontal gestures, arrow keys, and header controls all
+/// settle on the same date binding.
 struct DayPager: View {
     @Binding var selectedDate: Date
     @State private var isReadyForFeedback = false
     @State private var isPositioned = false
     @State private var pagePositions: [Date: CGFloat] = [:]
+    @State private var viewportMidX: CGFloat = 0
     @State private var scrollDrivenSelections: Set<Date> = []
     @State private var jumpTarget: Date?
     @State private var jumpTask: Task<Void, Never>?
@@ -24,40 +26,58 @@ struct DayPager: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let pageWidth = Self.pageWidth(in: geometry.size.width)
+            let sideMargin = max(0, (geometry.size.width - pageWidth) / 2)
+            let neighboringPageScale = reduceMotion ? 1.0 : 0.965
+
             ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    // Eager layout keeps every page's real height known. A
-                    // LazyVStack estimates offsets for off-screen days; when
-                    // today is content-heavy those estimates can land a
-                    // programmatic jump on the wrong adjacent date.
-                    VStack(spacing: 0) {
+                ScrollView(.horizontal) {
+                    // Width and spacing are identical for every day, so the
+                    // lazy stack can place off-screen targets exactly without
+                    // the variable-height estimation that broke the former
+                    // vertical pager.
+                    LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(days, id: \.self) { day in
-                            DayPageView(day: day)
-                                .frame(minHeight: max(360, geometry.size.height), alignment: .top)
-                                .background(Color.manasBackground)
-                                .background {
-                                    GeometryReader { pageGeometry in
-                                        Color.clear.preference(
-                                            key: DayPagePositionKey.self,
-                                            value: [
-                                                day: pageGeometry.frame(in: .named("day-pager")).minY,
-                                            ]
-                                        )
-                                    }
+                            ScrollView(.vertical) {
+                                DayPageView(day: day)
+                                    .frame(
+                                        minHeight: max(360, geometry.size.height),
+                                        alignment: .top
+                                    )
+                            }
+                            .scrollIndicators(.automatic)
+                            .frame(width: pageWidth, height: geometry.size.height)
+                            .background(
+                                Color.primary.opacity(0.022),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                content
+                                    .scaleEffect(phase.isIdentity ? 1 : neighboringPageScale)
+                                    .opacity(phase.isIdentity ? 1 : 0.64)
+                            }
+                            .background {
+                                GeometryReader { pageGeometry in
+                                    Color.clear.preference(
+                                        key: DayPagePositionKey.self,
+                                        value: [
+                                            day: pageGeometry.frame(in: .named("day-pager")).midX,
+                                        ]
+                                    )
                                 }
-                                .id(day)
+                            }
+                            .id(day)
                         }
                     }
                     .scrollTargetLayout()
                 }
                 .scrollIndicators(.hidden)
-                // Native view alignment gives wheel/trackpad gestures their
-                // snap. It is briefly bypassed for explicit arrow/Today
-                // jumps; otherwise macOS rewrites an exact programmatic page
-                // boundary to one of its adjacent targets.
+                .contentMargins(.horizontal, sideMargin, for: .scrollContent)
                 .scrollTargetBehavior(DayScrollTargetBehavior(alignmentEnabled: jumpTarget == nil))
                 .coordinateSpace(name: "day-pager")
                 .onAppear {
+                    viewportMidX = geometry.size.width / 2
                     let normalized = calendar.startOfDay(for: selectedDate)
                     selectedDate = normalized
                     jump(to: normalized, using: proxy, animated: false, initial: true)
@@ -77,6 +97,11 @@ struct DayPager: View {
                     }
                     jump(to: normalized, using: proxy, animated: !reduceMotion)
                 }
+                .onChange(of: geometry.size.width) { _, width in
+                    viewportMidX = width / 2
+                    guard isPositioned else { return }
+                    jump(to: selectedDate, using: proxy, animated: false)
+                }
                 .onPreferenceChange(DayPagePositionKey.self) { positions in
                     pagePositions = positions
                     guard isPositioned else { return }
@@ -84,13 +109,13 @@ struct DayPager: View {
                 }
                 .onMoveCommand { direction in
                     switch direction {
-                    case .up: move(by: -1)
-                    case .down: move(by: 1)
+                    case .left: move(by: -1)
+                    case .right: move(by: 1)
                     default: break
                     }
                 }
                 .accessibilityLabel("Day timeline")
-                .accessibilityHint("Scroll vertically for the previous or next day")
+                .accessibilityHint("Scroll horizontally for the previous or next day")
                 .overlay(alignment: .bottomTrailing) {
                     if !calendar.isDateInToday(selectedDate) {
                         Button {
@@ -119,11 +144,9 @@ struct DayPager: View {
         selectedDate = date
     }
 
-    /// `viewAligned` can resolve a programmatic jump to an adjacent target on
-    /// macOS. Start with the requested ID, measure the page that actually
-    /// arrived, then compensate by the observed day delta. Scroll-driven
-    /// selection is paused for this short convergence loop, so the header can
-    /// never race an in-flight arrow or Today jump.
+    /// Programmatic navigation temporarily disables gesture alignment, then
+    /// checks the page nearest the viewport center. The short convergence loop
+    /// keeps the header, add field, and carousel on one exact date.
     private func jump(
         to requestedDay: Date,
         using proxy: ScrollViewProxy,
@@ -143,10 +166,10 @@ struct DayPager: View {
                 guard !Task.isCancelled else { return }
                 if animated, attempt == 0 {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(proxyDay, anchor: .top)
+                        proxy.scrollTo(proxyDay, anchor: .center)
                     }
                 } else {
-                    proxy.scrollTo(proxyDay, anchor: .top)
+                    proxy.scrollTo(proxyDay, anchor: .center)
                 }
 
                 try? await Task.sleep(for: .milliseconds(animated && attempt == 0 ? 240 : 55))
@@ -176,9 +199,6 @@ struct DayPager: View {
 
     private func updateSelection(from positions: [Date: CGFloat]) {
         guard jumpTarget == nil, let candidate = visibleDay(from: positions) else { return }
-        // The selected date is the last page whose leading edge crossed the
-        // viewport top. This remains correct while a tall day scrolls within
-        // itself and changes only when the adjacent day truly arrives.
         let normalized = calendar.startOfDay(for: candidate)
         guard selectedDate != normalized else { return }
         if isReadyForFeedback { DaySnapFeedback.play() }
@@ -188,10 +208,9 @@ struct DayPager: View {
 
     private func visibleDay(from positions: [Date: CGFloat]) -> Date? {
         guard !positions.isEmpty else { return nil }
-        let crossedTop = positions
-            .filter { $0.value <= 1 }
-            .max { $0.value < $1.value }
-        return crossedTop?.key ?? positions.min { $0.value < $1.value }?.key
+        return positions.min {
+            abs($0.value - viewportMidX) < abs($1.value - viewportMidX)
+        }?.key
     }
 
     static func dates(around reference: Date, radius: Int, calendar: Calendar = .current) -> [Date] {
@@ -204,6 +223,10 @@ struct DayPager: View {
 
     static func moved(_ day: Date, by offset: Int, calendar: Calendar = .current) -> Date? {
         calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: day))
+    }
+
+    static func pageWidth(in viewportWidth: CGFloat) -> CGFloat {
+        max(340, viewportWidth - 88)
     }
 }
 
@@ -249,12 +272,11 @@ struct DayPageView: View {
             }
             Spacer(minLength: 28)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 18)
         .padding(.top, 20)
         .padding(.bottom, 28)
         .frame(maxWidth: ContentView.contentMaxWidth)
         .frame(maxWidth: .infinity, alignment: .top)
-        .background(Color.manasBackground)
     }
 
     private var daySummary: some View {
@@ -268,10 +290,9 @@ struct DayPageView: View {
                     .foregroundStyle(Color.manasAccent)
             }
             Spacer(minLength: 0)
-            Image(systemName: "arrow.up.and.down")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .help("Scroll for adjacent days")
+            Label(pageContext, systemImage: isToday ? "location.fill" : "calendar")
+                .font(.caption.weight(isToday ? .semibold : .regular))
+                .foregroundStyle(isToday ? Color.manasAccent : Color.secondary)
         }
         .accessibilityElement(children: .combine)
     }
@@ -280,6 +301,11 @@ struct DayPageView: View {
         if todos.isEmpty { return isToday ? "No todos yet" : "No saved todos" }
         if doneCount == todos.count { return "Everything complete" }
         return "\(doneCount) of \(todos.count) complete"
+    }
+
+    private var pageContext: String {
+        if isToday { return "Today" }
+        return day.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 }
 

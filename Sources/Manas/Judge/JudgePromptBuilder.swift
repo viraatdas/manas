@@ -21,6 +21,9 @@ enum JudgePromptBuilder {
             for todo in todos {
                 lines.append("- id: \(todo.id.uuidString)")
                 lines.append("  text: \(todo.text)")
+                if let section = todo.section {
+                    lines.append("  section: \(section)")
+                }
             }
         }
         lines.append("")

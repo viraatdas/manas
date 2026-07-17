@@ -14,6 +14,7 @@ final class ModelCodingTests: XCTestCase {
         let todo = Todo(
             text: "Ship the sparkline",
             createdAt: date,
+            section: "Projects",
             isDone: false,
             verdict: Verdict(status: .inProgress, evidence: "Session touched Charts", judgedAt: date, accepted: true)
         )
@@ -53,6 +54,17 @@ final class ModelCodingTests: XCTestCase {
         """#
         let todo = try AppStore.makeDecoder().decode(Todo.self, from: Data(legacyJSON.utf8))
         XCTAssertEqual(todo.day, Calendar.current.startOfDay(for: todo.createdAt))
+        XCTAssertNil(todo.section, "todos written before sections remain unsectioned")
+    }
+
+    func testTodoSectionNamesNormalizeWhitespaceBuiltInCasingAndLength() {
+        XCTAssertEqual(Todo(text: "A", section: "  personal   ").section, "Personal")
+        XCTAssertEqual(Todo(text: "B", section: "Client    work").section, "Client work")
+        XCTAssertNil(Todo(text: "C", section: "   ").section)
+        XCTAssertEqual(
+            Todo(text: "D", section: String(repeating: "x", count: 80)).section?.count,
+            TodoSectionName.maximumLength
+        )
     }
 
     /// A `day` written mid-day — by a hand-edit, or by a machine in another

@@ -27,15 +27,19 @@ Swift Charts, and SF Symbols.
 - **Todos with verdicts** — each todo gets a chip (Done / In progress /
   Not started / Unknown) plus one line of evidence pulled from your real
   coding sessions, with accept/dismiss controls.
+- **Lightweight sections** — split any day into Work, Personal, Projects, or
+  a custom section from the add field. Section cards keep those contexts
+  separate, and each todo's action menu can move it without rewriting it.
 - **Discovered activities** — "You might have also done this": feature-level
   work found in your sessions that wasn't on the list. Add it (arrives
   checked off) or dismiss it (it stays dismissed on future checks).
-- **A snapping day timeline** — scroll vertically to settle on the previous
-  or next calendar day, or use the chevrons for an exact one-day jump. A
-  floating **Today** button (also ⌘T) returns immediately, with a quiet tick
-  when a wheel/trackpad gesture crosses into another day. Past days are
-  read-only history with "Move to today" for unfinished work; future days
-  are planning lists and are never sent to the judge.
+- **A horizontal day carousel** — swipe left or right to settle on the
+  previous or next calendar day, with neighboring pages kept visible for
+  context. Each day's list still scrolls vertically on its own. The chevrons
+  make exact one-day jumps, while a floating **Today** button (also ⌘T)
+  returns immediately. Past days are read-only history with "Move to today"
+  for unfinished work; future days are planning lists and are never sent to
+  the judge.
 - **Usage strip** — a compact footer line with a 5-dot soft-budget gauge and
   today's tokens · cost · checks. Click it for a slide-down panel with
   today's total, a per-check-in table (including which model ran), and a

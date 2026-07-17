@@ -53,6 +53,7 @@ private func sampleJudgedTodos() -> [Todo] {
     [
         Todo(
             text: "Ship the usage strip",
+            section: "Work",
             verdict: Verdict(
                 status: .done,
                 evidence: "Built UsageStripView in the 2:01 pm Claude session",
@@ -61,6 +62,7 @@ private func sampleJudgedTodos() -> [Todo] {
         ),
         Todo(
             text: "Wire up the session parser",
+            section: "Work",
             verdict: Verdict(
                 status: .inProgress,
                 evidence: "Codex session touched Sources/Manas/Ingest at 11:32 am",
@@ -69,14 +71,15 @@ private func sampleJudgedTodos() -> [Todo] {
         ),
         Todo(
             text: "Write the launch blog post",
+            section: "Projects",
             verdict: Verdict(
                 status: .notStarted,
                 evidence: "No session touched any writing today",
                 judgedAt: todayAt(14, 14)
             )
         ),
-        Todo(text: "Book a dentist appointment"),
-        Todo(text: "Morning standup", isDone: true),
+        Todo(text: "Book a dentist appointment", section: "Personal"),
+        Todo(text: "Morning standup", section: "Work", isDone: true),
     ]
 }
 
@@ -85,11 +88,13 @@ private func samplePastTodos() -> [Todo] {
         Todo(
             text: "Review the ingestion PR",
             day: day(-1),
+            section: "Work",
             isDone: true
         ),
         Todo(
             text: "Draft the launch email",
             day: day(-1),
+            section: "Work",
             verdict: Verdict(
                 status: .notStarted,
                 evidence: "No session touched any writing that day",
@@ -99,12 +104,14 @@ private func samplePastTodos() -> [Todo] {
         Todo(
             text: "Refactor the judge prompt",
             day: day(-2),
+            section: "Projects",
             isDone: true
         ),
-        Todo(text: "Call the accountant", day: day(-2)),
+        Todo(text: "Call the accountant", day: day(-2), section: "Personal"),
         Todo(
             text: "Clean up the test fixtures",
             day: day(-4),
+            section: "Projects",
             isDone: true
         ),
     ]
@@ -112,9 +119,9 @@ private func samplePastTodos() -> [Todo] {
 
 private func sampleUpcomingTodos() -> [Todo] {
     [
-        Todo(text: "Prep the demo script", day: day(1)),
-        Todo(text: "Book flights for the offsite", day: day(1)),
-        Todo(text: "Pack for the offsite", day: day(2)),
+        Todo(text: "Prep the demo script", day: day(1), section: "Work"),
+        Todo(text: "Book flights for the offsite", day: day(1), section: "Work"),
+        Todo(text: "Pack for the offsite", day: day(2), section: "Personal"),
     ]
 }
 

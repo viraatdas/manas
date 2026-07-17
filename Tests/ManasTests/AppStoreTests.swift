@@ -28,6 +28,7 @@ final class AppStoreTests: XCTestCase {
         let todo = Todo(
             text: "Ship the sparkline",
             createdAt: date,
+            section: "Projects",
             verdict: Verdict(status: .inProgress, evidence: "Session touched Charts", judgedAt: date)
         )
         store.todos = [todo]
@@ -252,6 +253,32 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(store.todos[0].isDone)
         store.removeTodo(id)
         XCTAssertEqual(store.todos.map(\.text), ["First"])
+    }
+
+    func testTodoSectionsGroupCanonicallyAndCanBeReassigned() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Loose task")
+        store.addTodo("Call mom", section: " personal ")
+        store.addTodo("Ship release", section: "work")
+        store.addTodo("Sketch the concept", section: "Client   work")
+        store.addTodo("Build the concept", section: "client work")
+
+        XCTAssertEqual(
+            store.availableTodoSections,
+            ["Work", "Personal", "Projects", "Client work"],
+            "built-ins stay first and duplicate custom names reuse one spelling"
+        )
+
+        var groups = store.todoSectionGroups(on: Date())
+        XCTAssertEqual(groups.map(\.section), ["Work", "Personal", "Client work", nil])
+        XCTAssertEqual(groups[2].todos.map(\.text), ["Build the concept", "Sketch the concept"])
+        XCTAssertEqual(groups.last?.todos.map(\.text), ["Loose task"])
+
+        let personalID = store.todosToday.first { $0.text == "Call mom" }!.id
+        store.setTodoSection(personalID, section: "projects")
+        groups = store.todoSectionGroups(on: Date())
+        XCTAssertEqual(groups.map(\.section), ["Work", "Projects", "Client work", nil])
+        XCTAssertEqual(store.todosToday.first { $0.id == personalID }?.section, "Projects")
     }
 
     func testApplyJudgeResult() {

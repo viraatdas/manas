@@ -27,6 +27,13 @@ final class TimelineLayoutTests: XCTestCase {
         XCTAssertEqual(next, calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())))
     }
 
+    func testHorizontalPagerLeavesNeighboringDaysVisible() {
+        XCTAssertEqual(DayPager.pageWidth(in: 460), 372, accuracy: 0.1)
+        XCTAssertEqual(DayPager.pageWidth(in: 560), 472, accuracy: 0.1)
+        XCTAssertLessThan(DayPager.pageWidth(in: 460), 460)
+        XCTAssertLessThan(DayPager.pageWidth(in: 560), 560)
+    }
+
     func testDateScopedPagesRenderEmptyAndPopulatedStates() {
         let store = AppStore.previewTimeline
         let today = Calendar.current.startOfDay(for: Date())
@@ -37,6 +44,15 @@ final class TimelineLayoutTests: XCTestCase {
         XCTAssertGreaterThan(populated.height, 200)
         XCTAssertGreaterThan(empty.height, 150)
         XCTAssertNotEqual(populated.height, empty.height, "Each day must render its own store-backed content.")
+    }
+
+    func testSectionedTodoListRendersAtCompactContentWidth() {
+        let store = AppStore.previewJudged
+        let size = fittingSize(of: TodoListSection(), store: store, width: 412)
+
+        XCTAssertEqual(store.todoSectionGroups(on: Date()).map(\.section), ["Work", "Personal", "Projects"])
+        XCTAssertEqual(size.width, 412, accuracy: 1)
+        XCTAssertGreaterThan(size.height, 300, "all three section cards should contribute to layout")
     }
 
     func testSourceHealthPopoverIncludesPermissionRecoveryWithoutClipping() {

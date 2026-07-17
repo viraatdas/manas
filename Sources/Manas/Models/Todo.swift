@@ -1,5 +1,28 @@
 import Foundation
 
+/// Lightweight names used to separate one day into contexts without adding
+/// a separate project-management hierarchy. Names are persisted directly on
+/// todos; built-in suggestions stay stable and custom names are normalized.
+enum TodoSectionName {
+    static let suggestions = ["Work", "Personal", "Projects"]
+    static let maximumLength = 40
+
+    static func normalized(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let collapsed = rawValue
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+
+        let clipped = String(collapsed.prefix(maximumLength))
+        return suggestions.first { key(for: $0) == key(for: clipped) } ?? clipped
+    }
+
+    static func key(for value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
 /// A user todo, optionally annotated with the judge's latest verdict.
 struct Todo: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
@@ -8,6 +31,9 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
     /// The calendar day (start of day) this todo belongs to. Past days are
     /// frozen history, future days are plans; only today's todos get judged.
     var day: Date
+    /// Optional context such as Work, Personal, or Projects. Older todos have
+    /// no section and continue to decode into the unsectioned group.
+    var section: String?
     var isDone: Bool
     var verdict: Verdict?
 
@@ -16,6 +42,7 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         text: String,
         createdAt: Date = Date(),
         day: Date? = nil,
+        section: String? = nil,
         isDone: Bool = false,
         verdict: Verdict? = nil
     ) {
@@ -23,12 +50,13 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         self.text = text
         self.createdAt = createdAt
         self.day = Calendar.current.startOfDay(for: day ?? createdAt)
+        self.section = TodoSectionName.normalized(section)
         self.isDone = isDone
         self.verdict = verdict
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, createdAt, day, isDone, verdict
+        case id, text, createdAt, day, section, isDone, verdict
     }
 
     init(from decoder: Decoder) throws {
@@ -43,9 +71,20 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         day = Calendar.current.startOfDay(
             for: try container.decodeIfPresent(Date.self, forKey: .day) ?? createdAt
         )
+        section = TodoSectionName.normalized(
+            try container.decodeIfPresent(String.self, forKey: .section)
+        )
         isDone = try container.decode(Bool.self, forKey: .isDone)
         verdict = try container.decodeIfPresent(Verdict.self, forKey: .verdict)
     }
+}
+
+/// One section of a single day, in the order the UI renders it.
+struct TodoSectionGroup: Identifiable, Hashable, Sendable {
+    var section: String?
+    var todos: [Todo]
+
+    var id: String { section.map { TodoSectionName.key(for: $0) } ?? "__unsectioned__" }
 }
 
 /// One calendar day's todos, as rendered by the day-grouped lists.

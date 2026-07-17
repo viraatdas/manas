@@ -6,7 +6,7 @@ final class JudgePromptBuilderTests: XCTestCase {
 
     func testPromptContainsTodoIDsAndText() {
         let todos = [
-            Todo(text: "Ship the sparkline", createdAt: date),
+            Todo(text: "Ship the sparkline", createdAt: date, section: "Work"),
             Todo(text: "Review the ingestion PR", createdAt: date),
         ]
         let prompt = JudgePromptBuilder.build(todos: todos, activities: [])
@@ -14,6 +14,7 @@ final class JudgePromptBuilderTests: XCTestCase {
             XCTAssertTrue(prompt.contains(todo.id.uuidString), "Prompt should carry the todo id verbatim")
             XCTAssertTrue(prompt.contains(todo.text))
         }
+        XCTAssertTrue(prompt.contains("section: Work"))
     }
 
     func testPromptContainsActivityDetails() {

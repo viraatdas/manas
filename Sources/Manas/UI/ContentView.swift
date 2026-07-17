@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The day control panel. The header, add field, pager position, todo list,
-/// and usage footer share one selected date. Vertical scrolling settles on
+/// and usage footer share one selected date. Horizontal paging settles on
 /// adjacent calendar days; checks still run automatically for today.
 struct ContentView: View {
     @Environment(AppStore.self) private var store
