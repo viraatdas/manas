@@ -238,36 +238,20 @@ struct TodoRow: View {
             .contentTransition(.symbolEffect(.replace))
     }
 
+    /// The judge's read on a todo: a status chip and one line of evidence.
+    /// Purely informational; the checkbox is the only control.
     private func verdictSubRow(_ verdict: Verdict) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Chip(
-                    text: verdict.status.label,
-                    systemImage: verdict.status.systemImage,
-                    tint: verdict.status.tint
-                )
-                Text(verdict.evidence)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            if mode == .today, verdict.accepted == nil {
-                HStack(spacing: 2) {
-                    Button("Accept") {
-                        store.setVerdictAccepted(todo.id, accepted: true)
-                    }
-                    .buttonStyle(.ghost)
-                    Button("Dismiss", action: dismissVerdict)
-                        .buttonStyle(.ghost)
-                }
-                .padding(.leading, -9)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Chip(
+                text: verdict.status.label,
+                systemImage: verdict.status.systemImage,
+                tint: verdict.status.tint
+            )
+            Text(verdict.evidence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
-    }
-
-    private func dismissVerdict() {
-        guard let index = store.todos.firstIndex(where: { $0.id == todo.id }) else { return }
-        store.todos[index].verdict = nil
     }
 }
 
