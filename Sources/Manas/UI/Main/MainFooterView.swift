@@ -15,10 +15,12 @@ struct MainFooterView: View {
             hairline
             if isUsageExpanded {
                 VStack(spacing: 0) {
-                    UsageDetailPanel(day: day)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: ContentView.contentMaxWidth)
-                        .frame(maxWidth: .infinity)
+                    UsageDetailPanel(day: day) {
+                        isUsageExpanded = false
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: ContentView.contentMaxWidth)
+                    .frame(maxWidth: .infinity)
                     hairline
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))

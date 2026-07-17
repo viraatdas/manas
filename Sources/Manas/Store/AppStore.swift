@@ -108,6 +108,11 @@ final class AppStore {
         return labels
     }
 
+    /// Group labels in use, sorted for the manual group picker.
+    var availableTodoGroups: [String] {
+        groupNamesInUse.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     /// Canonicalizes an incoming group label, reusing an existing spelling
     /// when the same theme comes back with different case or spacing so a
     /// re-check never forks "Manas" and "manas" into two clusters.
@@ -118,12 +123,20 @@ final class AppStore {
     }
 
     @discardableResult
-    func addTodo(_ text: String, on day: Date = Date()) -> Todo? {
+    func addTodo(_ text: String, on day: Date = Date(), group: String? = nil) -> Todo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let todo = Todo(text: trimmed, day: day)
+        let todo = Todo(text: trimmed, day: day, group: canonicalTodoGroup(group))
         insert(todo)
         return todo
+    }
+
+    /// Moves a todo into a group (or clears it with nil). Manual choices win:
+    /// the judge only auto-groups todos that have no group yet, so this is
+    /// never overwritten by a later check-in.
+    func setTodoGroup(_ id: Todo.ID, group: String?) {
+        guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
+        todos[index].group = canonicalTodoGroup(group)
     }
 
     /// New todos go on top of their day's group. A day's first todo lands at
@@ -278,11 +291,11 @@ final class AppStore {
                 }
                 todos[index].verdict = verdict
             }
-            // A returned group clusters the todo; canonicalize so the same
-            // theme keeps one spelling. An omitted group leaves the todo's
-            // current cluster alone rather than flickering it back to
-            // ungrouped between checks.
-            if let group = result.groups[todos[index].id],
+            // The judge only fills in a group for todos that don't have one
+            // yet, so a manual assignment (or an earlier auto one) is never
+            // overwritten. Canonicalize so a theme keeps one spelling.
+            if todos[index].group == nil,
+               let group = result.groups[todos[index].id],
                let canonical = canonicalTodoGroup(group) {
                 todos[index].group = canonical
             }

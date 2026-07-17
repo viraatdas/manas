@@ -294,6 +294,49 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.groupNamesInUse, ["Manas"])
     }
 
+    func testManualGroupOnAddAndMoveCanonicalizes() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship the panel", group: "Manas")
+        store.addTodo("Loose task")
+        // A second, differently-cased label reuses the existing spelling.
+        store.addTodo("Fix the sparkline", group: " manas ")
+
+        XCTAssertEqual(store.todosToday.first { $0.text == "Ship the panel" }?.group, "Manas")
+        XCTAssertEqual(store.todosToday.first { $0.text == "Fix the sparkline" }?.group, "Manas")
+        XCTAssertNil(store.todosToday.first { $0.text == "Loose task" }?.group)
+        XCTAssertEqual(store.availableTodoGroups, ["Manas"])
+
+        // Moving reassigns, and clearing sends it back to the ungrouped cluster.
+        let looseID = store.todosToday.first { $0.text == "Loose task" }!.id
+        store.setTodoGroup(looseID, group: "Manas")
+        XCTAssertEqual(store.todosToday.first { $0.id == looseID }?.group, "Manas")
+        store.setTodoGroup(looseID, group: nil)
+        XCTAssertNil(store.todosToday.first { $0.id == looseID }?.group)
+    }
+
+    func testJudgeNeverOverwritesAnExistingGroup() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Baggage for Vancouver", group: "Trips")
+        store.addTodo("Wire the judge")
+        let manualID = store.todosToday.first { $0.text == "Baggage for Vancouver" }!.id
+        let autoID = store.todosToday.first { $0.text == "Wire the judge" }!.id
+        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
+
+        // The judge tries to regroup the manual one and group the loose one.
+        store.applyJudgeResult(JudgeResult(
+            groups: [manualID: "Vancouver", autoID: "Manas"], usage: usage
+        ))
+
+        XCTAssertEqual(
+            store.todosToday.first { $0.id == manualID }?.group, "Trips",
+            "a group already set (manually) is never overwritten by the judge"
+        )
+        XCTAssertEqual(
+            store.todosToday.first { $0.id == autoID }?.group, "Manas",
+            "the judge still auto-groups a todo that had no group yet"
+        )
+    }
+
     func testJudgeGroupsApplyToTodayOnly() {
         let store = AppStore(fileURL: tempStateURL())
         let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date())!

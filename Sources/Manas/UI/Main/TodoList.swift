@@ -11,6 +11,7 @@ struct AddTodoField: View {
     @Environment(AppStore.self) private var store
     var day: Date
     @State private var draft = ""
+    @State private var selectedGroup: String?
     @FocusState private var focusedField: FocusedField?
 
     init(day: Date = Date()) {
@@ -27,7 +28,14 @@ struct AddTodoField: View {
                 .font(.body)
                 .focused($focusedField, equals: .todo)
                 .onSubmit(submit)
-                .accessibilityLabel(placeholder)
+                .accessibilityLabel(accessibilityLabel)
+
+            Divider()
+                .frame(height: 19)
+
+            TodoGroupPickerButton(selection: $selectedGroup) {
+                focusedField = .todo
+            }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 11)
@@ -42,10 +50,17 @@ struct AddTodoField: View {
         .animation(.easeOut(duration: 0.15), value: focusedField)
     }
 
+    /// The picked group sticks across adds so several todos can go into the
+    /// same group in a row.
     private func submit() {
-        guard store.addTodo(draft, on: day) != nil else { return }
+        guard store.addTodo(draft, on: day, group: selectedGroup) != nil else { return }
         draft = ""
         focusedField = .todo
+    }
+
+    private var accessibilityLabel: String {
+        guard let selectedGroup else { return placeholder }
+        return "\(placeholder), in \(selectedGroup)"
     }
 }
 
@@ -205,12 +220,51 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
+            if mode != .history {
+                groupMenu
+                    .opacity(isHovered ? 1 : 0.35)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color.primary.opacity(isHovered ? 0.035 : 0))
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+
+    /// Move this todo into a group (or clear it). New groups are named from the
+    /// add field's picker; this menu reassigns among the groups already in use.
+    private var groupMenu: some View {
+        Menu {
+            Button {
+                store.setTodoGroup(todo.id, group: nil)
+            } label: {
+                if todo.group == nil { Label("No group", systemImage: "checkmark") }
+                else { Text("No group") }
+            }
+            if !store.availableTodoGroups.isEmpty {
+                Divider()
+                ForEach(store.availableTodoGroups, id: \.self) { group in
+                    Button {
+                        store.setTodoGroup(todo.id, group: group)
+                    } label: {
+                        if todo.group == group { Label(group, systemImage: "checkmark") }
+                        else { Text(group) }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "folder")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Move to group")
+        .accessibilityLabel("Move \(todo.text) to a group")
     }
 
     @ViewBuilder

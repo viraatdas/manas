@@ -8,6 +8,8 @@ import SwiftUI
 struct UsageDetailPanel: View {
     @Environment(AppStore.self) private var store
     var day: Date = Date()
+    /// When set, the panel shows a close button and closes on Escape.
+    var onClose: (() -> Void)?
 
     var body: some View {
         let totals = UsageMath.totals(of: store.usageRecords, on: day)
@@ -15,6 +17,9 @@ struct UsageDetailPanel: View {
         let series = UsageMath.dailySeries(of: store.usageRecords, days: 7, endingOn: day)
 
         VStack(alignment: .leading, spacing: 14) {
+            if let onClose {
+                closeHeader(onClose)
+            }
             metricCard(totals)
             sessionTable(dayRecords)
             if Calendar.current.isDateInToday(day) {
@@ -25,6 +30,27 @@ struct UsageDetailPanel: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.manasBackground)
+    }
+
+    /// A titled row with a close button; the button also binds Escape so the
+    /// panel is easy to dismiss without hunting for the footer chevron.
+    private func closeHeader(_ onClose: @escaping () -> Void) -> some View {
+        HStack {
+            Text("Usage")
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Close usage (Esc)")
+            .accessibilityLabel("Close usage")
+        }
     }
 
     // MARK: - Today's total
