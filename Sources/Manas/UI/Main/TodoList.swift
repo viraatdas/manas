@@ -98,9 +98,8 @@ struct TodoListSection: View {
         if todos.isEmpty {
             DayEmptyState(day: day)
         } else {
-            let groups = store.todoGroups(on: day)
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(groups) { group in
+                ForEach(displayGroups) { group in
                     TodoGroupBlock(
                         group: group,
                         mode: mode,
@@ -110,6 +109,22 @@ struct TodoListSection: View {
             }
         }
     }
+
+    /// Today always shows Work and Personal as standing buckets so any todo can
+    /// be dragged into a category even before one exists. Past and future days
+    /// just render whatever groups they already have.
+    private var displayGroups: [TodoGroup] {
+        var groups = store.todoGroups(on: day)
+        guard mode == .today else { return groups }
+        for bucket in AppStore.suggestedTodoGroups {
+            let key = TodoGroupName.key(for: bucket)
+            let exists = groups.contains { $0.group.map { TodoGroupName.key(for: $0) } == key }
+            if !exists {
+                groups.append(TodoGroup(group: bucket, todos: []))
+            }
+        }
+        return groups
+    }
 }
 
 private struct TodoGroupBlock: View {
@@ -117,6 +132,7 @@ private struct TodoGroupBlock: View {
     var group: TodoGroup
     var mode: TodoRow.Mode
     var showsHeader: Bool
+    @State private var isTargeted = false
 
     private var doneCount: Int { group.todos.filter(\.isDone).count }
 
@@ -138,16 +154,73 @@ private struct TodoGroupBlock: View {
                 .accessibilityElement(children: .combine)
             }
 
-            VStack(spacing: 0) {
-                ForEach(group.todos) { todo in
-                    TodoRow(todo: todo, mode: mode)
-                    if todo.id != group.todos.last?.id {
-                        Divider().padding(.leading, 46)
+            content
+                .overlay(dropHighlight)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let inner = Group {
+            if group.todos.isEmpty {
+                emptyDropZone
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(group.todos) { todo in
+                        TodoRow(todo: todo, mode: mode)
+                        if todo.id != group.todos.last?.id {
+                            Divider().padding(.leading, 46)
+                        }
                     }
                 }
+                .manasCard(padding: 0)
             }
-            .manasCard(padding: 0)
         }
+        // Only today's groups accept drops; past days are frozen history.
+        if mode == .today {
+            inner.dropDestination(for: String.self) { ids, _ in
+                handleDrop(ids)
+            } isTargeted: { isTargeted = $0 }
+        } else {
+            inner
+        }
+    }
+
+    private var emptyDropZone: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.to.line")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Text("Drag todos here")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+
+    @ViewBuilder
+    private var dropHighlight: some View {
+        if isTargeted {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.manasAccent, lineWidth: 1.5)
+        }
+    }
+
+    private func handleDrop(_ ids: [String]) -> Bool {
+        var moved = false
+        for id in ids {
+            guard let uuid = UUID(uuidString: id) else { continue }
+            store.setTodoGroup(uuid, group: group.group)
+            moved = true
+        }
+        return moved
     }
 }
 
@@ -203,6 +276,27 @@ struct TodoRow: View {
     @State private var isHovered = false
 
     var body: some View {
+        // Only today's todos are draggable, into the Work/Personal buckets.
+        if mode == .today {
+            rowBody.draggable(todo.id.uuidString) { dragPreview }
+        } else {
+            rowBody
+        }
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 8) {
+            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(todo.isDone ? Color.manasAccent : Color.secondary)
+            Text(todo.text)
+                .lineLimit(1)
+        }
+        .font(.body)
+        .padding(10)
+        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private var rowBody: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             checkbox
             VStack(alignment: .leading, spacing: 6) {

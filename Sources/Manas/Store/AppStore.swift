@@ -322,14 +322,8 @@ final class AppStore {
                 }
                 todos[index].verdict = verdict
             }
-            // The judge only fills in a group for todos that don't have one
-            // yet, so a manual assignment (or an earlier auto one) is never
-            // overwritten. Canonicalize so a theme keeps one spelling.
-            if todos[index].group == nil,
-               let group = result.groups[todos[index].id],
-               let canonical = canonicalTodoGroup(group) {
-                todos[index].group = canonical
-            }
+            // Grouping is manual for now (Work / Personal, dragged by the
+            // user), so judge-suggested groups are intentionally not applied.
         }
         // Every pass re-observes the whole day, so its discoveries supersede
         // the previous pass's pending ones — keeping them would pile up a

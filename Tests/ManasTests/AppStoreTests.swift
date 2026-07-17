@@ -276,24 +276,6 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(groups[2].todos.map(\.text), ["Rotate keys"])
     }
 
-    func testJudgeGroupsCanonicalizeToAnExistingSpelling() {
-        let store = AppStore(fileURL: tempStateURL())
-        store.addTodo("Ship the panel")
-        store.addTodo("Fix the sparkline")
-        let first = store.todosToday.first { $0.text == "Ship the panel" }!.id
-        let second = store.todosToday.first { $0.text == "Fix the sparkline" }!.id
-        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
-
-        store.applyJudgeResult(JudgeResult(groups: [first: "Manas"], usage: usage))
-        // A later pass returns a different casing; it must reuse the label
-        // already in use rather than forking a second cluster.
-        store.applyJudgeResult(JudgeResult(groups: [second: "  manas "], usage: usage))
-
-        XCTAssertEqual(store.todosToday.first { $0.id == first }?.group, "Manas")
-        XCTAssertEqual(store.todosToday.first { $0.id == second }?.group, "Manas")
-        XCTAssertEqual(store.groupNamesInUse, ["Manas"])
-    }
-
     func testBuiltInGroupsLeadAndEmojisResolveWithDefaults() {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Rotate the keys", group: "Exla infra")
@@ -341,42 +323,25 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.todosToday.first { $0.id == looseID }?.group)
     }
 
-    func testJudgeNeverOverwritesAnExistingGroup() {
+    func testJudgeDoesNotAssignGroupsGroupingIsManual() {
         let store = AppStore(fileURL: tempStateURL())
-        store.addTodo("Baggage for Vancouver", group: "Trips")
+        store.addTodo("Baggage for Vancouver", group: "Personal")
         store.addTodo("Wire the judge")
         let manualID = store.todosToday.first { $0.text == "Baggage for Vancouver" }!.id
-        let autoID = store.todosToday.first { $0.text == "Wire the judge" }!.id
+        let looseID = store.todosToday.first { $0.text == "Wire the judge" }!.id
         let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
 
-        // The judge tries to regroup the manual one and group the loose one.
+        // Even if a JudgeResult carries group suggestions, they are not applied:
+        // grouping is manual (Work / Personal, dragged by the user).
         store.applyJudgeResult(JudgeResult(
-            groups: [manualID: "Vancouver", autoID: "Manas"], usage: usage
+            groups: [manualID: "Vancouver", looseID: "Manas"], usage: usage
         ))
 
-        XCTAssertEqual(
-            store.todosToday.first { $0.id == manualID }?.group, "Trips",
-            "a group already set (manually) is never overwritten by the judge"
+        XCTAssertEqual(store.todosToday.first { $0.id == manualID }?.group, "Personal")
+        XCTAssertNil(
+            store.todosToday.first { $0.id == looseID }?.group,
+            "the judge never auto-groups a loose todo"
         )
-        XCTAssertEqual(
-            store.todosToday.first { $0.id == autoID }?.group, "Manas",
-            "the judge still auto-groups a todo that had no group yet"
-        )
-    }
-
-    func testJudgeGroupsApplyToTodayOnly() {
-        let store = AppStore(fileURL: tempStateURL())
-        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
-        store.addTodo("Past task", on: yesterday)
-        store.addTodo("Today task")
-        let pastID = store.todos(on: yesterday)[0].id
-        let todayID = store.todosToday[0].id
-        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
-
-        store.applyJudgeResult(JudgeResult(groups: [pastID: "Manas", todayID: "Manas"], usage: usage))
-
-        XCTAssertNil(store.todos(on: yesterday)[0].group, "past days are frozen and never regrouped")
-        XCTAssertEqual(store.todosToday[0].group, "Manas")
     }
 
     func testApplyJudgeResult() {
