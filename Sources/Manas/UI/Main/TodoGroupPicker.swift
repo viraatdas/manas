@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Compact control for putting a new todo into a group, backed by a popover of
-/// existing groups plus a field to name a new one. Groups are also assigned
-/// automatically by the judge; this is the manual override, and a manual choice
-/// is never overwritten by a later check-in.
+/// existing groups (built-in Work and Personal first) plus a field to name a
+/// new one and pick its emoji. Groups are also assigned automatically by the
+/// judge; this is the manual override, and a manual choice is never overwritten
+/// by a later check-in.
 struct TodoGroupPickerButton: View {
+    @Environment(AppStore.self) private var store
     @Binding var selection: String?
     var onClose: () -> Void = {}
 
@@ -15,12 +17,18 @@ struct TodoGroupPickerButton: View {
             isPresented.toggle()
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: selection == nil ? "folder" : "folder.fill")
-                    .foregroundStyle(selection == nil ? Color.secondary : Color.manasAccent)
-                Text(selection ?? "Group")
-                    .lineLimit(1)
-                    .frame(maxWidth: 120, alignment: .leading)
-                    .foregroundStyle(selection == nil ? Color.secondary : Color.primary)
+                if let selection {
+                    Text(store.emoji(forGroup: selection))
+                    Text(selection)
+                        .lineLimit(1)
+                        .frame(maxWidth: 108, alignment: .leading)
+                        .foregroundStyle(Color.primary)
+                } else {
+                    Image(systemName: "folder")
+                        .foregroundStyle(Color.secondary)
+                    Text("Group")
+                        .foregroundStyle(Color.secondary)
+                }
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
@@ -55,6 +63,7 @@ private struct TodoGroupPickerPopover: View {
     var close: () -> Void
 
     @State private var newGroup = ""
+    @State private var newGroupEmoji = ""
     @FocusState private var isNewGroupFocused: Bool
 
     var body: some View {
@@ -67,18 +76,25 @@ private struct TodoGroupPickerPopover: View {
 
             ScrollView {
                 VStack(spacing: 2) {
-                    option(title: "No group", group: nil, systemImage: "tray")
+                    option(title: "No group", group: nil, badge: nil)
                     ForEach(groupOptions, id: \.self) { group in
-                        option(title: group, group: group, systemImage: "folder")
+                        option(title: group, group: group, badge: store.emoji(forGroup: group))
                     }
                 }
                 .padding(.horizontal, 6)
                 .padding(.bottom, 6)
             }
-            .frame(maxHeight: 220)
+            .frame(maxHeight: 200)
 
             Divider()
 
+            newGroupEditor
+        }
+        .frame(width: 264)
+    }
+
+    private var newGroupEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
                 Image(systemName: "plus")
                     .font(.caption.weight(.semibold))
@@ -95,9 +111,29 @@ private struct TodoGroupPickerPopover: View {
                     .controlSize(.small)
                     .disabled(store.canonicalTodoGroup(newGroup) == nil)
             }
-            .padding(10)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 30), spacing: 4)],
+                spacing: 4
+            ) {
+                ForEach(TodoGroupName.emojiPalette, id: \.self) { emoji in
+                    Button {
+                        newGroupEmoji = (newGroupEmoji == emoji) ? "" : emoji
+                    } label: {
+                        Text(emoji)
+                            .font(.title3)
+                            .frame(width: 30, height: 30)
+                            .background(
+                                newGroupEmoji == emoji ? Color.manasAccent.opacity(0.18) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Emoji \(emoji)")
+                    .accessibilityAddTraits(newGroupEmoji == emoji ? .isSelected : [])
+                }
+            }
         }
-        .frame(width: 240)
+        .padding(10)
     }
 
     /// Existing groups, plus the current selection when it isn't one of them
@@ -111,15 +147,19 @@ private struct TodoGroupPickerPopover: View {
         return store.availableTodoGroups + [selection]
     }
 
-    private func option(title: String, group: String?, systemImage: String) -> some View {
+    private func option(title: String, group: String?, badge: String?) -> some View {
         Button {
             selection = group
             close()
         } label: {
             HStack(spacing: 9) {
-                Image(systemName: systemImage)
-                    .foregroundStyle(group == nil ? Color.secondary : Color.manasAccent)
-                    .frame(width: 18)
+                if let badge {
+                    Text(badge).frame(width: 18)
+                } else {
+                    Image(systemName: "tray")
+                        .foregroundStyle(Color.secondary)
+                        .frame(width: 18)
+                }
                 Text(title)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -141,8 +181,10 @@ private struct TodoGroupPickerPopover: View {
 
     private func addGroup() {
         guard let group = store.canonicalTodoGroup(newGroup) else { return }
+        store.setGroupEmoji(group, emoji: newGroupEmoji.isEmpty ? nil : newGroupEmoji)
         selection = group
         newGroup = ""
+        newGroupEmoji = ""
         close()
     }
 }

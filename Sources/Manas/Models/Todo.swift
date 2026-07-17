@@ -8,6 +8,20 @@ import Foundation
 enum TodoGroupName {
     static let maximumLength = 30
 
+    /// Built-in groups offered in the picker before the user makes their own.
+    static let suggestions = ["Work", "Personal"]
+
+    /// A calm palette to pick a group's emoji from at creation time.
+    static let emojiPalette = ["💼", "🏠", "🚀", "🧠", "💡", "🎯", "🛠️", "🌱", "📓", "📦", "✈️", "💬"]
+
+    /// The default badge for a group when the user hasn't chosen one; the
+    /// built-ins get a fitting emoji, everything else falls back to a folder.
+    static let fallbackEmoji = "📁"
+    static let defaultEmoji: [String: String] = [
+        key(for: "Work"): "💼",
+        key(for: "Personal"): "🏠",
+    ]
+
     static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
         let collapsed = rawValue
@@ -19,6 +33,12 @@ enum TodoGroupName {
 
     static func key(for value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    /// First grapheme of a typed emoji, or nil if it's blank.
+    static func normalizedEmoji(_ raw: String?) -> String? {
+        guard let first = raw?.trimmingCharacters(in: .whitespaces).first else { return nil }
+        return String(first)
     }
 }
 

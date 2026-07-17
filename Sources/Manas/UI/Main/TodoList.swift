@@ -113,6 +113,7 @@ struct TodoListSection: View {
 }
 
 private struct TodoGroupBlock: View {
+    @Environment(AppStore.self) private var store
     var group: TodoGroup
     var mode: TodoRow.Mode
     var showsHeader: Bool
@@ -123,6 +124,8 @@ private struct TodoGroupBlock: View {
         VStack(alignment: .leading, spacing: 7) {
             if showsHeader, let label = group.group {
                 HStack(spacing: 7) {
+                    Text(store.emoji(forGroup: label))
+                        .font(.subheadline)
                     Text(label)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)

@@ -16,6 +16,9 @@ final class AppStore {
     var usageRecords: [UsageRecord] = [] { didSet { scheduleSave() } }
     /// Soft daily token budget backing the usage strip's dots — visual, not a limit.
     var dailyTokenBudget: Int = 10_000 { didSet { scheduleSave() } }
+    /// User-chosen emoji per group, keyed by the group's case-folded key.
+    /// Built-in groups fall back to a default when absent (see `emoji(forGroup:)`).
+    var groupEmojis: [String: String] = [:] { didSet { scheduleSave() } }
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
     var syncedSourceCount: Int = 0 { didSet { scheduleSave() } }
 
@@ -74,6 +77,7 @@ final class AppStore {
             discoveredActivities = state.discoveredActivities
             usageRecords = state.usageRecords
             dailyTokenBudget = state.dailyTokenBudget
+            groupEmojis = state.groupEmojis ?? [:]
             lastCheckedAt = state.lastCheckedAt
             syncedSourceCount = state.syncedSourceCount
         }
@@ -108,9 +112,36 @@ final class AppStore {
         return labels
     }
 
-    /// Group labels in use, sorted for the manual group picker.
+    static let suggestedTodoGroups = TodoGroupName.suggestions
+
+    /// Groups offered in the picker: the built-in Work and Personal first, then
+    /// any custom groups already in use, alphabetically. A custom group stays
+    /// available as long as at least one todo uses it.
     var availableTodoGroups: [String] {
-        groupNamesInUse.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var seen = Set(Self.suggestedTodoGroups.map { TodoGroupName.key(for: $0) })
+        let custom = groupNamesInUse
+            .filter { seen.insert(TodoGroupName.key(for: $0)).inserted }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return Self.suggestedTodoGroups + custom
+    }
+
+    /// The emoji badge for a group: the user's choice, else a built-in default,
+    /// else a neutral folder.
+    func emoji(forGroup group: String) -> String {
+        let key = TodoGroupName.key(for: group)
+        return groupEmojis[key] ?? TodoGroupName.defaultEmoji[key] ?? TodoGroupName.fallbackEmoji
+    }
+
+    /// Assigns (or clears) a group's emoji. Stored by the group's key so every
+    /// todo in that group shows the same badge.
+    func setGroupEmoji(_ group: String, emoji: String?) {
+        guard let canonical = canonicalTodoGroup(group) else { return }
+        let key = TodoGroupName.key(for: canonical)
+        if let emoji = TodoGroupName.normalizedEmoji(emoji) {
+            groupEmojis[key] = emoji
+        } else {
+            groupEmojis[key] = nil
+        }
     }
 
     /// Canonicalizes an incoming group label, reusing an existing spelling
@@ -359,6 +390,9 @@ final class AppStore {
         var discoveredActivities: [DiscoveredActivity]
         var usageRecords: [UsageRecord]
         var dailyTokenBudget: Int
+        // Optional so state.json files written before per-group emojis decode
+        // cleanly instead of tripping the "start fresh" fallback.
+        var groupEmojis: [String: String]?
         var lastCheckedAt: Date?
         var syncedSourceCount: Int
     }
@@ -369,6 +403,7 @@ final class AppStore {
             discoveredActivities: discoveredActivities,
             usageRecords: usageRecords,
             dailyTokenBudget: dailyTokenBudget,
+            groupEmojis: groupEmojis,
             lastCheckedAt: lastCheckedAt,
             syncedSourceCount: syncedSourceCount
         )
