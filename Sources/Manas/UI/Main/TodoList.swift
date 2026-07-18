@@ -1,5 +1,64 @@
 import SwiftUI
 
+/// Sentinel key for the leading unlabeled cluster in the drag machinery.
+private let ungroupedDragKey = "__ungrouped__"
+private let todoDragSpace = "today-todos"
+
+/// Drives the custom press-to-lift drag: which todo is lifted, how far it has
+/// moved, and which bucket it is hovering over. Buckets register their frames
+/// so a plain point test tells us the drop target as the row follows the cursor.
+@MainActor
+@Observable
+final class TodoDragController {
+    var draggingID: Todo.ID?
+    var translation: CGSize = .zero
+    /// The bucket key currently under the row (nil-cluster uses the sentinel).
+    var targetKey: String?
+    /// The row's own bucket, so a drop back onto it is a no-op.
+    var sourceKey: String?
+    @ObservationIgnored private var frames: [String: CGRect] = [:]
+
+    var isActive: Bool { draggingID != nil }
+    func isDragging(_ id: Todo.ID) -> Bool { draggingID == id }
+    func isTargeted(_ key: String) -> Bool { isActive && targetKey == key && targetKey != sourceKey }
+
+    func setFrames(_ frames: [String: CGRect]) { self.frames = frames }
+
+    func lift(id: Todo.ID, sourceKey: String) {
+        draggingID = id
+        self.sourceKey = sourceKey
+        targetKey = sourceKey
+        translation = .zero
+    }
+
+    func move(translation: CGSize, location: CGPoint) {
+        self.translation = translation
+        targetKey = frames.first { $0.value.contains(location) }?.key ?? sourceKey
+    }
+
+    /// The group label to drop into, or a two-state result: nil label means the
+    /// ungrouped cluster; `false` return means no change (dropped on its own bucket).
+    func resolveDrop(at location: CGPoint) -> (changed: Bool, label: String?) {
+        let key = frames.first { $0.value.contains(location) }?.key ?? sourceKey
+        guard let key, key != sourceKey else { return (false, nil) }
+        return (true, key == ungroupedDragKey ? nil : key)
+    }
+
+    func reset() {
+        draggingID = nil
+        translation = .zero
+        targetKey = nil
+        sourceKey = nil
+    }
+}
+
+private struct GroupFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 /// Date-scoped add field. The visible pager day and this field always share
 /// the same normalized date, so adding while looking at Friday cannot land on
 /// today by accident. Todos arrive ungrouped; the judge clusters them.
@@ -93,6 +152,8 @@ struct TodoListSection: View {
         return day < calendar.startOfDay(for: Date()) ? .history : .planned
     }
 
+    @State private var dragController = TodoDragController()
+
     var body: some View {
         let todos = store.todos(on: day)
         if todos.isEmpty {
@@ -103,9 +164,17 @@ struct TodoListSection: View {
                     TodoGroupBlock(
                         group: group,
                         mode: mode,
-                        showsHeader: group.group != nil
+                        showsHeader: group.group != nil,
+                        dragController: mode == .today ? dragController : nil
                     )
+                    // Float the bucket holding the lifted row above the others
+                    // so it is never occluded while dragging across buckets.
+                    .zIndex(group.todos.contains { $0.id == dragController.draggingID } ? 1 : 0)
                 }
+            }
+            .coordinateSpace(name: todoDragSpace)
+            .onPreferenceChange(GroupFramePreferenceKey.self) { frames in
+                dragController.setFrames(frames)
             }
         }
     }
@@ -132,9 +201,11 @@ private struct TodoGroupBlock: View {
     var group: TodoGroup
     var mode: TodoRow.Mode
     var showsHeader: Bool
-    @State private var isTargeted = false
+    var dragController: TodoDragController?
 
     private var doneCount: Int { group.todos.filter(\.isDone).count }
+    private var frameKey: String { group.group ?? ungroupedDragKey }
+    private var isTargeted: Bool { dragController?.isTargeted(frameKey) ?? false }
 
     /// Built-in Work and Personal always stand; only custom groups delete.
     private func isDeletable(_ label: String) -> Bool {
@@ -168,34 +239,26 @@ private struct TodoGroupBlock: View {
             }
 
             content
-                .overlay(dropHighlight)
+                .background(dropHighlight)
+                .background(frameReporter)
+                .animation(.easeOut(duration: 0.14), value: isTargeted)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        let inner = Group {
-            if group.todos.isEmpty {
-                emptyDropZone
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(group.todos) { todo in
-                        TodoRow(todo: todo, mode: mode)
-                        if todo.id != group.todos.last?.id {
-                            Divider().padding(.leading, 46)
-                        }
+        if group.todos.isEmpty {
+            emptyDropZone
+        } else {
+            VStack(spacing: 0) {
+                ForEach(group.todos) { todo in
+                    TodoRow(todo: todo, mode: mode, dragController: dragController)
+                    if todo.id != group.todos.last?.id {
+                        Divider().padding(.leading, 46)
                     }
                 }
-                .manasCard(padding: 0)
             }
-        }
-        // Only today's groups accept drops; past days are frozen history.
-        if mode == .today {
-            inner.dropDestination(for: String.self) { ids, _ in
-                handleDrop(ids)
-            } isTargeted: { isTargeted = $0 }
-        } else {
-            inner
+            .manasCard(padding: 0)
         }
     }
 
@@ -203,10 +266,10 @@ private struct TodoGroupBlock: View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.down.to.line")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
-            Text("Drag todos here")
+                .foregroundStyle(isTargeted ? AnyShapeStyle(Color.manasAccent) : AnyShapeStyle(.tertiary))
+            Text(isTargeted ? "Drop to add here" : "Drag todos here")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isTargeted ? AnyShapeStyle(Color.manasAccent) : AnyShapeStyle(.tertiary))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
@@ -214,7 +277,10 @@ private struct TodoGroupBlock: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .strokeBorder(
+                    isTargeted ? Color.manasAccent : Color.hairline,
+                    style: StrokeStyle(lineWidth: isTargeted ? 1.5 : 1, dash: [4, 3])
+                )
         )
     }
 
@@ -222,18 +288,22 @@ private struct TodoGroupBlock: View {
     private var dropHighlight: some View {
         if isTargeted {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.manasAccent, lineWidth: 1.5)
+                .fill(Color.manasAccent.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.manasAccent, lineWidth: 1.5)
+                )
         }
     }
 
-    private func handleDrop(_ ids: [String]) -> Bool {
-        var moved = false
-        for id in ids {
-            guard let uuid = UUID(uuidString: id) else { continue }
-            store.setTodoGroup(uuid, group: group.group)
-            moved = true
+    /// Publishes this bucket's rect so the drag controller can point-test it.
+    private var frameReporter: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: GroupFramePreferenceKey.self,
+                value: [frameKey: geometry.frame(in: .named(todoDragSpace))]
+            )
         }
-        return moved
     }
 }
 
@@ -286,27 +356,61 @@ struct TodoRow: View {
     @Environment(AppStore.self) private var store
     var todo: Todo
     var mode: Mode = .today
+    var dragController: TodoDragController?
     @State private var isHovered = false
 
+    private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
+
     var body: some View {
-        // Only today's todos are draggable, into the Work/Personal buckets.
-        if mode == .today {
-            rowBody.draggable(todo.id.uuidString) { dragPreview }
+        if let dragController, mode == .today {
+            rowBody
+                .overlay(alignment: .leading) { dragHandle(dragController) }
+                .scaleEffect(isDragging ? 1.03 : 1)
+                .shadow(
+                    color: .black.opacity(isDragging ? 0.16 : 0),
+                    radius: isDragging ? 10 : 0, x: 0, y: isDragging ? 5 : 0
+                )
+                .offset(isDragging ? dragController.translation : .zero)
+                .zIndex(isDragging ? 1 : 0)
+                .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isDragging)
         } else {
             rowBody
         }
     }
 
-    private var dragPreview: some View {
-        HStack(spacing: 8) {
-            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(todo.isDone ? Color.manasAccent : Color.secondary)
-            Text(todo.text)
-                .lineLimit(1)
+    /// The grip that starts a drag. Rendered only while hovering or dragging so
+    /// it never steals a scroll gesture from a resting row.
+    @ViewBuilder
+    private func dragHandle(_ controller: TodoDragController) -> some View {
+        if isHovered || isDragging {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 14, height: 34)
+                .contentShape(Rectangle())
+                .highPriorityGesture(dragGesture(controller))
+                .help("Drag into a group")
+                .accessibilityLabel("Drag \(todo.text) into a group")
         }
-        .font(.body)
-        .padding(10)
-        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private func dragGesture(_ controller: TodoDragController) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(todoDragSpace))
+            .onChanged { value in
+                if !controller.isDragging(todo.id) {
+                    controller.lift(id: todo.id, sourceKey: todo.group ?? ungroupedDragKey)
+                }
+                controller.move(translation: value.translation, location: value.location)
+            }
+            .onEnded { value in
+                let drop = controller.resolveDrop(at: value.location)
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.74)) {
+                    if drop.changed {
+                        store.setTodoGroup(todo.id, group: drop.label)
+                    }
+                    controller.reset()
+                }
+            }
     }
 
     private var rowBody: some View {
