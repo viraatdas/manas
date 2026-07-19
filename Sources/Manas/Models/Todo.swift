@@ -9,10 +9,14 @@ enum TodoGroupName {
     static let maximumLength = 30
 
     /// Built-in groups offered in the picker before the user makes their own.
-    static let suggestions = ["Work", "Personal"]
+    /// "Waste of time" is the judge's home for detected time-sink activity.
+    static let suggestions = ["Work", "Personal", "Waste of time"]
+
+    /// The exact label the judge tags detected time-wasting activity with.
+    static let wasteOfTime = "Waste of time"
 
     /// A calm palette to pick a group's emoji from at creation time.
-    static let emojiPalette = ["💼", "🏠", "🚀", "🧠", "💡", "🎯", "🛠️", "🌱", "📓", "📦", "✈️", "💬"]
+    static let emojiPalette = ["💼", "🏠", "🕳️", "🚀", "🧠", "💡", "🎯", "🛠️", "🌱", "📓", "📦", "✈️"]
 
     /// The default badge for a group when the user hasn't chosen one; the
     /// built-ins get a fitting emoji, everything else falls back to a folder.
@@ -20,6 +24,7 @@ enum TodoGroupName {
     static let defaultEmoji: [String: String] = [
         key(for: "Work"): "💼",
         key(for: "Personal"): "🏠",
+        key(for: "Waste of time"): "🕳️",
     ]
 
     static func normalized(_ rawValue: String?) -> String? {

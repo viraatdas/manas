@@ -16,13 +16,17 @@ final class JudgePromptBuilderTests: XCTestCase {
         }
     }
 
-    func testPromptDoesNotAskForGroups() {
+    func testPromptDoesNotGroupTodosButFlagsTimeSinks() {
         let prompt = JudgePromptBuilder.build(
             todos: [Todo(text: "A", createdAt: date, group: "Manas")], activities: []
         )
-        XCTAssertFalse(prompt.contains("\"group\""), "grouping is manual, so the reply shape omits it")
+        // Todos are grouped by hand (dragging), so the prompt never echoes or
+        // asks for a todo's group.
         XCTAssertFalse(prompt.contains("Groups already in use"))
         XCTAssertFalse(prompt.contains("current group"))
+        // Discoveries can still be tagged as a time sink for the built-in section.
+        XCTAssertTrue(prompt.contains("Waste of time"))
+        XCTAssertTrue(prompt.contains("time sink"))
     }
 
     func testPromptContainsActivityDetails() {

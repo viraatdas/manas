@@ -282,7 +282,7 @@ final class AppStoreTests: XCTestCase {
 
         XCTAssertEqual(group, "Vancouver trip")
         XCTAssertTrue(store.standingGroups.contains("Vancouver trip"), "a created group shows even while empty")
-        XCTAssertEqual(store.availableTodoGroups, ["Work", "Personal", "Vancouver trip"])
+        XCTAssertEqual(store.availableTodoGroups, ["Work", "Personal", "Waste of time", "Vancouver trip"])
         XCTAssertEqual(store.emoji(forGroup: "Vancouver trip"), "✈️")
         // Creating the same name again does not duplicate it.
         store.createGroup("vancouver trip")
@@ -317,11 +317,12 @@ final class AppStoreTests: XCTestCase {
         store.addTodo("Rotate the keys", group: "Exla infra")
 
         XCTAssertEqual(
-            store.availableTodoGroups, ["Work", "Personal", "Exla infra"],
+            store.availableTodoGroups, ["Work", "Personal", "Waste of time", "Exla infra"],
             "built-in Work and Personal lead, then custom groups in use"
         )
         XCTAssertEqual(store.emoji(forGroup: "Work"), "💼")
         XCTAssertEqual(store.emoji(forGroup: "Personal"), "🏠")
+        XCTAssertEqual(store.emoji(forGroup: "Waste of time"), "🕳️", "the built-in time-sink section")
         XCTAssertEqual(store.emoji(forGroup: "Exla infra"), "📁", "custom groups fall back to a folder")
 
         store.setGroupEmoji("Exla infra", emoji: "🚀")
@@ -349,7 +350,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.todosToday.first { $0.text == "Ship the panel" }?.group, "Manas")
         XCTAssertEqual(store.todosToday.first { $0.text == "Fix the sparkline" }?.group, "Manas")
         XCTAssertNil(store.todosToday.first { $0.text == "Loose task" }?.group)
-        XCTAssertEqual(store.availableTodoGroups, ["Work", "Personal", "Manas"])
+        XCTAssertEqual(store.availableTodoGroups, ["Work", "Personal", "Waste of time", "Manas"])
 
         // Moving reassigns, and clearing sends it back to the ungrouped cluster.
         let looseID = store.todosToday.first { $0.text == "Loose task" }!.id

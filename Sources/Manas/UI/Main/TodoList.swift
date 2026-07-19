@@ -436,11 +436,11 @@ struct TodoRow: View {
     // MARK: - Swipe to delete
 
     private var swipeContainer: some View {
-        ZStack(alignment: .leading) {
+        ZStack(alignment: .trailing) {
             deleteReveal
             rowBody
                 .background(Color.surfaceRaised)
-                .offset(x: swipeOffset)
+                .offset(x: -swipeOffset)
                 .overlay {
                     // While open, a tap anywhere on the card closes it instead
                     // of toggling the checkbox.
@@ -476,15 +476,16 @@ struct TodoRow: View {
         .accessibilityLabel("Delete \(todo.text)")
     }
 
+    /// Swipe left to reveal the Delete button on the trailing edge.
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .local)
             .onChanged { value in
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                swipeOffset = min(max(0, value.translation.width), Self.deleteWidth)
+                swipeOffset = min(max(0, -value.translation.width), Self.deleteWidth)
             }
             .onEnded { value in
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                    swipeOffset = value.translation.width > Self.deleteWidth / 2 ? Self.deleteWidth : 0
+                    swipeOffset = -value.translation.width > Self.deleteWidth / 2 ? Self.deleteWidth : 0
                 }
             }
     }
@@ -585,32 +586,10 @@ struct TodoRow: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 
-    /// Per-todo actions: move it between groups (dragging is the fast path) and
-    /// delete it. New groups are named from the add field's picker.
+    /// Per-todo actions. Grouping is done by dragging, so this is just Delete
+    /// (handy for past days, which don't swipe).
     private var actionsMenu: some View {
         Menu {
-            if mode != .history {
-                Menu("Move to group") {
-                    Button {
-                        store.setTodoGroup(todo.id, group: nil)
-                    } label: {
-                        if todo.group == nil { Label("No group", systemImage: "checkmark") }
-                        else { Text("No group") }
-                    }
-                    if !store.availableTodoGroups.isEmpty {
-                        Divider()
-                        ForEach(store.availableTodoGroups, id: \.self) { group in
-                            Button {
-                                store.setTodoGroup(todo.id, group: group)
-                            } label: {
-                                if todo.group == group { Label(group, systemImage: "checkmark") }
-                                else { Text(group) }
-                            }
-                        }
-                    }
-                }
-                Divider()
-            }
             Button("Delete", role: .destructive) {
                 store.removeTodo(todo.id)
             }
