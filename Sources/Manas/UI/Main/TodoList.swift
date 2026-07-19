@@ -10,49 +10,70 @@ private let todoDragSpace = "today-todos"
 @MainActor
 @Observable
 final class TodoDragController {
-    var draggingID: Todo.ID?
+    /// The lifted todo, rendered as a floating card that follows the cursor
+    /// while its slot in the list collapses so the rest makes room.
+    var dragging: Todo?
     var translation: CGSize = .zero
-    /// The bucket key currently under the row (nil-cluster uses the sentinel).
+    /// Where the row sat when lifted, in the list's coordinate space.
+    var startFrame: CGRect = .zero
+    /// The bucket key currently under the cursor (nil-cluster uses the sentinel).
     var targetKey: String?
     /// The row's own bucket, so a drop back onto it is a no-op.
     var sourceKey: String?
-    @ObservationIgnored private var frames: [String: CGRect] = [:]
+    @ObservationIgnored private var bucketFrames: [String: CGRect] = [:]
+    @ObservationIgnored private var rowFrames: [String: CGRect] = [:]
 
-    var isActive: Bool { draggingID != nil }
-    func isDragging(_ id: Todo.ID) -> Bool { draggingID == id }
+    var isActive: Bool { dragging != nil }
+    var draggingID: Todo.ID? { dragging?.id }
+    func isDragging(_ id: Todo.ID) -> Bool { dragging?.id == id }
     func isTargeted(_ key: String) -> Bool { isActive && targetKey == key && targetKey != sourceKey }
 
-    func setFrames(_ frames: [String: CGRect]) { self.frames = frames }
+    /// The floating card's center, in list space, as it tracks the cursor.
+    var floatingCenter: CGPoint {
+        CGPoint(x: startFrame.midX + translation.width, y: startFrame.midY + translation.height)
+    }
 
-    func lift(id: Todo.ID, sourceKey: String) {
-        draggingID = id
+    func setBucketFrames(_ frames: [String: CGRect]) { bucketFrames = frames }
+    func setRowFrames(_ frames: [String: CGRect]) { rowFrames = frames }
+
+    func lift(_ todo: Todo, sourceKey: String) {
+        dragging = todo
         self.sourceKey = sourceKey
         targetKey = sourceKey
         translation = .zero
+        startFrame = rowFrames[todo.id.uuidString] ?? .zero
     }
 
     func move(translation: CGSize, location: CGPoint) {
         self.translation = translation
-        targetKey = frames.first { $0.value.contains(location) }?.key ?? sourceKey
+        targetKey = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
     }
 
-    /// The group label to drop into, or a two-state result: nil label means the
-    /// ungrouped cluster; `false` return means no change (dropped on its own bucket).
+    /// The group to drop into; `changed == false` means it landed on its own
+    /// bucket, and a nil label means the ungrouped cluster.
     func resolveDrop(at location: CGPoint) -> (changed: Bool, label: String?) {
-        let key = frames.first { $0.value.contains(location) }?.key ?? sourceKey
+        let key = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
         guard let key, key != sourceKey else { return (false, nil) }
         return (true, key == ungroupedDragKey ? nil : key)
     }
 
     func reset() {
-        draggingID = nil
+        dragging = nil
         translation = .zero
+        startFrame = .zero
         targetKey = nil
         sourceKey = nil
     }
 }
 
 private struct GroupFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private struct RowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [String: CGRect] = [:]
     static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
         value.merge(nextValue()) { _, new in new }
@@ -167,15 +188,25 @@ struct TodoListSection: View {
                         showsHeader: group.group != nil,
                         dragController: mode == .today ? dragController : nil
                     )
-                    // Float the bucket holding the lifted row above the others
-                    // so it is never occluded while dragging across buckets.
-                    .zIndex(group.todos.contains { $0.id == dragController.draggingID } ? 1 : 0)
                 }
             }
+            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: dragController.draggingID)
             .coordinateSpace(name: todoDragSpace)
-            .onPreferenceChange(GroupFramePreferenceKey.self) { frames in
-                dragController.setFrames(frames)
-            }
+            .onPreferenceChange(GroupFramePreferenceKey.self) { dragController.setBucketFrames($0) }
+            .onPreferenceChange(RowFramePreferenceKey.self) { dragController.setRowFrames($0) }
+            .overlay(alignment: .topLeading) { floatingCard }
+        }
+    }
+
+    /// The lifted card, rendered once at the list level so it travels smoothly
+    /// over every bucket while its original slot holds a placeholder.
+    @ViewBuilder
+    private var floatingCard: some View {
+        if mode == .today, let todo = dragController.dragging, dragController.startFrame.width > 0 {
+            FloatingTodoCard(todo: todo)
+                .frame(width: dragController.startFrame.width, height: dragController.startFrame.height)
+                .position(dragController.floatingCenter)
+                .allowsHitTesting(false)
         }
     }
 
@@ -307,6 +338,24 @@ private struct TodoGroupBlock: View {
     }
 }
 
+/// The lifted card that travels with the cursor while dragging. Rendered once
+/// at the list level and elevated with a shadow so it reads as picked up.
+private struct FloatingTodoCard: View {
+    var todo: Todo
+
+    var body: some View {
+        TodoRow(todo: todo, mode: .today, isFloating: true)
+            .background(Color.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.manasAccent.opacity(0.45), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 10)
+            .scaleEffect(1.03)
+    }
+}
+
 private struct DayEmptyState: View {
     var day: Date
 
@@ -357,60 +406,152 @@ struct TodoRow: View {
     var todo: Todo
     var mode: Mode = .today
     var dragController: TodoDragController?
+    /// True for the copy rendered in the floating overlay: no gestures, no
+    /// frame reporting, just the visual card.
+    var isFloating = false
     @State private var isHovered = false
+    @State private var swipeOffset: CGFloat = 0
 
     private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
+    private var canMove: Bool { dragController != nil && mode == .today && !isFloating }
+    private var canSwipe: Bool { !isFloating && mode != .history }
+    private static let deleteWidth: CGFloat = 82
 
     var body: some View {
-        if let dragController, mode == .today {
+        if isFloating {
             rowBody
-                .overlay(alignment: .leading) { dragHandle(dragController) }
-                .scaleEffect(isDragging ? 1.03 : 1)
-                .shadow(
-                    color: .black.opacity(isDragging ? 0.16 : 0),
-                    radius: isDragging ? 10 : 0, x: 0, y: isDragging ? 5 : 0
-                )
-                .offset(isDragging ? dragController.translation : .zero)
-                .zIndex(isDragging ? 1 : 0)
-                .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isDragging)
         } else {
-            rowBody
+            ZStack {
+                swipeContainer
+                    .opacity(isDragging ? 0 : 1)
+                if isDragging {
+                    dragPlaceholder
+                }
+            }
+            .overlay(alignment: .leading) { if canMove { moveHandle } }
+            .background(frameReporter)
         }
     }
 
-    /// The grip that starts a drag. Rendered only while hovering or dragging so
-    /// it never steals a scroll gesture from a resting row.
+    // MARK: - Swipe to delete
+
+    private var swipeContainer: some View {
+        ZStack(alignment: .leading) {
+            deleteReveal
+            rowBody
+                .background(Color.surfaceRaised)
+                .offset(x: swipeOffset)
+                .overlay {
+                    // While open, a tap anywhere on the card closes it instead
+                    // of toggling the checkbox.
+                    if swipeOffset > 1 {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { closeSwipe() }
+                    }
+                }
+                .gesture(canSwipe ? swipeGesture : nil)
+        }
+        .clipped()
+    }
+
+    private var deleteReveal: some View {
+        Button(role: .destructive) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                store.removeTodo(todo.id)
+            }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: "trash.fill")
+                Text("Delete").font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: Self.deleteWidth)
+            .frame(maxHeight: .infinity)
+            .background(Color.red)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(swipeOffset > 1 ? 1 : 0)
+        .accessibilityLabel("Delete \(todo.text)")
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .local)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                swipeOffset = min(max(0, value.translation.width), Self.deleteWidth)
+            }
+            .onEnded { value in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    swipeOffset = value.translation.width > Self.deleteWidth / 2 ? Self.deleteWidth : 0
+                }
+            }
+    }
+
+    private func closeSwipe() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { swipeOffset = 0 }
+    }
+
+    // MARK: - Move (drag into a group)
+
+    /// The grip that lifts the card. Rendered only while hovering or dragging so
+    /// a resting row never steals the feed's scroll.
     @ViewBuilder
-    private func dragHandle(_ controller: TodoDragController) -> some View {
+    private var moveHandle: some View {
         if isHovered || isDragging {
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 14, height: 34)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isDragging ? AnyShapeStyle(Color.manasAccent) : AnyShapeStyle(.tertiary))
+                .frame(width: 24, height: 40)
                 .contentShape(Rectangle())
-                .highPriorityGesture(dragGesture(controller))
+                .highPriorityGesture(moveGesture)
                 .help("Drag into a group")
                 .accessibilityLabel("Drag \(todo.text) into a group")
         }
     }
 
-    private func dragGesture(_ controller: TodoDragController) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .named(todoDragSpace))
+    private var moveGesture: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(todoDragSpace))
             .onChanged { value in
+                guard let controller = dragController else { return }
                 if !controller.isDragging(todo.id) {
-                    controller.lift(id: todo.id, sourceKey: todo.group ?? ungroupedDragKey)
+                    controller.lift(todo, sourceKey: todo.group ?? ungroupedDragKey)
                 }
                 controller.move(translation: value.translation, location: value.location)
             }
             .onEnded { value in
+                guard let controller = dragController else { return }
                 let drop = controller.resolveDrop(at: value.location)
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.74)) {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
                     if drop.changed {
                         store.setTodoGroup(todo.id, group: drop.label)
                     }
                     controller.reset()
                 }
             }
+    }
+
+    /// The empty slot left behind while the card floats, so the list clearly
+    /// shows where it came from.
+    private var dragPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(Color.manasAccent.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Color.manasAccent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            )
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+    }
+
+    private var frameReporter: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: RowFramePreferenceKey.self,
+                value: [todo.id.uuidString: geometry.frame(in: .named(todoDragSpace))]
+            )
+        }
     }
 
     private var rowBody: some View {
