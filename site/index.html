@@ -99,6 +99,43 @@
     max-width: 52ch;
   }
   .hero p.lede strong { color: var(--ink); font-weight: 550; }
+  .cta-row {
+    margin-top: 30px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .btn.primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 10px 22px -12px rgba(216, 90, 48, 0.55);
+  }
+  .btn.primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 26px -12px rgba(216, 90, 48, 0.6);
+  }
+  .btn.quiet {
+    color: var(--muted);
+    border: 1px solid var(--hairline);
+  }
+  .btn.quiet:hover { color: var(--ink); border-color: var(--muted); }
+  .cta-note {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--faint);
+  }
 
   /* ---- the app window, rebuilt in html ---- */
   .window-frame { padding: 48px 0 8px; }
@@ -356,6 +393,11 @@
     not just your Claude Code and Codex sessions, and has Claude judge whether you are
     actually on track. It even updates your list with the things you did but never wrote
     down, added for you and already checked off.</p>
+    <div class="cta-row rise d2">
+      <a class="btn primary" href="https://github.com/viraatdas/manas/releases/latest/download/Manas.zip">Download for macOS</a>
+      <a class="btn quiet" href="https://github.com/viraatdas/manas">View on GitHub</a>
+    </div>
+    <p class="cta-note rise d2">macOS 14+ · unzip and drag to Applications · on first launch, right-click the app and choose Open</p>
   </section>
 
   <section class="window-frame rise d3" aria-label="A preview of the Manas app window">
@@ -469,6 +511,8 @@
     <span>Manas</span>
     <span class="sep">·</span>
     <span>macOS 14+</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/viraatdas/manas/releases/latest/download/Manas.zip" style="color: var(--muted); text-decoration: none;">Download</a>
     <span class="right">manas.viraat.dev</span>
   </footer>
 
