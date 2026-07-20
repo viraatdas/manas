@@ -147,6 +147,31 @@
   .day-header .today { color: var(--accent); font-weight: 600; font-size: 13px; }
   .day-header .date { color: var(--muted); font-size: 12px; }
   .day-header .pin { margin-left: auto; color: var(--accent); font-size: 12px; }
+  .addbar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 12px 20px 2px;
+    padding: 8px 11px;
+    font-size: 13px;
+    color: var(--faint);
+    border: 1px solid rgba(216, 90, 48, 0.42);
+    border-radius: 9px;
+    box-shadow: 0 2px 9px rgba(216, 90, 48, 0.10);
+  }
+  .addbar .plus {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 5px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
   .group-header {
     padding: 12px 20px 0;
     font-size: 12px;
@@ -344,6 +369,7 @@
       <div class="day-header">
         <span class="today">Today</span><span class="date">Fri, Jul 17</span><span class="pin" aria-hidden="true">➤</span>
       </div>
+      <div class="addbar"><span class="plus">+</span>What's the plan for today?</div>
       <div class="todos">
         <div class="todo">
           <div class="line"><span class="box"></span><span class="text">Reply to Sam about the offsite</span></div>

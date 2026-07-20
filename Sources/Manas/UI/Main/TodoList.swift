@@ -98,11 +98,14 @@ struct AddTodoField: View {
         self.day = Calendar.current.startOfDay(for: day)
     }
 
+    /// Today's field is the app's compose bar and dresses up to say so; the
+    /// add fields on future days stay quiet so the feed reads calm.
+    private var isToday: Bool { Calendar.current.isDateInToday(day) }
+    private var isFocused: Bool { focusedField != nil }
+
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "plus")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(focusedField != nil ? Color.manasAccent : .secondary)
+        HStack(spacing: isToday ? 10 : 9) {
+            plusIcon
             TextField(placeholder, text: $draft)
                 .textFieldStyle(.plain)
                 .font(.body)
@@ -117,17 +120,50 @@ struct AddTodoField: View {
                 focusedField = .todo
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, isToday ? 12 : 14)
+        .padding(.vertical, isToday ? 13 : 11)
         .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(
-                    focusedField != nil ? Color.manasAccent.opacity(0.7) : Color.hairline,
-                    lineWidth: focusedField != nil ? 1 : 0.5
-                )
+                .strokeBorder(borderColor, lineWidth: borderWidth)
         )
+        .shadow(color: Color.manasAccent.opacity(glowOpacity), radius: isFocused ? 9 : 5, x: 0, y: 2)
         .animation(.easeOut(duration: 0.15), value: focusedField)
+    }
+
+    /// Today gets a filled accent badge that reads as a compose button; other
+    /// days keep the plain glyph.
+    @ViewBuilder
+    private var plusIcon: some View {
+        if isToday {
+            Image(systemName: "plus")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Color.manasAccent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .scaleEffect(isFocused ? 1.06 : 1)
+        } else {
+            Image(systemName: "plus")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(isFocused ? Color.manasAccent : .secondary)
+        }
+    }
+
+    private var borderColor: Color {
+        if isToday { return Color.manasAccent.opacity(isFocused ? 0.9 : 0.4) }
+        return isFocused ? Color.manasAccent.opacity(0.7) : Color.hairline
+    }
+
+    private var borderWidth: CGFloat {
+        if isToday { return isFocused ? 1.5 : 1 }
+        return isFocused ? 1 : 0.5
+    }
+
+    /// A soft accent halo that marks today's bar as the place to type; it
+    /// deepens slightly on focus and stays off on quiet days.
+    private var glowOpacity: Double {
+        guard isToday else { return 0 }
+        return isFocused ? 0.22 : 0.1
     }
 
     /// The picked group sticks across adds so several todos can go into the
@@ -151,7 +187,7 @@ private extension AddTodoField {
             from: Calendar.current.startOfDay(for: Date()),
             to: day
         ).day {
-        case 0: "Add to today"
+        case 0: "What's the plan for today?"
         case -1: "Add to yesterday"
         case 1: "Add to tomorrow"
         default: "Add to \(day.formatted(.dateTime.weekday(.wide)))"
