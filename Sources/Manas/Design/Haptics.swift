@@ -8,13 +8,20 @@ import AppKit
 @MainActor
 enum Haptics {
     /// A light tap for landing keyboard selection on a row.
-    static func tap() { perform(.generic) }
+    static func tap() { perform(.levelChange) }
 
-    /// The firm "snap into place" pattern (levelChange is the most pronounced
-    /// of the three system patterns). Used for the frequent taps while
-    /// dragging a card past each row and for committing a drop, so the drag
-    /// feels physical and clicky rather than subtle.
-    static func bump() { perform(.levelChange) }
+    /// The firmest feedback we can produce. macOS exposes no intensity control
+    /// and only three fixed patterns, so "stronger" means stacking strikes:
+    /// two quick `.levelChange` hits a beat apart land as one solid thunk
+    /// rather than a single light tick. Used for every drag event (lift, each
+    /// row the card passes, bucket crossings, drop) and the swipe threshold.
+    static func bump() {
+        perform(.levelChange)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(26))
+            perform(.levelChange)
+        }
+    }
 
     private static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
