@@ -221,6 +221,20 @@ final class AppStore {
         todos.removeAll { $0.id == id }
     }
 
+    /// Replaces a todo's text with an edited version. Whitespace is trimmed;
+    /// an empty result is rejected so a todo can't be blanked out by accident
+    /// (delete is the way to remove one). Returns whether the edit was applied.
+    @discardableResult
+    func editTodoText(_ id: Todo.ID, to newText: String) -> Bool {
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = todos.firstIndex(where: { $0.id == id }),
+              todos[index].text != trimmed
+        else { return false }
+        todos[index].text = trimmed
+        return true
+    }
+
     func toggleDone(_ id: Todo.ID) {
         guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
         todos[index].isDone.toggle()

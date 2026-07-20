@@ -547,6 +547,21 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
+    func testEditTodoText() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Draf the launch post")
+        let id = store.todos[0].id
+
+        XCTAssertTrue(store.editTodoText(id, to: "  Draft the launch post  "))
+        XCTAssertEqual(store.todos[0].text, "Draft the launch post", "edited text is trimmed and saved")
+
+        XCTAssertFalse(store.editTodoText(id, to: "   "), "a blank edit is rejected")
+        XCTAssertEqual(store.todos[0].text, "Draft the launch post", "the todo keeps its text")
+
+        XCTAssertFalse(store.editTodoText(id, to: "Draft the launch post"), "an unchanged edit is a no-op")
+        XCTAssertFalse(store.editTodoText(UUID(), to: "ghost"), "editing a missing todo does nothing")
+    }
+
     func testUsageAggregates() {
         let store = AppStore(fileURL: tempStateURL())
         let previousDay = date.addingTimeInterval(-86_400 * 2)

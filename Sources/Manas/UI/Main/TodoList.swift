@@ -533,10 +533,15 @@ struct TodoRow: View {
     var isFloating = false
     @State private var isHovered = false
     @State private var swipeOffset: CGFloat = 0
+    @State private var isEditing = false
+    @State private var editText = ""
+    @FocusState private var isEditFocused: Bool
 
     private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
     private var canMove: Bool { dragController != nil && mode == .today && !isFloating }
-    private var canSwipe: Bool { !isFloating && mode != .history }
+    private var canSwipe: Bool { !isFloating && mode != .history && !isEditing }
+    /// Past days are frozen history; today and future todos can be renamed.
+    private var canEdit: Bool { !isFloating && mode != .history }
     private static let deleteWidth: CGFloat = 82
 
     var body: some View {
@@ -691,11 +696,17 @@ struct TodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             checkbox
             VStack(alignment: .leading, spacing: 6) {
-                Text(todo.text)
-                    .font(.body)
-                    .strikethrough(todo.isDone)
-                    .foregroundStyle(todo.isDone || mode == .history ? .secondary : .primary)
-                    .textSelection(.enabled)
+                if isEditing {
+                    editField
+                } else {
+                    Text(todo.text)
+                        .font(.body)
+                        .strikethrough(todo.isDone)
+                        .foregroundStyle(todo.isDone || mode == .history ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        // Double-click a todo to rename it in place.
+                        .modifier(DoubleClickEdit(enabled: canEdit, action: beginEditing))
+                }
                 if !todo.isDone, mode != .planned,
                    let verdict = todo.verdict, verdict.accepted != false {
                     verdictSubRow(verdict)
@@ -708,12 +719,14 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
-            HStack(spacing: 2) {
-                if canMove || isFloating {
-                    moveHandle
+            if !isEditing {
+                HStack(spacing: 2) {
+                    if canMove || isFloating {
+                        moveHandle
+                    }
+                    actionsMenu
+                        .opacity(isHovered ? 1 : 0.35)
                 }
-                actionsMenu
-                    .opacity(isHovered ? 1 : 0.35)
             }
         }
         .padding(.horizontal, 14)
@@ -723,10 +736,50 @@ struct TodoRow: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 
-    /// Per-todo actions. Grouping is done by dragging, so this is just Delete
-    /// (handy for past days, which don't swipe).
+    // MARK: - Inline edit
+
+    /// The in-place rename field: Return (or clicking away) saves, Escape
+    /// cancels. It replaces the todo text exactly where it sat so the row
+    /// doesn't jump.
+    private var editField: some View {
+        TextField("Todo", text: $editText)
+            .textFieldStyle(.plain)
+            .font(.body)
+            .focused($isEditFocused)
+            .onSubmit(commitEditing)
+            .onExitCommand(perform: cancelEditing)
+            .onChange(of: isEditFocused) { _, focused in
+                // Clicking another row or the background ends the edit as a save.
+                if !focused, isEditing { commitEditing() }
+            }
+            .accessibilityLabel("Edit todo")
+    }
+
+    private func beginEditing() {
+        guard canEdit else { return }
+        editText = todo.text
+        isEditing = true
+        // Focus on the next runloop tick so the field exists first.
+        DispatchQueue.main.async { isEditFocused = true }
+    }
+
+    private func commitEditing() {
+        guard isEditing else { return }
+        store.editTodoText(todo.id, to: editText)
+        isEditing = false
+    }
+
+    private func cancelEditing() {
+        isEditing = false
+    }
+
+    /// Per-todo actions: rename (also reachable by double-click) and delete.
+    /// Grouping is done by dragging, so it stays off the menu.
     private var actionsMenu: some View {
         Menu {
+            if canEdit {
+                Button("Edit", action: beginEditing)
+            }
             Button("Delete", role: .destructive) {
                 store.removeTodo(todo.id)
             }
@@ -782,6 +835,23 @@ struct TodoRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+        }
+    }
+}
+
+/// Attaches a double-click handler that begins inline editing, without
+/// swallowing the single-click text selection underneath.
+private struct DoubleClickEdit: ViewModifier {
+    var enabled: Bool
+    var action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2, perform: action)
+        } else {
+            content
         }
     }
 }
