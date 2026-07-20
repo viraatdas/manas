@@ -20,9 +20,9 @@ struct DiscoveredSection: View {
                     DiscoveredRow(activity: activity)
                 }
             }
-            .padding(16)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.surface1, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color.surface1, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 }
@@ -42,7 +42,7 @@ struct DiscoveredRow: View {
                 Text(activity.evidence)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             Spacer(minLength: 8)
             Button("Add") {
@@ -55,7 +55,7 @@ struct DiscoveredRow: View {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.hoverIcon)

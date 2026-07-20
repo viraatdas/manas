@@ -41,10 +41,10 @@ struct ManasCardModifier: ViewModifier {
             .padding(padding)
             .background(
                 Color.surfaceRaised,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.hairline, lineWidth: 0.5)
             )
     }

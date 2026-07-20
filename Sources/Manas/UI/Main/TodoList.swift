@@ -117,11 +117,11 @@ struct AddTodoField: View {
                 focusedField = .todo
             }
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
                     focusedField != nil ? Color.manasAccent.opacity(0.7) : Color.hairline,
                     lineWidth: focusedField != nil ? 1 : 0.5
@@ -258,7 +258,7 @@ private struct TodoGroupBlock: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 14)
                 .accessibilityElement(children: .combine)
                 .contextMenu {
                     if isDeletable(label) {
@@ -285,10 +285,11 @@ private struct TodoGroupBlock: View {
                 ForEach(group.todos) { todo in
                     TodoRow(todo: todo, mode: mode, dragController: dragController)
                     if todo.id != group.todos.last?.id {
-                        Divider().padding(.leading, 46)
+                        Divider().padding(.leading, 54)
                     }
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .manasCard(padding: 0)
         }
     }
@@ -346,9 +347,9 @@ private struct FloatingTodoCard: View {
     var body: some View {
         TodoRow(todo: todo, mode: .today, isFloating: true)
             .background(Color.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.manasAccent.opacity(0.45), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 10)
@@ -376,20 +377,20 @@ private struct DayEmptyState: View {
 
     var body: some View {
         let copy = copy
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Image(systemName: copy.icon)
-                .font(.title2)
-                .foregroundStyle(.secondary)
+                .font(.title3)
+                .foregroundStyle(.tertiary)
             Text(copy.title)
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
             Text(copy.detail)
-                .font(.subheadline)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 54)
+        .padding(.vertical, 32)
     }
 }
 
@@ -428,7 +429,6 @@ struct TodoRow: View {
                     dragPlaceholder
                 }
             }
-            .overlay(alignment: .leading) { if canMove { moveHandle } }
             .background(frameReporter)
         }
     }
@@ -496,20 +496,21 @@ struct TodoRow: View {
 
     // MARK: - Move (drag into a group)
 
-    /// The grip that lifts the card. Rendered only while hovering or dragging so
-    /// a resting row never steals the feed's scroll.
-    @ViewBuilder
+    /// The grip that lifts the card. It always occupies its slot in the
+    /// trailing control cluster (same 24pt frame as the actions button) so
+    /// nothing shifts; it just fades in on hover.
     private var moveHandle: some View {
-        if isHovered || isDragging {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(isDragging ? AnyShapeStyle(Color.manasAccent) : AnyShapeStyle(.tertiary))
-                .frame(width: 24, height: 40)
-                .contentShape(Rectangle())
-                .highPriorityGesture(moveGesture)
-                .help("Drag into a group")
-                .accessibilityLabel("Drag \(todo.text) into a group")
-        }
+        Image(systemName: "line.3.horizontal")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(
+                isDragging || isFloating ? AnyShapeStyle(Color.manasAccent) : AnyShapeStyle(.secondary)
+            )
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
+            .opacity(isHovered || isDragging || isFloating ? 1 : 0)
+            .highPriorityGesture(isFloating ? nil : moveGesture)
+            .help("Drag into a group")
+            .accessibilityLabel("Drag \(todo.text) into a group")
     }
 
     private var moveGesture: some Gesture {
@@ -536,10 +537,10 @@ struct TodoRow: View {
     /// The empty slot left behind while the card floats, so the list clearly
     /// shows where it came from.
     private var dragPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(Color.manasAccent.opacity(0.05))
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.manasAccent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
             )
             .padding(.horizontal, 6)
@@ -576,8 +577,13 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
-            actionsMenu
-                .opacity(isHovered ? 1 : 0.35)
+            HStack(spacing: 2) {
+                if canMove || isFloating {
+                    moveHandle
+                }
+                actionsMenu
+                    .opacity(isHovered ? 1 : 0.35)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

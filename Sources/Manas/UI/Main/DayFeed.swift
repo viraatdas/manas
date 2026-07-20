@@ -198,29 +198,34 @@ struct DayFeedHeader: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(DayLabel.title(for: date))
                 .font(.headline)
-                .foregroundStyle(kind == .today ? Color.manasAccent : .primary)
+                .foregroundStyle(titleStyle)
             if showsCalendarDate {
                 Text(date, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            if kind == .today {
-                Image(systemName: "location.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.manasAccent)
-            }
         }
         .frame(maxWidth: ContentView.contentMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
-        .padding(.vertical, 9)
-        .background(.regularMaterial)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(Color.manasBackground)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.hairline).frame(height: 0.5)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(DayLabel.title(for: date))
+    }
+
+    /// Today carries the accent; past days recede; future days stay neutral.
+    private var titleStyle: AnyShapeStyle {
+        switch kind {
+        case .today: AnyShapeStyle(Color.manasAccent)
+        case .past: AnyShapeStyle(.secondary)
+        case .future: AnyShapeStyle(.primary)
+        }
     }
 }
 

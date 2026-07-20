@@ -2,53 +2,49 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Screen 1 header: the Manas wordmark and today's date on the left; source
-/// health, refresh, and settings on the right; a muted metadata row
-/// ("Last checked 2:14 pm · 2 sources synced") underneath. Days are navigated
-/// by scrolling the feed, so the header no longer pages between dates. The
-/// spinning refresh icon is the only visible sign that a check-in is running.
+/// Screen 1 header: the Manas wordmark with one quiet caption line (date,
+/// check-in status, sources) on the left; source health, refresh, and settings
+/// on the right. Days are navigated by scrolling the feed, so the header no
+/// longer pages between dates. The spinning refresh icon is the only visible
+/// sign that a check-in is running.
 struct MainHeaderView: View {
     @Environment(AppStore.self) private var store
     @State private var showingSettings = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Manas")
-                        .font(.title3.weight(.semibold))
-                    Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                SourceHealthButton()
-                RefreshButton()
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.hoverIcon)
-                .accessibilityLabel("Settings")
-                .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
-                    SettingsPopover()
-                }
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Manas")
+                    .font(.title3.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
+                    .animation(.default, value: subtitle)
             }
-            Text(metadata)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .contentTransition(.opacity)
-                .animation(.default, value: metadata)
+            Spacer(minLength: 0)
+            SourceHealthButton()
+            RefreshButton()
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverIcon)
+            .accessibilityLabel("Settings")
+            .popover(isPresented: $showingSettings, arrowEdge: .bottom) {
+                SettingsPopover()
+            }
         }
     }
 
-    private var metadata: String {
-        var parts: [String] = []
+    /// One quiet caption line: the date, then check-in status, then sources.
+    private var subtitle: String {
+        var parts = [Date().formatted(.dateTime.weekday(.wide).month(.wide).day())]
         if store.isCheckingIn {
             parts.append("Checking your day…")
         } else if let lastChecked = store.lastCheckedAt {

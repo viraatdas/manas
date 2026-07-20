@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Compact control for putting a new todo into a group, backed by a popover of
 /// existing groups (built-in Work and Personal first) plus a field to name a
-/// new one and pick its emoji. Groups are also assigned automatically by the
-/// judge; this is the manual override, and a manual choice is never overwritten
-/// by a later check-in.
+/// new one and pick its emoji. Grouping is manual: this picker at add time,
+/// dragging afterwards.
 struct TodoGroupPickerButton: View {
     @Environment(AppStore.self) private var store
     @Binding var selection: String?
