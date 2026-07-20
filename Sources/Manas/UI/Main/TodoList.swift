@@ -703,16 +703,17 @@ struct TodoRow: View {
                         .font(.body)
                         .strikethrough(todo.isDone)
                         .foregroundStyle(todo.isDone || mode == .history ? .secondary : .primary)
-                        .textSelection(.enabled)
-                        // Double-click a todo to rename it in place.
-                        .modifier(DoubleClickEdit(enabled: canEdit, action: beginEditing))
                 }
                 if !todo.isDone, mode != .planned,
                    let verdict = todo.verdict, verdict.accepted != false {
                     verdictSubRow(verdict)
                 }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Double-click the text area to rename in place. A large content
+            // shape makes the whole column (not just the glyphs) clickable.
+            .contentShape(Rectangle())
+            .modifier(DoubleClickEdit(enabled: canEdit && !isEditing, action: beginEditing))
             if mode == .history, !todo.isDone {
                 Button("Move to today") {
                     store.moveToToday(todo.id)
@@ -839,8 +840,9 @@ struct TodoRow: View {
     }
 }
 
-/// Attaches a double-click handler that begins inline editing, without
-/// swallowing the single-click text selection underneath.
+/// Attaches a double-click handler that begins inline editing. A
+/// high-priority two-count TapGesture wins over the row's swipe DragGesture,
+/// which otherwise claims the click sequence and eats the double-tap.
 private struct DoubleClickEdit: ViewModifier {
     var enabled: Bool
     var action: () -> Void
@@ -849,7 +851,7 @@ private struct DoubleClickEdit: ViewModifier {
         if enabled {
             content
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2, perform: action)
+                .highPriorityGesture(TapGesture(count: 2).onEnded(action))
         } else {
             content
         }
