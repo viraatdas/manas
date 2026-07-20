@@ -37,6 +37,9 @@ final class TodoDragController {
     var sourceKey: String?
     @ObservationIgnored private var bucketFrames: [String: CGRect] = [:]
     @ObservationIgnored private var rowFrames: [String: CGRect] = [:]
+    /// The row the cursor is currently over, so a haptic fires once per row
+    /// the dragged card passes, not continuously.
+    @ObservationIgnored private var hoveredRowKey: String?
 
     var isActive: Bool { dragging != nil }
     var draggingID: Todo.ID? { dragging?.id }
@@ -57,18 +60,21 @@ final class TodoDragController {
         targetKey = sourceKey
         translation = .zero
         startFrame = rowFrames[todo.id.uuidString] ?? .zero
-        // A light tap as the card leaves the list and starts following the cursor.
-        Haptics.tap()
+        hoveredRowKey = todo.id.uuidString
+        // A firm tap as the card leaves the list and starts following the cursor.
+        Haptics.bump()
     }
 
     func move(translation: CGSize, location: CGPoint) {
         self.translation = translation
         let newTarget = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
-        // A snap tap each time the card crosses into a different bucket, so the
-        // drop target is felt as well as seen.
-        if newTarget != targetKey {
-            Haptics.align()
+        let rowUnder = rowFrames.first { $0.value.contains(location) }?.key
+        // A firm tap each time the card passes over a new row or crosses into a
+        // different bucket, so the whole drag ticks past like a physical stack.
+        if rowUnder != hoveredRowKey || newTarget != targetKey {
+            Haptics.bump()
         }
+        hoveredRowKey = rowUnder
         targetKey = newTarget
     }
 
@@ -86,6 +92,7 @@ final class TodoDragController {
         startFrame = .zero
         targetKey = nil
         sourceKey = nil
+        hoveredRowKey = nil
     }
 }
 
@@ -634,7 +641,7 @@ struct TodoRow: View {
                 let past = swipeOffset > Self.deleteWidth / 2
                 if past != swipePastThreshold {
                     swipePastThreshold = past
-                    Haptics.align()
+                    Haptics.bump()
                 }
             }
             .onEnded { value in
@@ -681,9 +688,9 @@ struct TodoRow: View {
                 guard let controller = dragController else { return }
                 let drop = controller.resolveDrop(at: value.location)
                 if drop.changed {
-                    // A firmer confirm tap when the card actually lands in a
+                    // A firm confirm tap when the card actually lands in a
                     // new group.
-                    Haptics.commit()
+                    Haptics.bump()
                 }
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
                     if drop.changed {

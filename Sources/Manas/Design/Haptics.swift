@@ -7,16 +7,14 @@ import AppKit
 /// the performer is main-thread only.
 @MainActor
 enum Haptics {
-    /// A light tap for picking a card up or landing selection on a row.
+    /// A light tap for landing keyboard selection on a row.
     static func tap() { perform(.generic) }
 
-    /// The "snap into place" pattern, for when a dragged card crosses into a
-    /// new drop target or a swipe passes its trigger threshold. This is the
-    /// alignment-guide feel from Finder and Photos.
-    static func align() { perform(.alignment) }
-
-    /// A firmer confirm, for committing a drop into a new group.
-    static func commit() { perform(.levelChange) }
+    /// The firm "snap into place" pattern (levelChange is the most pronounced
+    /// of the three system patterns). Used for the frequent taps while
+    /// dragging a card past each row and for committing a drop, so the drag
+    /// feels physical and clicky rather than subtle.
+    static func bump() { perform(.levelChange) }
 
     private static func perform(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
