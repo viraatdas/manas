@@ -739,6 +739,12 @@ struct TodoRow: View {
                    let verdict = todo.verdict, verdict.accepted != false {
                     verdictSubRow(verdict)
                 }
+                // Waste-of-time items are auto-added already checked off, so
+                // their evidence (which leads with when it happened) would
+                // otherwise be hidden. Surface it as a quiet time line.
+                if todo.isDone, isWasteOfTime, let verdict = todo.verdict {
+                    wasteTimeSubRow(verdict)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // Double-click the text area to rename in place. A large content
@@ -863,6 +869,26 @@ struct TodoRow: View {
                 systemImage: verdict.status.systemImage,
                 tint: verdict.status.tint
             )
+            Text(verdict.evidence)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    /// True when this todo lives in the built-in time-sink bucket.
+    private var isWasteOfTime: Bool {
+        guard let group = todo.group else { return false }
+        return TodoGroupName.key(for: group) == TodoGroupName.key(for: TodoGroupName.wasteOfTime)
+    }
+
+    /// The when-it-happened line under an auto-added time sink: a clock and the
+    /// judge's evidence, which is written to lead with the approximate time.
+    private func wasteTimeSubRow(_ verdict: Verdict) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: "clock")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             Text(verdict.evidence)
                 .font(.caption)
                 .foregroundStyle(.secondary)
