@@ -57,11 +57,19 @@ final class TodoDragController {
         targetKey = sourceKey
         translation = .zero
         startFrame = rowFrames[todo.id.uuidString] ?? .zero
+        // A light tap as the card leaves the list and starts following the cursor.
+        Haptics.tap()
     }
 
     func move(translation: CGSize, location: CGPoint) {
         self.translation = translation
-        targetKey = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
+        let newTarget = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
+        // A snap tap each time the card crosses into a different bucket, so the
+        // drop target is felt as well as seen.
+        if newTarget != targetKey {
+            Haptics.align()
+        }
+        targetKey = newTarget
     }
 
     /// The group to drop into; `changed == false` means it landed on its own
@@ -296,6 +304,8 @@ struct TodoListSection: View {
             withAnimation(.easeOut(duration: 0.12)) {
                 selectedTodoID = TodoKeyboardSelection.next(after: selectedTodoID, delta: delta, in: ordered)
             }
+            // A light tap as the selection lands on each row.
+            Haptics.tap()
             return true
         case 49: // Space
             guard !isEditingText, let selectedTodoID,
@@ -535,6 +545,7 @@ struct TodoRow: View {
     @State private var swipeOffset: CGFloat = 0
     @State private var isEditing = false
     @State private var editText = ""
+    @State private var swipePastThreshold = false
     @FocusState private var isEditFocused: Bool
 
     private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
@@ -618,8 +629,16 @@ struct TodoRow: View {
             .onChanged { value in
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 swipeOffset = min(max(0, -value.translation.width), Self.deleteWidth)
+                // Tap once as the swipe passes the point where releasing will
+                // open Delete, so the trigger is felt without looking.
+                let past = swipeOffset > Self.deleteWidth / 2
+                if past != swipePastThreshold {
+                    swipePastThreshold = past
+                    Haptics.align()
+                }
             }
             .onEnded { value in
+                swipePastThreshold = false
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
                     swipeOffset = -value.translation.width > Self.deleteWidth / 2 ? Self.deleteWidth : 0
                 }
@@ -661,6 +680,11 @@ struct TodoRow: View {
             .onEnded { value in
                 guard let controller = dragController else { return }
                 let drop = controller.resolveDrop(at: value.location)
+                if drop.changed {
+                    // A firmer confirm tap when the card actually lands in a
+                    // new group.
+                    Haptics.commit()
+                }
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
                     if drop.changed {
                         store.setTodoGroup(todo.id, group: drop.label)
