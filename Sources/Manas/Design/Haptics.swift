@@ -12,13 +12,15 @@ enum Haptics {
 
     /// The firmest feedback we can produce. macOS exposes no intensity control
     /// and only three fixed patterns, so "stronger" means stacking strikes:
-    /// two quick `.levelChange` hits a beat apart land as one solid thunk
-    /// rather than a single light tick. Used for every drag event (lift, each
-    /// row the card passes, bucket crossings, drop) and the swipe threshold.
+    /// three quick `.levelChange` hits a beat apart land as one heavy thunk
+    /// rather than a light tick. Used for every drag event (lift, each row the
+    /// card passes, bucket crossings, drop) and the swipe threshold.
     static func bump() {
         perform(.levelChange)
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(26))
+            try? await Task.sleep(for: .milliseconds(22))
+            perform(.levelChange)
+            try? await Task.sleep(for: .milliseconds(22))
             perform(.levelChange)
         }
     }
