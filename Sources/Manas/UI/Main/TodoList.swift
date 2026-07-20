@@ -35,6 +35,13 @@ final class TodoDragController {
     var targetKey: String?
     /// The row's own bucket, so a drop back onto it is a no-op.
     var sourceKey: String?
+    /// While the card hovers over its own bucket, the real row it will land
+    /// next to and whether it drops into that row's bottom half. Observed so
+    /// the list reflows a preview as the card moves. Held sticky (only updated
+    /// when the cursor is over another real row) so hovering the card's own
+    /// gap doesn't snap the preview back to the origin.
+    var reorderAnchorID: Todo.ID?
+    var reorderAfter = false
     @ObservationIgnored private var bucketFrames: [String: CGRect] = [:]
     @ObservationIgnored private var rowFrames: [String: CGRect] = [:]
     /// The row the cursor is currently over, so a haptic fires once per row
@@ -61,6 +68,8 @@ final class TodoDragController {
         translation = .zero
         startFrame = rowFrames[todo.id.uuidString] ?? .zero
         hoveredRowKey = todo.id.uuidString
+        reorderAnchorID = nil
+        reorderAfter = false
         // A firm tap as the card leaves the list and starts following the cursor.
         Haptics.bump()
     }
@@ -76,6 +85,30 @@ final class TodoDragController {
         }
         hoveredRowKey = rowUnder
         targetKey = newTarget
+        // Within its own bucket, resolve the real row the card is landing next
+        // to (ignoring its own gap) and which half of that row the cursor is in.
+        if newTarget == sourceKey,
+           let rowKey = rowUnder, rowKey != dragging?.id.uuidString,
+           let frame = rowFrames[rowKey], let anchorID = UUID(uuidString: rowKey) {
+            reorderAnchorID = anchorID
+            reorderAfter = location.y > frame.midY
+        }
+    }
+
+    /// While a card hovers over its own bucket, returns that bucket's todos
+    /// reordered to preview where the card will land; otherwise the list
+    /// unchanged. Mirrors the commit in `AppStore.moveTodo`, so what the drag
+    /// shows is exactly what the drop writes.
+    func previewReorder(_ todos: [Todo], inGroup groupKey: String) -> [Todo] {
+        guard let dragging, targetKey == sourceKey, sourceKey == groupKey,
+              let anchorID = reorderAnchorID, anchorID != dragging.id
+        else { return todos }
+        var rest = todos.filter { $0.id != dragging.id }
+        guard rest.count != todos.count, // the dragged card lives in this group
+              let anchorIndex = rest.firstIndex(where: { $0.id == anchorID })
+        else { return todos }
+        rest.insert(dragging, at: reorderAfter ? anchorIndex + 1 : anchorIndex)
+        return rest
     }
 
     /// The group to drop into; `changed == false` means it landed on its own
@@ -93,6 +126,8 @@ final class TodoDragController {
         targetKey = nil
         sourceKey = nil
         hoveredRowKey = nil
+        reorderAnchorID = nil
+        reorderAfter = false
     }
 }
 
@@ -407,24 +442,33 @@ private struct TodoGroupBlock: View {
         }
     }
 
+    /// The order to render: normally the group's todos, but while a card is
+    /// being dragged within this bucket, a live preview with the card slotted
+    /// into its prospective landing spot so the other rows reflow to make room.
+    private var displayTodos: [Todo] {
+        dragController?.previewReorder(group.todos, inGroup: frameKey) ?? group.todos
+    }
+
     @ViewBuilder
     private var content: some View {
         if group.todos.isEmpty {
             emptyDropZone
         } else {
+            let rows = displayTodos
             VStack(spacing: 0) {
-                ForEach(group.todos) { todo in
+                ForEach(rows) { todo in
                     TodoRow(
                         todo: todo,
                         mode: mode,
                         dragController: dragController,
                         isSelected: todo.id == selectedTodoID
                     )
-                    if todo.id != group.todos.last?.id {
+                    if todo.id != rows.last?.id {
                         Divider().padding(.leading, 54)
                     }
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.86), value: rows.map(\.id))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .manasCard(padding: 0)
         }
@@ -687,14 +731,18 @@ struct TodoRow: View {
             .onEnded { value in
                 guard let controller = dragController else { return }
                 let drop = controller.resolveDrop(at: value.location)
-                if drop.changed {
-                    // A firm confirm tap when the card actually lands in a
-                    // new group.
+                let reorderAnchor = controller.reorderAnchorID
+                let didReorder = !drop.changed && reorderAnchor != nil && reorderAnchor != todo.id
+                if drop.changed || didReorder {
+                    // A firm confirm tap when the card actually lands somewhere
+                    // new — a different group, or a new slot in this one.
                     Haptics.bump()
                 }
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
                     if drop.changed {
                         store.setTodoGroup(todo.id, group: drop.label)
+                    } else if let reorderAnchor, didReorder {
+                        store.moveTodo(todo.id, relativeTo: reorderAnchor, after: controller.reorderAfter)
                     }
                     controller.reset()
                 }

@@ -217,6 +217,34 @@ final class AppStore {
         todos.insert(todo, at: index)
     }
 
+    /// Reorders `id` within its own day and group so it sits immediately
+    /// before (or after) `anchorID`. A no-op unless both todos share a day and
+    /// group, so a reorder can never silently move a todo across buckets. The
+    /// flat array's order within a day+group is the display order, so inserting
+    /// the dragged todo adjacent to its anchor lands it in the right spot even
+    /// when other groups' todos are interleaved between them.
+    func moveTodo(_ id: Todo.ID, relativeTo anchorID: Todo.ID, after: Bool) {
+        guard id != anchorID,
+              let from = todos.firstIndex(where: { $0.id == id }),
+              let anchor = todos.firstIndex(where: { $0.id == anchorID }),
+              Calendar.current.isDate(todos[from].day, inSameDayAs: todos[anchor].day),
+              groupKey(todos[from].group) == groupKey(todos[anchor].group)
+        else { return }
+        let moved = todos.remove(at: from)
+        // The anchor's index may have shifted after the removal, so find it again.
+        guard let landing = todos.firstIndex(where: { $0.id == anchorID }) else {
+            todos.insert(moved, at: min(from, todos.count))
+            return
+        }
+        todos.insert(moved, at: after ? landing + 1 : landing)
+    }
+
+    /// Case/diacritic-insensitive group key, with nil mapping to the ungrouped
+    /// cluster so two ungrouped todos compare equal.
+    private func groupKey(_ group: String?) -> String? {
+        group.map { TodoGroupName.key(for: $0) }
+    }
+
     func removeTodo(_ id: Todo.ID) {
         todos.removeAll { $0.id == id }
     }

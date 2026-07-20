@@ -206,6 +206,65 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.todos(on: tomorrow).map(\.text), ["Planned ahead"], "future todos never move")
     }
 
+    func testMoveTodoReordersWithinGroup() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("A")
+        store.addTodo("B")
+        store.addTodo("C")
+        // Newest lands on top, so today reads C, B, A.
+        func id(_ text: String) -> Todo.ID { store.todos.first { $0.text == text }!.id }
+
+        // Drop C just after A (the bottom row).
+        store.moveTodo(id("C"), relativeTo: id("A"), after: true)
+        XCTAssertEqual(store.todosToday.map(\.text), ["B", "A", "C"])
+
+        // Drop C above B (the top row).
+        store.moveTodo(id("C"), relativeTo: id("B"), after: false)
+        XCTAssertEqual(store.todosToday.map(\.text), ["C", "B", "A"])
+    }
+
+    func testMoveTodoWithinGroupPreservesOtherGroups() {
+        let store = AppStore(fileURL: tempStateURL())
+        for text in ["W1", "P1", "W2", "P2"] { store.addTodo(text) }
+        func id(_ text: String) -> Todo.ID { store.todos.first { $0.text == text }!.id }
+        store.setTodoGroup(id("W1"), group: "Work")
+        store.setTodoGroup(id("W2"), group: "Work")
+        store.setTodoGroup(id("P1"), group: "Personal")
+        store.setTodoGroup(id("P2"), group: "Personal")
+
+        func groupTodos(_ label: String) -> [String] {
+            store.todoGroups(on: Date()).first { $0.group == label }?.todos.map(\.text) ?? []
+        }
+        // Flat order is P2, W2, P1, W1, so each group reads newest-first.
+        XCTAssertEqual(groupTodos("Work"), ["W2", "W1"])
+        XCTAssertEqual(groupTodos("Personal"), ["P2", "P1"])
+
+        // Reorder within Work; Personal must be untouched.
+        store.moveTodo(id("W1"), relativeTo: id("W2"), after: false)
+        XCTAssertEqual(groupTodos("Work"), ["W1", "W2"])
+        XCTAssertEqual(groupTodos("Personal"), ["P2", "P1"], "reordering one group leaves the others alone")
+    }
+
+    func testMoveTodoIgnoresCrossGroupAndCrossDay() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        store.addTodo("Work item")
+        store.addTodo("Personal item")
+        store.addTodo("Tomorrow item", on: tomorrow)
+        func id(_ text: String) -> Todo.ID { store.todos.first { $0.text == text }!.id }
+        store.setTodoGroup(id("Work item"), group: "Work")
+        store.setTodoGroup(id("Personal item"), group: "Personal")
+        let before = store.todos.map(\.text)
+
+        // Different group: refused.
+        store.moveTodo(id("Work item"), relativeTo: id("Personal item"), after: true)
+        // Different day: refused.
+        store.moveTodo(id("Work item"), relativeTo: id("Tomorrow item"), after: true)
+
+        XCTAssertEqual(store.todos.map(\.text), before, "a reorder never crosses a group or day boundary")
+    }
+
     func testApplyJudgeResultNeverTouchesPastOrFutureTodos() {
         let store = AppStore(fileURL: tempStateURL())
         let calendar = Calendar.current
