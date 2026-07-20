@@ -1,4 +1,19 @@
+import AppKit
 import SwiftUI
+
+/// Pure wrap-around selection math for Tab / Shift+Tab keyboard navigation,
+/// kept free of view state so it is unit-testable. A nil or vanished current
+/// selection restarts from the end the walk enters on.
+enum TodoKeyboardSelection {
+    static func next(after current: Todo.ID?, delta: Int, in ordered: [Todo]) -> Todo.ID? {
+        guard !ordered.isEmpty else { return nil }
+        guard let current, let index = ordered.firstIndex(where: { $0.id == current }) else {
+            return (delta >= 0 ? ordered.first : ordered.last)?.id
+        }
+        let count = ordered.count
+        return ordered[((index + delta) % count + count) % count].id
+    }
+}
 
 /// Sentinel key for the leading unlabeled cluster in the drag machinery.
 private let ungroupedDragKey = "__ungrouped__"
@@ -214,27 +229,85 @@ struct TodoListSection: View {
     }
 
     @State private var dragController = TodoDragController()
+    @State private var selectedTodoID: Todo.ID?
+    @State private var keyMonitor: Any?
 
     var body: some View {
-        let todos = store.todos(on: day)
-        if todos.isEmpty {
-            DayEmptyState(day: day)
-        } else {
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(displayGroups) { group in
-                    TodoGroupBlock(
-                        group: group,
-                        mode: mode,
-                        showsHeader: group.group != nil,
-                        dragController: mode == .today ? dragController : nil
-                    )
+        Group {
+            let todos = store.todos(on: day)
+            if todos.isEmpty {
+                DayEmptyState(day: day)
+            } else {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(displayGroups) { group in
+                        TodoGroupBlock(
+                            group: group,
+                            mode: mode,
+                            showsHeader: group.group != nil,
+                            dragController: mode == .today ? dragController : nil,
+                            selectedTodoID: mode == .today ? selectedTodoID : nil
+                        )
+                    }
                 }
+                .animation(.spring(response: 0.34, dampingFraction: 0.82), value: dragController.draggingID)
+                .coordinateSpace(name: todoDragSpace)
+                .onPreferenceChange(GroupFramePreferenceKey.self) { dragController.setBucketFrames($0) }
+                .onPreferenceChange(RowFramePreferenceKey.self) { dragController.setRowFrames($0) }
+                .overlay(alignment: .topLeading) { floatingCard }
             }
-            .animation(.spring(response: 0.34, dampingFraction: 0.82), value: dragController.draggingID)
-            .coordinateSpace(name: todoDragSpace)
-            .onPreferenceChange(GroupFramePreferenceKey.self) { dragController.setBucketFrames($0) }
-            .onPreferenceChange(RowFramePreferenceKey.self) { dragController.setRowFrames($0) }
-            .overlay(alignment: .topLeading) { floatingCard }
+        }
+        .onAppear { installKeyMonitorIfNeeded() }
+        .onDisappear { removeKeyMonitor() }
+    }
+
+    // MARK: - Keyboard selection (Tab / Shift+Tab)
+
+    /// Today's section owns a window-level key monitor: Tab and Shift+Tab walk
+    /// the selection down and up the visible rows (wrapping at the ends),
+    /// Space toggles the selected todo, and Escape clears the selection.
+    private func installKeyMonitorIfNeeded() {
+        guard mode == .today, keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let consumed = MainActor.assumeIsolated { handleKeyDown(event) }
+            return consumed ? nil : event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+    }
+
+    /// Returns true when the event was consumed. Popovers (NSPanel windows)
+    /// and command-modified keys pass through untouched; Tab while typing
+    /// blurs the field and starts walking the list, but Space and Escape
+    /// never steal from an active text field.
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        guard let window = event.window, window.isKeyWindow, !(window is NSPanel) else { return false }
+        guard event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return false }
+        let isEditingText = window.firstResponder is NSTextView
+        let ordered = displayGroups.flatMap(\.todos)
+
+        switch event.keyCode {
+        case 48: // Tab
+            guard !ordered.isEmpty else { return false }
+            if isEditingText { window.makeFirstResponder(nil) }
+            let delta = event.modifierFlags.contains(.shift) ? -1 : 1
+            withAnimation(.easeOut(duration: 0.12)) {
+                selectedTodoID = TodoKeyboardSelection.next(after: selectedTodoID, delta: delta, in: ordered)
+            }
+            return true
+        case 49: // Space
+            guard !isEditingText, let selectedTodoID,
+                  ordered.contains(where: { $0.id == selectedTodoID }) else { return false }
+            store.toggleDone(selectedTodoID)
+            return true
+        case 53: // Escape
+            guard !isEditingText, selectedTodoID != nil else { return false }
+            selectedTodoID = nil
+            return true
+        default:
+            return false
         }
     }
 
@@ -273,6 +346,7 @@ private struct TodoGroupBlock: View {
     var mode: TodoRow.Mode
     var showsHeader: Bool
     var dragController: TodoDragController?
+    var selectedTodoID: Todo.ID?
 
     private var doneCount: Int { group.todos.filter(\.isDone).count }
     private var frameKey: String { group.group ?? ungroupedDragKey }
@@ -323,7 +397,12 @@ private struct TodoGroupBlock: View {
         } else {
             VStack(spacing: 0) {
                 ForEach(group.todos) { todo in
-                    TodoRow(todo: todo, mode: mode, dragController: dragController)
+                    TodoRow(
+                        todo: todo,
+                        mode: mode,
+                        dragController: dragController,
+                        isSelected: todo.id == selectedTodoID
+                    )
                     if todo.id != group.todos.last?.id {
                         Divider().padding(.leading, 54)
                     }
@@ -447,6 +526,8 @@ struct TodoRow: View {
     var todo: Todo
     var mode: Mode = .today
     var dragController: TodoDragController?
+    /// True when Tab / Shift+Tab navigation is resting on this row.
+    var isSelected = false
     /// True for the copy rendered in the floating overlay: no gestures, no
     /// frame reporting, just the visual card.
     var isFloating = false
@@ -469,8 +550,18 @@ struct TodoRow: View {
                     dragPlaceholder
                 }
             }
+            .overlay { if isSelected { selectionRing } }
             .background(frameReporter)
         }
+    }
+
+    /// The keyboard-navigation highlight: an accent ring inset inside the row
+    /// so Tab visibly rests here without recoloring the content.
+    private var selectionRing: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(Color.manasAccent.opacity(0.7), lineWidth: 1.5)
+            .padding(2)
+            .allowsHitTesting(false)
     }
 
     // MARK: - Swipe to delete
