@@ -6,6 +6,14 @@ import SwiftUI
 /// planning ahead is scroll-down-and-type. Replaces the old horizontal
 /// carousel and the plan-a-day picker: scroll up for the past, down for the
 /// future, and a floating Today pill returns when Today scrolls off-screen.
+extension Notification.Name {
+    /// Posted by the ⌘L menu command: scroll the feed to Today, then focus
+    /// today's compose bar so the user can type immediately.
+    static let manasJumpToToday = Notification.Name("dev.viraat.manas.jump-to-today")
+    /// Posted by the feed once Today is on screen; today's add field focuses.
+    static let manasFocusTodayField = Notification.Name("dev.viraat.manas.focus-today-field")
+}
+
 struct DayFeed: View {
     @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -86,6 +94,9 @@ struct DayFeed: View {
             }
             .overlay(alignment: .bottom) { todayPill(proxy) }
             .onAppear { anchorToday(using: proxy) }
+            .onReceive(NotificationCenter.default.publisher(for: .manasJumpToToday)) { _ in
+                jumpToTodayAndCompose(using: proxy)
+            }
         }
     }
 
@@ -102,6 +113,20 @@ struct DayFeed: View {
             withTransaction(transaction) {
                 proxy.scrollTo(today, anchor: .top)
             }
+        }
+    }
+
+    /// ⌘L: bring Today to the top, then (once its section is materialized and
+    /// the scroll has settled) hand focus to the compose bar. The focus hop is
+    /// a second notification because a LazyVStack may not have built today's
+    /// field yet when the command fires from far away in the feed.
+    private func jumpToTodayAndCompose(using proxy: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+            proxy.scrollTo(today, anchor: .top)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            NotificationCenter.default.post(name: .manasFocusTodayField, object: nil)
         }
     }
 

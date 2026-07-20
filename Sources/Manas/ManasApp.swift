@@ -39,6 +39,12 @@ struct ManasApp: App {
         }
         .defaultSize(width: 560, height: 780)
         .commands {
+            CommandMenu("Go") {
+                Button("Today") {
+                    NotificationCenter.default.post(name: .manasJumpToToday, object: nil)
+                }
+                .keyboardShortcut("l", modifiers: [.command])
+            }
             CommandGroup(replacing: .help) {
                 Button("Welcome to Manas") {
                     NotificationCenter.default.post(name: .showManasOnboarding, object: nil)

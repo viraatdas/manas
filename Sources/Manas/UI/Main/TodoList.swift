@@ -129,6 +129,10 @@ struct AddTodoField: View {
         )
         .shadow(color: Color.manasAccent.opacity(glowOpacity), radius: isFocused ? 9 : 5, x: 0, y: 2)
         .animation(.easeOut(duration: 0.15), value: focusedField)
+        .onReceive(NotificationCenter.default.publisher(for: .manasFocusTodayField)) { _ in
+            guard isToday else { return }
+            focusedField = .todo
+        }
     }
 
     /// Today gets a filled accent badge that reads as a compose button; other
