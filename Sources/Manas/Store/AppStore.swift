@@ -370,12 +370,35 @@ final class AppStore {
         let settled = discoveredActivities.filter { $0.resolution != .pending }
         var knownTitles = Set(todos.map { Self.dedupeKey($0.text) })
         knownTitles.formUnion(settled.map { Self.dedupeKey($0.title) })
-        discoveredActivities = settled + result.discovered.filter { item in
+        let fresh = result.discovered.filter { item in
             let key = Self.dedupeKey(item.title)
             return !key.isEmpty && knownTitles.insert(key).inserted
         }
+        // Detected time sinks don't wait for a manual Add: they land straight
+        // in the Waste of time bucket as checked-off entries. Their discovery
+        // records settle as .added, so deleting the todo isn't undone by the
+        // next pass re-discovering the same scrolling.
+        discoveredActivities = settled + fresh.map { item in
+            guard Self.isWasteOfTime(item.group) else { return item }
+            var item = item
+            item.resolution = .added
+            insert(Todo(
+                text: item.title,
+                group: TodoGroupName.wasteOfTime,
+                isDone: true,
+                verdict: Verdict(status: .done, evidence: item.evidence, accepted: true)
+            ))
+            return item
+        }
         usageRecords.append(result.usage)
         lastCheckedAt = result.usage.timestamp
+    }
+
+    /// True when the judge tagged a discovery with the built-in time-sink
+    /// group, matched case-insensitively so a lowercased echo still counts.
+    private static func isWasteOfTime(_ group: String?) -> Bool {
+        guard let group else { return false }
+        return TodoGroupName.key(for: group) == TodoGroupName.key(for: TodoGroupName.wasteOfTime)
     }
 
     private static func dedupeKey(_ title: String) -> String {

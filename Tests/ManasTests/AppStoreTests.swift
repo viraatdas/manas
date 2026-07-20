@@ -509,6 +509,44 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.addDiscoveredToTodos(discovered.id), "already-added items can't be added twice")
     }
 
+    func testTimeSinkDiscoveriesAutoPopulateWasteOfTime() {
+        let store = AppStore(fileURL: tempStateURL())
+        let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "Arc, 44 minutes", source: .arc, group: "waste of time"),
+            DiscoveredActivity(title: "Reviewed PR #42", evidence: "claude session", source: .claude),
+        ], usage: usage))
+
+        // The time sink skips the pending tray and lands checked off in the
+        // built-in bucket; real work still waits for a manual Add.
+        let wasted = store.todos.filter { $0.group == TodoGroupName.wasteOfTime }
+        XCTAssertEqual(wasted.map(\.text), ["Scrolled X and Instagram"])
+        XCTAssertEqual(wasted.first?.isDone, true)
+        XCTAssertEqual(wasted.first?.verdict?.status, .done)
+        XCTAssertEqual(
+            store.discoveredActivities.filter { $0.resolution == .pending }.map(\.title),
+            ["Reviewed PR #42"]
+        )
+
+        // A later pass re-observing the same scrolling doesn't duplicate it.
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "scrolled x and instagram", evidence: "again", source: .arc, group: "Waste of time"),
+        ], usage: usage))
+        XCTAssertEqual(store.todos.filter { $0.group == TodoGroupName.wasteOfTime }.count, 1)
+
+        // Deleting the entry sticks: the settled discovery record keeps the
+        // next pass from resurrecting it.
+        store.removeTodo(wasted[0].id)
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "third pass", source: .arc, group: "Waste of time"),
+        ], usage: usage))
+        XCTAssertTrue(
+            store.todos.filter { $0.group == TodoGroupName.wasteOfTime }.isEmpty,
+            "a deleted time sink stays deleted"
+        )
+    }
+
     func testUsageAggregates() {
         let store = AppStore(fileURL: tempStateURL())
         let previousDay = date.addingTimeInterval(-86_400 * 2)
