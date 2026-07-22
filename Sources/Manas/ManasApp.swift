@@ -32,8 +32,9 @@ struct ManasApp: App {
                     maxHeight: .infinity
                 )
                 // Debounced saves can trail the last mutation by up to 500ms;
-                // flush on quit so nothing is lost.
+                // cancel any active CLI work, then flush so nothing is lost.
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    store.stopAutoCheckIns()
                     store.saveNow()
                 }
         }

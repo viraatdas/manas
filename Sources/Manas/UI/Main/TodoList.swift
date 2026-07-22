@@ -158,9 +158,17 @@ struct AddTodoField: View {
     @State private var draft = ""
     @State private var selectedGroup: String?
     @FocusState private var focusedField: FocusedField?
+    private let focusOnAppear: Bool
+    private let onCancel: (() -> Void)?
 
-    init(day: Date = Date()) {
+    init(
+        day: Date = Date(),
+        focusOnAppear: Bool = false,
+        onCancel: (() -> Void)? = nil
+    ) {
         self.day = Calendar.current.startOfDay(for: day)
+        self.focusOnAppear = focusOnAppear
+        self.onCancel = onCancel
     }
 
     /// Today's field is the app's compose bar and dresses up to say so; the
@@ -176,6 +184,7 @@ struct AddTodoField: View {
                 .font(.body)
                 .focused($focusedField, equals: .todo)
                 .onSubmit(submit)
+                .onExitCommand(perform: cancel)
                 .accessibilityLabel(accessibilityLabel)
 
             Divider()
@@ -196,6 +205,11 @@ struct AddTodoField: View {
         .animation(.easeOut(duration: 0.15), value: focusedField)
         .onReceive(NotificationCenter.default.publisher(for: .manasFocusTodayField)) { _ in
             guard isToday else { return }
+            focusedField = .todo
+        }
+        .task {
+            guard focusOnAppear else { return }
+            await Task.yield()
             focusedField = .todo
         }
     }
@@ -241,6 +255,12 @@ struct AddTodoField: View {
         guard store.addTodo(draft, on: day, group: selectedGroup) != nil else { return }
         draft = ""
         focusedField = .todo
+    }
+
+    private func cancel() {
+        draft = ""
+        focusedField = nil
+        onCancel?()
     }
 
     private var accessibilityLabel: String {

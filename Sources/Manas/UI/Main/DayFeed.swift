@@ -23,6 +23,10 @@ struct DayFeed: View {
     @State private var futureHorizon = 7
     @State private var isTodayVisible = true
     @State private var viewportFrame: CGRect = .zero
+    /// A future day gets a real NSTextField only while the user is composing
+    /// for it. Keeping this selection at feed scope guarantees that scrolling
+    /// through the horizon never leaves dozens of live text editors behind.
+    @State private var activeFutureEditorDay: Date?
 
     private let calendar = Calendar.current
     private static let maxFutureHorizon = 120
@@ -68,7 +72,10 @@ struct DayFeed: View {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(feedDays) { feedDay in
                         Section {
-                            DayFeedSection(feedDay: feedDay)
+                            DayFeedSection(
+                                feedDay: feedDay,
+                                activeFutureEditorDay: $activeFutureEditorDay
+                            )
                                 .frame(maxWidth: ContentView.contentMaxWidth)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 24)
@@ -260,6 +267,15 @@ struct DayFeedHeader: View {
 struct DayFeedSection: View {
     @Environment(AppStore.self) private var store
     let feedDay: FeedDay
+    @Binding private var activeFutureEditorDay: Date?
+
+    init(
+        feedDay: FeedDay,
+        activeFutureEditorDay: Binding<Date?> = .constant(nil)
+    ) {
+        self.feedDay = feedDay
+        _activeFutureEditorDay = activeFutureEditorDay
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -269,7 +285,7 @@ struct DayFeedSection: View {
                 TodoListSection(day: feedDay.date)
                 DiscoveredSection()
             case .future:
-                AddTodoField(day: feedDay.date)
+                futureComposer
                 if !store.todos(on: feedDay.date).isEmpty {
                     TodoListSection(day: feedDay.date)
                 }
@@ -278,6 +294,25 @@ struct DayFeedSection: View {
             }
         }
         .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private var futureComposer: some View {
+        if activeFutureEditorDay == feedDay.date {
+            AddTodoField(
+                day: feedDay.date,
+                focusOnAppear: true,
+                onCancel: { activeFutureEditorDay = nil }
+            )
+        } else {
+            Button {
+                activeFutureEditorDay = feedDay.date
+            } label: {
+                Label("Add a todo", systemImage: "plus")
+            }
+            .buttonStyle(.ghost)
+            .accessibilityLabel("Add a todo to \(DayLabel.title(for: feedDay.date))")
+        }
     }
 }
 

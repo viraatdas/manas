@@ -23,6 +23,10 @@ final class AppStore {
     /// new group shows up as a standing bucket the moment it's made.
     var customGroups: [String] = [] { didSet { scheduleSave() } }
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
+    /// Start time of the latest automatic attempt, successful or not. This
+    /// survives relaunches so an update, crash, or CLI failure cannot trigger
+    /// another token-spending pass immediately.
+    var lastAutomaticCheckAt: Date? { didSet { scheduleSave() } }
     var syncedSourceCount: Int = 0 { didSet { scheduleSave() } }
 
     /// The judge always runs Sonnet; there is no user-facing model choice.
@@ -67,6 +71,13 @@ final class AppStore {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var suppressAutosave = true
     @ObservationIgnored private let logger = Logger(subsystem: "Manas", category: "AppStore")
+    /// Serializes state writes away from the UI actor. `saveNow()` uses the
+    /// same queue synchronously, so a final quit-time snapshot always lands
+    /// after any debounced write already in flight.
+    @ObservationIgnored private let persistenceQueue = DispatchQueue(
+        label: "dev.viraat.manas.state-persistence",
+        qos: .utility
+    )
 
     /// - Parameters:
     ///   - fileURL: Override for tests; defaults to
@@ -83,6 +94,7 @@ final class AppStore {
             groupEmojis = state.groupEmojis ?? [:]
             customGroups = state.customGroups ?? []
             lastCheckedAt = state.lastCheckedAt
+            lastAutomaticCheckAt = state.lastAutomaticCheckAt
             syncedSourceCount = state.syncedSourceCount
         }
         suppressAutosave = false
@@ -497,7 +509,7 @@ final class AppStore {
 
     // MARK: - Persistence
 
-    private struct PersistedState: Codable {
+    fileprivate struct PersistedState: Codable, Sendable {
         var todos: [Todo]
         var discoveredActivities: [DiscoveredActivity]
         var usageRecords: [UsageRecord]
@@ -507,6 +519,7 @@ final class AppStore {
         var groupEmojis: [String: String]?
         var customGroups: [String]?
         var lastCheckedAt: Date?
+        var lastAutomaticCheckAt: Date?
         var syncedSourceCount: Int
     }
 
@@ -519,6 +532,7 @@ final class AppStore {
             groupEmojis: groupEmojis,
             customGroups: customGroups,
             lastCheckedAt: lastCheckedAt,
+            lastAutomaticCheckAt: lastAutomaticCheckAt,
             syncedSourceCount: syncedSourceCount
         )
     }
@@ -528,15 +542,11 @@ final class AppStore {
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try Self.makeEncoder().encode(persistedState)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            logger.error("Failed to save state: \(error.localizedDescription)")
+        let snapshot = persistedState
+        let url = fileURL
+        let logger = logger
+        persistenceQueue.sync {
+            Self.write(snapshot, to: url, logger: logger)
         }
     }
 
@@ -545,8 +555,34 @@ final class AppStore {
         saveTask?.cancel()
         saveTask = Task { [weak self, saveDebounce] in
             try? await Task.sleep(for: saveDebounce)
-            guard !Task.isCancelled else { return }
-            self?.saveNow()
+            guard !Task.isCancelled, let self else { return }
+            let snapshot = self.persistedState
+            let url = self.fileURL
+            let logger = self.logger
+            let queue = self.persistenceQueue
+            await withCheckedContinuation { continuation in
+                queue.async {
+                    Self.write(snapshot, to: url, logger: logger)
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    nonisolated private static func write(
+        _ state: PersistedState,
+        to url: URL,
+        logger: Logger
+    ) {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try makeEncoder().encode(state)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            logger.error("Failed to save state: \(error.localizedDescription)")
         }
     }
 

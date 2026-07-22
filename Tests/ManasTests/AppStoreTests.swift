@@ -19,6 +19,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedModel, .sonnet, "the judge model is a constant — always sonnet")
         XCTAssertEqual(store.dailyTokenBudget, 10_000)
         XCTAssertNil(store.lastCheckedAt)
+        XCTAssertNil(store.lastAutomaticCheckAt)
         XCTAssertEqual(store.syncedSourceCount, 0)
     }
 
@@ -40,6 +41,7 @@ final class AppStoreTests: XCTestCase {
         ]
         store.dailyTokenBudget = 25_000
         store.lastCheckedAt = date
+        store.lastAutomaticCheckAt = date.addingTimeInterval(60)
         store.syncedSourceCount = 3
         store.saveNow()
 
@@ -49,6 +51,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.usageRecords, store.usageRecords)
         XCTAssertEqual(reloaded.dailyTokenBudget, 25_000)
         XCTAssertEqual(reloaded.lastCheckedAt, date)
+        XCTAssertEqual(reloaded.lastAutomaticCheckAt, date.addingTimeInterval(60))
         XCTAssertEqual(reloaded.syncedSourceCount, 3)
     }
 

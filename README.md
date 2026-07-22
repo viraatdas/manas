@@ -16,10 +16,11 @@ Swift Charts, and SF Symbols.
   evidence changes a todo, checks all five local sources without spending any
   Claude tokens, and lets you add a real first todo before the automatic judge
   starts. Reopen it any time with **⌘/** or **Help → Welcome to Manas**.
-- **Automatic check-ins** — one when the app launches, then one every hour,
-  plus a refresh button in the header for an on-demand pass (it spins while
-  a check runs). The header's "Last checked 2:14 pm · 2 sources synced" line
-  is the heartbeat; failures appear as a quiet caption in the footer.
+- **Automatic check-ins** — one on a fresh install, then at most one every
+  hour across relaunches, plus a refresh button in the header for an on-demand
+  pass (it spins while a check runs). The header's "Last checked 2:14 pm · 2
+  sources synced" line is the heartbeat; failures appear as a quiet caption
+  in the footer.
 - **Five local activity sources** — Claude Code and Codex sessions, Arc page
   titles, Screen Time app usage, and same-day iMessage text. Sources sync
   independently, so a permission problem never hides the activity that is
@@ -38,8 +39,8 @@ Swift Charts, and SF Symbols.
 - **A continuous day feed** — one vertical scroll with Today anchored at the
   top and primary. Scroll up into past days (read-only history with
   "Move to today" for unfinished work, gently dimmed); scroll down into future
-  days, which always show an inline add field so planning ahead is
-  scroll-down-and-type. Day headers pin as their section scrolls, and a
+  days, where one click opens the inline composer without keeping dozens of
+  text fields alive off-screen. Day headers pin as their section scrolls, and a
   floating **Today** pill (also ⌘T) reappears to bring you back whenever Today
   is off-screen. Future days are planning lists and are never sent to the
   judge.

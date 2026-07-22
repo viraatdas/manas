@@ -317,6 +317,51 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(store.usageRecords.count, countWhenStopped, "stopping must halt the cadence")
     }
 
+    func testAutomaticCheckDelayUsesMostRecentAttemptOrCompletion() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let delay = AppStore.automaticCheckDelay(
+            lastAttemptAt: now.addingTimeInterval(-900),
+            lastCompletedAt: now.addingTimeInterval(-1_800),
+            now: now,
+            interval: .seconds(3_600)
+        )
+        XCTAssertEqual(delay, .seconds(2_700))
+        XCTAssertEqual(
+            AppStore.automaticCheckDelay(
+                lastAttemptAt: now.addingTimeInterval(-3_601),
+                lastCompletedAt: nil,
+                now: now,
+                interval: .seconds(3_600)
+            ),
+            .zero
+        )
+    }
+
+    func testRecentCompletedCheckDefersAutomaticLaunch() async throws {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Anything")
+        store.lastCheckedAt = Date()
+        let judge = StubJudge { _, _, model in
+            JudgeResult(usage: UsageRecord(
+                model: model,
+                tokensIn: 10,
+                tokensOut: 5,
+                costUSD: 0,
+                summary: "1 todo judged"
+            ))
+        }
+
+        store.startAutoCheckIns(
+            every: .milliseconds(180),
+            aggregator: ActivityAggregator(sources: [StubSource()]),
+            judge: judge
+        )
+        try await Task.sleep(for: .milliseconds(70))
+        XCTAssertTrue(store.usageRecords.isEmpty, "a recent pass must survive relaunch without an immediate rerun")
+        try await waitUntil { store.usageRecords.count == 1 }
+        store.stopAutoCheckIns()
+    }
+
     func testJudgeErrorPropagatesWithoutRecordingUsage() async {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Anything")

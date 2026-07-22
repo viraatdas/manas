@@ -47,7 +47,7 @@ final class TimelineLayoutTests: XCTestCase {
         )
 
         XCTAssertGreaterThan(populated.height, 200)
-        XCTAssertGreaterThan(empty.height, 30, "an empty future day still shows its add field")
+        XCTAssertGreaterThan(empty.height, 30, "an empty future day still shows its add button")
         XCTAssertNotEqual(populated.height, empty.height, "Each day renders its own store-backed content.")
     }
 

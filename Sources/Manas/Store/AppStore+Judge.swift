@@ -12,8 +12,9 @@ extension AppStore {
     /// How often the background check-in re-runs.
     static let autoCheckInterval: Duration = .seconds(3600)
 
-    /// Starts the automatic cadence: one check right away, then one every
-    /// `interval` for as long as the app runs. Idempotent.
+    /// Starts the automatic cadence. A never-checked install runs right away;
+    /// relaunches honor the most recent completed check or automatic attempt,
+    /// then continue at `interval`. Idempotent.
     func startAutoCheckIns(
         every interval: Duration = AppStore.autoCheckInterval,
         aggregator: ActivityAggregator = .standard,
@@ -26,12 +27,61 @@ extension AppStore {
         guard autoCheckTask == nil else { return }
         autoCheckTask = Task { [weak self] in
             while !Task.isCancelled {
-                if let running = self?.beginCheckIn(aggregator: aggregator, judge: judge) {
-                    await running.value
+                guard let self else { return }
+                let delay = Self.automaticCheckDelay(
+                    lastAttemptAt: self.lastAutomaticCheckAt,
+                    lastCompletedAt: self.lastCheckedAt,
+                    now: Date(),
+                    interval: interval
+                )
+                do {
+                    if delay > .zero { try await Task.sleep(for: delay) }
+                } catch {
+                    return
                 }
-                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { return }
+
+                // A manual check may have completed while the timer slept.
+                // Recompute before spending tokens and restart the loop if it
+                // pushed the next automatic pass into the future.
+                guard Self.automaticCheckDelay(
+                    lastAttemptAt: self.lastAutomaticCheckAt,
+                    lastCompletedAt: self.lastCheckedAt,
+                    now: Date(),
+                    interval: interval
+                ) == .zero else { continue }
+
+                if let running = self.beginCheckIn(
+                    aggregator: aggregator,
+                    judge: judge,
+                    isAutomatic: true
+                ) {
+                    await running.value
+                } else {
+                    // A manual pass owns the single-flight slot. Avoid a hot
+                    // retry loop; its completion time will set the next delay.
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                }
             }
         }
+    }
+
+    /// Remaining cooldown before another automatic pass. The later of a
+    /// completed check and an attempted automatic check wins, so failures and
+    /// interrupted launches are throttled without blocking manual refresh.
+    static func automaticCheckDelay(
+        lastAttemptAt: Date?,
+        lastCompletedAt: Date?,
+        now: Date,
+        interval: Duration
+    ) -> Duration {
+        let reference = [lastAttemptAt, lastCompletedAt].compactMap { $0 }.max()
+        guard let reference else { return .zero }
+        let components = interval.components
+        let intervalSeconds = Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        let remaining = intervalSeconds - max(0, now.timeIntervalSince(reference))
+        return remaining > 0 ? .seconds(remaining) : .zero
     }
 
     func stopAutoCheckIns() {
@@ -88,9 +138,11 @@ extension AppStore {
     @discardableResult
     private func beginCheckIn(
         aggregator: ActivityAggregator,
-        judge: (any TodoJudge)?
+        judge: (any TodoJudge)?,
+        isAutomatic: Bool = false
     ) -> Task<Void, Never>? {
         guard !isCheckingIn else { return nil }
+        if isAutomatic { lastAutomaticCheckAt = Date() }
         isCheckingIn = true
         lastCheckInError = nil
         let task = Task { [weak self] in
