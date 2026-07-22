@@ -245,6 +245,40 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(groupTodos("Personal"), ["P2", "P1"], "reordering one group leaves the others alone")
     }
 
+    func testRescheduleTodoRedatesClearsVerdictAndLandsOnTop() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        store.addTodo("Move me")
+        store.addTodo("Existing tomorrow", on: tomorrow)
+        let id = store.todosToday.first { $0.text == "Move me" }!.id
+        store.todos[store.todos.firstIndex { $0.id == id }!].verdict =
+            Verdict(status: .inProgress, evidence: "some today evidence", judgedAt: date)
+
+        store.rescheduleTodo(id, to: tomorrow)
+
+        XCTAssertTrue(store.todosToday.isEmpty, "the todo left today")
+        XCTAssertEqual(
+            store.todos(on: tomorrow).map(\.text), ["Move me", "Existing tomorrow"],
+            "the moved todo lands on top of the destination day"
+        )
+        let moved = store.todos(on: tomorrow)[0]
+        XCTAssertEqual(moved.day, tomorrow)
+        XCTAssertNil(moved.verdict, "the stale verdict is cleared on a move")
+    }
+
+    func testRescheduleTodoIgnoresSameDayAndMissingID() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Stay")
+        let id = store.todosToday[0].id
+        let before = store.todos
+        store.rescheduleTodo(id, to: Date()) // same day
+        store.rescheduleTodo(UUID(), to: Date().addingTimeInterval(86_400)) // no such todo
+        XCTAssertEqual(store.todos, before, "a same-day or unknown move changes nothing")
+    }
+
     func testMoveTodoIgnoresCrossGroupAndCrossDay() {
         let store = AppStore(fileURL: tempStateURL())
         let calendar = Calendar.current

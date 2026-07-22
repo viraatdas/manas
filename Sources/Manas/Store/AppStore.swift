@@ -277,6 +277,21 @@ final class AppStore {
         }
     }
 
+    /// Re-dates a todo onto a different calendar day, landing it on top of the
+    /// destination day's list like a freshly added todo. Any verdict is cleared
+    /// because it judged the todo against the old day's activity; moved onto
+    /// today it will simply be re-judged. A no-op if the day doesn't change.
+    func rescheduleTodo(_ id: Todo.ID, to day: Date) {
+        let target = Calendar.current.startOfDay(for: day)
+        guard let index = todos.firstIndex(where: { $0.id == id }),
+              !Calendar.current.isDate(todos[index].day, inSameDayAs: target)
+        else { return }
+        var todo = todos.remove(at: index)
+        todo.day = target
+        todo.verdict = nil
+        insert(todo)
+    }
+
     /// Brings an unfinished past todo forward to the top of today. It will
     /// be re-judged fresh against today's activity, so the stale verdict is
     /// cleared. Finished todos and today/future todos are left alone.

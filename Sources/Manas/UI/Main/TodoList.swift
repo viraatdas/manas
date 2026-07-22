@@ -597,6 +597,8 @@ struct TodoRow: View {
     @State private var isEditing = false
     @State private var editText = ""
     @State private var swipePastThreshold = false
+    @State private var isPickingDate = false
+    @State private var pickedDate = Date()
     @FocusState private var isEditFocused: Bool
 
     private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
@@ -859,12 +861,16 @@ struct TodoRow: View {
         isEditing = false
     }
 
-    /// Per-todo actions: rename (also reachable by double-click) and delete.
-    /// Grouping is done by dragging, so it stays off the menu.
+    /// Per-todo actions: rename (also reachable by double-click), move to
+    /// another day, and delete. Grouping is done by dragging, so it stays off
+    /// the menu.
     private var actionsMenu: some View {
         Menu {
             if canEdit {
                 Button("Edit", action: beginEditing)
+            }
+            if !todo.isDone {
+                moveMenu
             }
             Button("Delete", role: .destructive) {
                 store.removeTodo(todo.id)
@@ -881,6 +887,79 @@ struct TodoRow: View {
         .fixedSize()
         .help("Todo actions")
         .accessibilityLabel("Actions for \(todo.text)")
+        .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePickerPopover }
+    }
+
+    // MARK: - Move to another day
+
+    /// Quick day presets plus a calendar for anything else. The current day is
+    /// omitted so the menu never offers a no-op move.
+    @ViewBuilder
+    private var moveMenu: some View {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        let nextWeek = calendar.date(byAdding: .day, value: 7, to: today) ?? today
+        let day = calendar.startOfDay(for: todo.day)
+        Menu("Move to") {
+            if !calendar.isDate(day, inSameDayAs: today) {
+                Button("Today") { reschedule(to: today) }
+            }
+            if !calendar.isDate(day, inSameDayAs: tomorrow) {
+                Button("Tomorrow") { reschedule(to: tomorrow) }
+            }
+            Button("Next week") { reschedule(to: nextWeek) }
+            Divider()
+            Button("Pick a date…") {
+                pickedDate = day
+                // Presenting the popover while the menu is still dismissing
+                // races the two AppKit transitions and the popover can fail to
+                // appear or flicker shut. Let the menu close first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isPickingDate = true
+                }
+            }
+        }
+    }
+
+    /// The calendar popover behind "Pick a date…". Kept compact with a live
+    /// header, the app's accent on both the calendar and the confirm button,
+    /// and a sized frame so the month grid never clips.
+    private var datePickerPopover: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Move to")
+                    .font(.headline)
+                Text(pickedDate, format: .dateTime.weekday(.wide).month(.wide).day())
+                    .font(.subheadline)
+                    .foregroundStyle(Color.manasAccent)
+            }
+            DatePicker("", selection: $pickedDate, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .tint(Color.manasAccent)
+            Divider()
+            HStack {
+                Button("Cancel") { isPickingDate = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Move here") {
+                    reschedule(to: pickedDate)
+                    isPickingDate = false
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.manasAccent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 320)
+    }
+
+    private func reschedule(to day: Date) {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            store.rescheduleTodo(todo.id, to: day)
+        }
     }
 
     @ViewBuilder
