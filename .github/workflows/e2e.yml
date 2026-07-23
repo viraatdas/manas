@@ -1,0 +1,25 @@
+# Full end-to-end verification on every push: macOS build + unit suite,
+# live backend contract (phone auth enabled, OTP, CRUD, RLS), live client
+# integration through the real backend, and the iOS app + widget build.
+# The anon key in SupabaseConfig.swift is publishable, so CI needs no secrets.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Run the full end-to-end suite
+        run: scripts/e2e.sh
