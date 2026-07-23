@@ -212,6 +212,24 @@ platform :ios do
     UI.success("Internal TestFlight ready: install from the TestFlight app with the account-holder Apple ID.")
   end
 
+  desc "Set the App Store Connect app name. Set MANAS_RENAME."
+  lane :asc_rename do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    new_name = ENV["MANAS_RENAME"] || UI.user_error!("set MANAS_RENAME")
+    info = app.fetch_edit_app_info || app.fetch_live_app_info
+    UI.user_error!("no editable app info") unless info
+    locs = info.get_app_info_localizations
+    loc = locs.find { |l| l.locale == "en-US" } || locs.first
+    UI.message("current name: #{loc.name.inspect}")
+    loc.update(attributes: { name: new_name })
+    UI.success("name set to #{new_name.inspect}")
+  end
+
   desc "Add the account holder as an internal tester."
   lane :tf_add_tester do
     require "spaceship"
