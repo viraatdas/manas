@@ -641,6 +641,8 @@ struct TodoRow: View {
             }
             .overlay { if isSelected { selectionRing } }
             .background(frameReporter)
+            .contextMenu { todoActionItems }
+            .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePickerPopover }
         }
     }
 
@@ -881,20 +883,12 @@ struct TodoRow: View {
         isEditing = false
     }
 
-    /// Per-todo actions: rename (also reachable by double-click), move to
-    /// another day, and delete. Grouping is done by dragging, so it stays off
-    /// the menu.
+    /// Per-todo actions are shared by the trailing ellipsis and the row's
+    /// right-click menu, so both entry points expose the same predictable
+    /// organization, scheduling, editing, and deletion controls.
     private var actionsMenu: some View {
         Menu {
-            if canEdit {
-                Button("Edit", action: beginEditing)
-            }
-            if !todo.isDone {
-                moveMenu
-            }
-            Button("Delete", role: .destructive) {
-                store.removeTodo(todo.id)
-            }
+            todoActionItems
         } label: {
             Image(systemName: "ellipsis")
                 .font(.subheadline.weight(.medium))
@@ -907,7 +901,74 @@ struct TodoRow: View {
         .fixedSize()
         .help("Todo actions")
         .accessibilityLabel("Actions for \(todo.text)")
-        .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePickerPopover }
+    }
+
+    @ViewBuilder
+    private var todoActionItems: some View {
+        if canEdit {
+            Button(action: beginEditing) {
+                Label("Edit", systemImage: "pencil")
+            }
+            moveToGroupMenu
+        }
+        if !todo.isDone {
+            scheduleMenu
+        }
+        Divider()
+        Button(role: .destructive) {
+            store.removeTodo(todo.id)
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+
+    /// Native nested menu for moving a todo between sections. Stable ordering
+    /// matches the add-todo picker; emoji make destinations scannable, while a
+    /// checkmark keeps the current location unambiguous.
+    private var moveToGroupMenu: some View {
+        Menu {
+            ForEach(store.availableTodoGroups, id: \.self) { group in
+                Button {
+                    moveToGroup(group)
+                } label: {
+                    if isCurrentGroup(group) {
+                        Label("\(store.emoji(forGroup: group)) \(group)", systemImage: "checkmark")
+                    } else {
+                        Text("\(store.emoji(forGroup: group)) \(group)")
+                    }
+                }
+            }
+            Divider()
+            Button {
+                moveToGroup(nil)
+            } label: {
+                if todo.group == nil {
+                    Label("No group", systemImage: "checkmark")
+                } else {
+                    Text("No group")
+                }
+            }
+        } label: {
+            Label("Move to", systemImage: "folder")
+        }
+    }
+
+    private func isCurrentGroup(_ group: String) -> Bool {
+        guard let current = todo.group else { return false }
+        return TodoGroupName.key(for: current) == TodoGroupName.key(for: group)
+    }
+
+    private func moveToGroup(_ group: String?) {
+        let destinationMatches: Bool
+        if let group {
+            destinationMatches = isCurrentGroup(group)
+        } else {
+            destinationMatches = todo.group == nil
+        }
+        guard !destinationMatches else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            store.setTodoGroup(todo.id, group: group)
+        }
     }
 
     // MARK: - Move to another day
@@ -915,13 +976,13 @@ struct TodoRow: View {
     /// Quick day presets plus a calendar for anything else. The current day is
     /// omitted so the menu never offers a no-op move.
     @ViewBuilder
-    private var moveMenu: some View {
+    private var scheduleMenu: some View {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
         let nextWeek = calendar.date(byAdding: .day, value: 7, to: today) ?? today
         let day = calendar.startOfDay(for: todo.day)
-        Menu("Move to") {
+        Menu {
             if !calendar.isDate(day, inSameDayAs: today) {
                 Button("Today") { reschedule(to: today) }
             }
@@ -939,6 +1000,8 @@ struct TodoRow: View {
                     isPickingDate = true
                 }
             }
+        } label: {
+            Label("Schedule", systemImage: "calendar")
         }
     }
 
