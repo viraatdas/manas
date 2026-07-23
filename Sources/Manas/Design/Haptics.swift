@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 /// Thin wrapper over the trackpad's haptic engine. Force Touch trackpads turn
@@ -56,3 +57,36 @@ enum Haptics {
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
 }
+
+#else
+import UIKit
+
+/// The same haptic surface as the mac build, backed by the Taptic Engine. The
+/// two calls keep their mac semantics — `tap()` for landing on a row, `bump()`
+/// for the firm drag/threshold thunk — so shared call sites feel equivalent on
+/// both platforms. iOS generators self-throttle far better than the trackpad
+/// performer, but the same coalescing keeps a frantic sweep from smearing.
+@MainActor
+enum Haptics {
+    private static let minInterval: Duration = .milliseconds(60)
+    private static var lastStart: ContinuousClock.Instant?
+
+    private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+
+    /// A light tap for landing selection on a row.
+    static func tap() { fire(light, intensity: 0.7) }
+
+    /// The firmest feedback we produce — drag lifts, row passes, drops, and
+    /// crossed thresholds.
+    static func bump() { fire(rigid, intensity: 1.0) }
+
+    private static func fire(_ generator: UIImpactFeedbackGenerator, intensity: CGFloat) {
+        let now = ContinuousClock.now
+        if let lastStart, now - lastStart < minInterval { return }
+        lastStart = now
+        generator.impactOccurred(intensity: intensity)
+        generator.prepare()
+    }
+}
+#endif

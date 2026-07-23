@@ -6,6 +6,7 @@ import SwiftUI
 /// today.
 struct ContentView: View {
     @Environment(AppStore.self) private var store
+    @Environment(SyncController.self) private var sync
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("hasCompletedManasOnboarding") private var hasCompletedOnboarding = false
     @State private var isOnboardingPresented = false
@@ -43,14 +44,31 @@ struct ContentView: View {
             value: isOnboardingPresented
         )
         .task {
+            // Roll any unfinished todos from earlier days onto today before the
+            // feed settles, so what was left undone yesterday leads today.
+            store.carryForwardOverdueTodos()
             if showsOnboardingOnFirstLaunch, !hasCompletedOnboarding {
                 isOnboardingPresented = true
             } else if startsAutoCheckIns {
                 store.startAutoCheckIns()
             }
         }
+        // Cloud sync runs whenever a session exists (signed in from the gear
+        // popover); signing out simply stops the overlay.
+        .task(id: sync.isSignedIn) {
+            if sync.isSignedIn {
+                sync.start(store: store)
+            } else {
+                sync.stop()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showManasOnboarding)) { _ in
             isOnboardingPresented = true
+        }
+        // Midnight (or waking the Mac on a new day) rolls the previous day's
+        // unfinished todos forward without needing a relaunch.
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: RunLoop.main)) { _ in
+            store.carryForwardOverdueTodos()
         }
     }
 
@@ -80,29 +98,34 @@ struct ContentView: View {
 #Preview("Empty") {
     ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
         .environment(AppStore.previewEmpty)
+        .environment(SyncController())
         .frame(width: 520, height: 760)
 }
 
 #Preview("Judged") {
     ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
         .environment(AppStore.previewJudged)
+        .environment(SyncController())
         .frame(width: 520, height: 760)
 }
 
 #Preview("Discovered present") {
     ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
         .environment(AppStore.previewWithDiscovered)
+        .environment(SyncController())
         .frame(width: 520, height: 760)
 }
 
 #Preview("Timeline") {
     ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
         .environment(AppStore.previewTimeline)
+        .environment(SyncController())
         .frame(width: 520, height: 760)
 }
 
 #Preview("Wide") {
     ContentView(showsOnboardingOnFirstLaunch: false, startsAutoCheckIns: false)
         .environment(AppStore.previewTimeline)
+        .environment(SyncController())
         .frame(width: 900, height: 760)
 }

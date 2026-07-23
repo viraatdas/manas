@@ -127,6 +127,7 @@ struct SettingsPopover: View {
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
             }
+            SyncSettingsSection()
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Launch at login", isOn: Binding(
                     get: { loginItem.isEnabled },
@@ -159,6 +160,7 @@ struct SettingsPopover: View {
 #Preview("Header") {
     MainHeaderView()
         .environment(AppStore.previewJudged)
+        .environment(SyncController())
         .padding(24)
         .frame(width: 520)
         .background(Color.manasBackground)
@@ -167,4 +169,5 @@ struct SettingsPopover: View {
 #Preview("Settings popover") {
     SettingsPopover()
         .environment(AppStore.previewEmpty)
+        .environment(SyncController())
 }

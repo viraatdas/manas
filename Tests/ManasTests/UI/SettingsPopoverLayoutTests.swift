@@ -61,7 +61,11 @@ final class SettingsPopoverLayoutTests: XCTestCase {
     }
 
     private func makeHost(of view: some View) -> NSHostingView<AnyView> {
-        NSHostingView(rootView: AnyView(view.environment(AppStore.previewEmpty)))
+        NSHostingView(rootView: AnyView(
+            view
+                .environment(AppStore.previewEmpty)
+                .environment(SyncController())
+        ))
     }
 
     /// Runs layout until the fitting size stops changing, so state set after

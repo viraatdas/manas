@@ -20,11 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct ManasApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = AppStore()
+    @State private var sync = SyncController()
 
     var body: some Scene {
         Window("Manas", id: "main") {
             ContentView()
                 .environment(store)
+                .environment(sync)
                 .frame(
                     minWidth: 460,
                     maxWidth: .infinity,

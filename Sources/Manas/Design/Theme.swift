@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // Manas uses semantic macOS surfaces, generous whitespace, and a single warm
 // coral accent. System colors keep the hierarchy crisp in either appearance.
@@ -14,6 +17,7 @@ extension Color {
     /// selected states, and verdict emphasis — and nothing else.
     static let manasAccent = Color(red: 216 / 255, green: 90 / 255, blue: 48 / 255)
 
+    #if os(macOS)
     /// Native window surface. Avoids the previous cream-on-cream cast and
     /// follows the user's macOS appearance automatically.
     static let manasBackground = Color(nsColor: .windowBackgroundColor)
@@ -28,6 +32,14 @@ extension Color {
 
     /// Hairline border color, straight from the system.
     static let hairline = Color(nsColor: .separatorColor)
+    #else
+    /// The same semantic surfaces mapped to their iOS counterparts, so shared
+    /// views keep an identical hierarchy on both platforms.
+    static let manasBackground = Color(uiColor: .systemGroupedBackground)
+    static let surface1 = Color(uiColor: .secondarySystemGroupedBackground)
+    static let surfaceRaised = Color(uiColor: .secondarySystemGroupedBackground)
+    static let hairline = Color(uiColor: .separator)
+    #endif
 }
 
 // MARK: - Cards
@@ -176,7 +188,7 @@ extension Verdict.Status {
     var tint: Color {
         switch self {
         case .done, .inProgress: .manasAccent
-        case .notStarted, .unknown: Color(nsColor: .secondaryLabelColor)
+        case .notStarted, .unknown: .secondary
         }
     }
 }
