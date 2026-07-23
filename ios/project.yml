@@ -1,0 +1,98 @@
+# XcodeGen project for the iOS companion app. `xcodegen generate` (run from
+# this directory) produces Manas.xcodeproj reproducibly; the .xcodeproj itself
+# is never committed. Model, store, design, and sync code is shared by path
+# with the macOS app in ../Sources/Manas — one source of truth, two platforms.
+name: Manas
+options:
+  bundleIdPrefix: dev.viraat
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: 3C4383262W
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Manas:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Shared
+      - path: ../Sources/Manas/Models
+      - path: ../Sources/Manas/Store/AppStore.swift
+      - path: ../Sources/Manas/Design
+      - path: ../Sources/Manas/Sync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.viraat.manas.ios
+        CODE_SIGN_ENTITLEMENTS: App/Manas.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: Manas
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: false
+      configs:
+        # Release archives sign manually with API-key-fetched profiles
+        # (fastlane prep_signing); Debug/simulator stays automatic-unsigned.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: dev.viraat.manas.ios AppStore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Manas
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.productivity
+    dependencies:
+      - target: ManasWidget
+        embed: true
+
+  ManasWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+      - path: Shared
+      - path: ../Sources/Manas/Models
+      - path: ../Sources/Manas/Design/Theme.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.viraat.manas.ios.widget
+        CODE_SIGN_ENTITLEMENTS: Widget/ManasWidget.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: Manas
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: true
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: dev.viraat.manas.ios.widget AppStore
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Manas
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+schemes:
+  Manas:
+    build:
+      targets:
+        Manas: all
+    run:
+      config: Debug
+    archive:
+      config: Release

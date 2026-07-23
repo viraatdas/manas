@@ -1,0 +1,225 @@
+# fastlane Fastfile — Manas iOS
+#
+# CLI-driven TestFlight pipeline. Auth uses an App Store Connect API key from
+# the environment (see .asc.env, gitignored):
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH, APPLE_TEAM_ID
+#
+# Lanes:
+#   bootstrap  — create the App Store Connect app record (idempotent).
+#   beta       — upload the already-exported .ipa (build/Manas.ipa) to TestFlight.
+#   tf_status  — processing + compliance state of the latest build.
+#
+# The archive itself is produced by scripts/ios-testflight.sh with xcodebuild
+# automatic cloud signing (the API key registers bundle ids, the app group,
+# and profiles on demand), which handles the app + widget extension pair more
+# reliably than manual cert/sigh juggling.
+
+default_platform(:ios)
+
+APP_ID    = ENV["APP_IDENTIFIER"] || "dev.viraat.manas.ios"
+WIDGET_ID = "#{APP_ID}.widget"
+
+def asc_api_key
+  return nil unless ENV["ASC_KEY_ID"] && ENV["ASC_ISSUER_ID"] && ENV["ASC_KEY_PATH"]
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: ENV["ASC_KEY_PATH"],
+    in_house: false,
+  )
+end
+
+platform :ios do
+  desc "Create the bundle ids + App Store Connect app record (idempotent)."
+  lane :bootstrap do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+
+    # 1) Bundle ids for the app and its widget extension. Capabilities beyond
+    # these are registered by Xcode cloud signing at archive time.
+    existing = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: APP_ID })
+      .map(&:identifier)
+    [[APP_ID, "Manas iOS"], [WIDGET_ID, "Manas iOS Widget"]].each do |identifier, name|
+      if Spaceship::ConnectAPI::BundleId.all(filter: { identifier: identifier })
+          .any? { |b| b.identifier == identifier }
+        UI.message("bundle id #{identifier} exists")
+      else
+        Spaceship::ConnectAPI::BundleId.create(name: name, identifier: identifier, platform: "IOS")
+        UI.success("created bundle id #{identifier}")
+      end
+    end
+
+    # 2) The app record itself.
+    if (app = Spaceship::ConnectAPI::App.find(APP_ID))
+      UI.success("app record exists: #{app.name} (#{app.id})")
+    else
+      name = ENV["MANAS_APP_NAME"] || "Manas"
+      app = Spaceship::ConnectAPI::App.create(
+        name: name,
+        version_string: "1.0",
+        sku: "manas-ios-viraat",
+        primary_locale: "en-US",
+        bundle_id: APP_ID,
+        platforms: ["IOS"],
+        company_name: nil
+      )
+      UI.success("created app record: #{name} (#{app.id})")
+    end
+  end
+
+  # Raw App Store Connect REST call with the API-key JWT.
+  def asc_raw(method, path, body = nil)
+    require "net/http"; require "json"; require "uri"
+    require "spaceship"
+    Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    jwt = Spaceship::ConnectAPI.token.text
+    uri = URI("https://api.appstoreconnect.apple.com/#{path}")
+    klass = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch,
+              delete: Net::HTTP::Delete }[method]
+    req = klass.new(uri)
+    req["Authorization"] = "Bearer #{jwt}"
+    req["Content-Type"] = "application/json"
+    req.body = body.to_json if body
+    http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = true
+    res = http.request(req)
+    parsed = (JSON.parse(res.body) rescue res.body)
+    [res.code.to_i, parsed]
+  end
+
+  desc "Probe App Group support in the public ASC API."
+  lane :probe_app_groups do
+    [
+      "v1/appGroups?limit=5",
+      "v1/bundleIds?filter%5Bidentifier%5D=dev.viraat.manas.ios&include=bundleIdCapabilities",
+    ].each do |path|
+      code, resp = asc_raw(:get, path)
+      UI.message "GET #{path.split('?').first} -> #{code}: #{resp.inspect[0, 300]}"
+    end
+  end
+
+  desc "Create the app record via the Apple ID web session (apps can't be created with a team API key)."
+  lane :bootstrap_app do
+    require "spaceship"
+    Spaceship::ConnectAPI.login(
+      ENV["FASTLANE_APPLE_ID"] || "viraat.laldas@gmail.com", nil,
+      use_portal: false, use_tunes: true
+    )
+    if (app = Spaceship::ConnectAPI::App.find(APP_ID))
+      UI.success("app record exists: #{app.name} (#{app.id})")
+    else
+      name = ENV["MANAS_APP_NAME"] || "Manas"
+      app = Spaceship::ConnectAPI::App.create(
+        name: name,
+        version_string: "1.0",
+        sku: "manas-ios-viraat",
+        primary_locale: "en-US",
+        bundle_id: APP_ID,
+        platforms: ["IOS"],
+        company_name: nil
+      )
+      UI.success("created app record: #{name} (#{app.id})")
+    end
+  end
+
+  desc "Fetch/create the Distribution cert + App Store profiles for app and widget."
+  lane :prep_signing do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured") unless key
+    cert(api_key: key, generate_apple_certs: true, output_path: "build/certs")
+    sigh(
+      api_key: key,
+      app_identifier: APP_ID,
+      platform: "ios",
+      force: true,
+      output_path: "build/profiles",
+    )
+    sigh(
+      api_key: key,
+      app_identifier: WIDGET_ID,
+      platform: "ios",
+      force: true,
+      output_path: "build/profiles",
+    )
+  end
+
+  desc "Upload build/Manas.ipa to TestFlight."
+  lane :beta do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured") unless key
+    upload_to_testflight(
+      api_key: key,
+      app_identifier: APP_ID,
+      ipa: "build/Manas.ipa",
+      skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Wait for the latest build to process, clear compliance, and put it in an internal group."
+  lane :tf_internal do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    build = nil
+    40.times do |i|
+      build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+      state = build&.processing_state
+      UI.message("[#{i}] build #{build&.version} state=#{state || 'none yet'}")
+      break if state == "VALID"
+      sleep(15)
+    end
+    UI.user_error!("No build became VALID") unless build&.processing_state == "VALID"
+
+    begin
+      build.update(attributes: { usesNonExemptEncryption: false })
+      UI.success("Export compliance cleared")
+    rescue => e
+      UI.message("Compliance note: #{e.message}")
+    end
+
+    groups = Spaceship::ConnectAPI::BetaGroup.all(app: app)
+    group = groups.find(&:is_internal_group) || groups.first
+    if group
+      begin
+        group.add_builds(build_ids: [build.id])
+        UI.success("Build #{build.version} added to group '#{group.name}'")
+      rescue => e
+        UI.message("Group note: #{e.message}")
+      end
+    else
+      UI.important("No beta group yet — enable internal testing once in App Store Connect › TestFlight")
+    end
+    UI.success("Internal TestFlight ready: install from the TestFlight app with the account-holder Apple ID.")
+  end
+
+  desc "Report the latest build's processing state; clear export compliance when possible."
+  lane :tf_status do
+    require "spaceship"
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    Spaceship::ConnectAPI.token = token
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    UI.message("App: #{app.name} (#{app.id})")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    if build
+      UI.success("Latest build #{build.app_version} (#{build.version}) state=#{build.processing_state}")
+      begin
+        build.update(attributes: { usesNonExemptEncryption: false })
+        UI.success("Export compliance cleared")
+      rescue => e
+        UI.message("Compliance note: #{e.message}")
+      end
+    else
+      UI.important("No build on App Store Connect yet")
+    end
+  end
+end

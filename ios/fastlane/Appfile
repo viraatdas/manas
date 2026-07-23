@@ -1,0 +1,2 @@
+app_identifier(ENV["APP_IDENTIFIER"] || "dev.viraat.manas.ios")
+team_id(ENV["APPLE_TEAM_ID"] || "3C4383262W")
