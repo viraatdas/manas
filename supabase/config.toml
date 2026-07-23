@@ -323,10 +323,12 @@ email_optional = false
 [auth.web3.solana]
 enabled = false
 
-# Use Firebase Auth as a third-party provider alongside Supabase Auth.
+# Firebase (iOS phone auth) alongside Supabase's own phone auth (mac). Both
+# token types carry the phone number, and RLS keys on it, so the same number
+# reaches the same todos from either platform.
 [auth.third_party.firebase]
-enabled = false
-# project_id = "my-firebase-project"
+enabled = true
+project_id = "slide-b4c50"
 
 # Use Auth0 as a third-party provider alongside Supabase Auth.
 [auth.third_party.auth0]

@@ -15,7 +15,12 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    from: "11.6.0"
 
 targets:
   Manas:
@@ -54,9 +59,21 @@ targets:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
+        # Firebase's delegate swizzling (default on) auto-forwards the
+        # verification notification now that a real app delegate exists.
+        UIBackgroundModes:
+          - remote-notification
+        # Firebase phone-auth reCAPTCHA fallback redirects back via this scheme
+        # (app-<GOOGLE_APP_ID with colons as dashes>, since there's no OAuth
+        # client id in the plist).
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - app-1-561354442144-ios-8edbac6b5f1961d8c650c5
     dependencies:
       - target: ManasWidget
         embed: true
+      - package: Firebase
+        product: FirebaseAuth
 
   ManasWidget:
     type: app-extension

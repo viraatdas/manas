@@ -1,19 +1,38 @@
 import SwiftUI
+import FirebaseCore
+import FirebaseAuth
 
-/// iOS entry point. The store persists into the shared App Group container so
-/// the widget renders the same state file the app writes, and the sync
-/// controller keeps that state converged with the desktop app through the
-/// cloud backend.
+/// iOS entry point. The store persists into the app's container so the widget
+/// (via a shared keychain snapshot) renders the same todos, and the sync
+/// controller — backed by Firebase phone auth here — keeps that state converged
+/// with the desktop app through the shared Supabase table.
 @main
 struct ManasIOSApp: App {
-    @State private var store = AppStore(fileURL: AppGroup.stateURL)
-    @State private var sync = SyncController(stateURL: AppGroup.syncStateURL)
+    @UIApplicationDelegateAdaptor(ManasAppDelegate.self) private var appDelegate
+    @State private var store: AppStore
+    @State private var sync: SyncController
+
+    init() {
+        // Firebase must come up before the auth backend touches it.
+        if FirebaseApp.app() == nil,
+           let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+           let options = FirebaseOptions(contentsOfFile: path) {
+            FirebaseApp.configure(options: options)
+        }
+        _store = State(initialValue: AppStore(fileURL: AppGroup.stateURL))
+        _sync = State(initialValue: SyncController(
+            auth: FirebaseSyncAuth(),
+            stateURL: AppGroup.syncStateURL
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
                 .environment(sync)
+                // Completes Firebase's reCAPTCHA fallback for real numbers.
+                .onOpenURL { _ = Auth.auth().canHandle($0) }
         }
     }
 }

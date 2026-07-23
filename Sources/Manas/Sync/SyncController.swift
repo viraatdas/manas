@@ -19,14 +19,12 @@ final class SyncController {
         case error(String)
     }
 
-    private(set) var session: SupabaseSession?
+    private(set) var isSignedIn: Bool
+    private(set) var phoneNumber: String?
     private(set) var phase: Phase = .signedOut
     private(set) var lastSyncedAt: Date?
 
-    var isSignedIn: Bool { session != nil }
-    var phoneNumber: String? { session?.phone }
-
-    @ObservationIgnored private let auth = SupabaseAuthClient()
+    @ObservationIgnored private let auth: any SyncAuth
     @ObservationIgnored private let api = SupabaseTodoAPI()
     @ObservationIgnored private weak var store: AppStore?
     @ObservationIgnored private let stateURL: URL
@@ -35,8 +33,6 @@ final class SyncController {
     @ObservationIgnored private var isApplyingMerge = false
     @ObservationIgnored private var syncInFlight = false
     @ObservationIgnored private let logger = Logger(subsystem: "Manas", category: "Sync")
-
-    private static let sessionAccount = "session"
 
     /// On-disk sync bookkeeping, next to the state file.
     private struct SyncState: Codable {
@@ -47,16 +43,18 @@ final class SyncController {
     @ObservationIgnored private var watermark: Date?
     @ObservationIgnored private var snapshot: [UUID: TodoRecord] = [:]
 
-    /// - Parameter stateURL: where to persist the watermark + snapshot;
-    ///   defaults to `sync-state.json` beside the app's state file.
-    init(stateURL: URL? = nil) {
+    /// - Parameters:
+    ///   - auth: the platform's auth backend; the Mac's Supabase phone auth by
+    ///     default, iOS injects a Firebase-backed one.
+    ///   - stateURL: where to persist the watermark + snapshot; defaults to
+    ///     `sync-state.json` beside the app's state file.
+    init(auth: (any SyncAuth)? = nil, stateURL: URL? = nil) {
+        self.auth = auth ?? SupabaseSyncAuth()
         self.stateURL = stateURL
             ?? AppStore.defaultStateURL.deletingLastPathComponent().appendingPathComponent("sync-state.json")
-        if let data = KeychainStore.load(account: Self.sessionAccount),
-           let saved = try? JSONDecoder().decode(SupabaseSession.self, from: data) {
-            session = saved
-            phase = .idle
-        }
+        isSignedIn = self.auth.isSignedIn
+        phoneNumber = self.auth.phone
+        if isSignedIn { phase = .idle }
         if let data = try? Data(contentsOf: self.stateURL),
            let saved = try? TodoRecord.makeDecoder().decode(SyncState.self, from: data) {
             watermark = saved.watermark
@@ -71,27 +69,22 @@ final class SyncController {
     }
 
     func verifyCode(phone: String, code: String) async throws {
-        let fresh = try await auth.verifyCode(phone: phone, code: code)
-        setSession(fresh)
+        try await auth.verifyCode(phone: phone, code: code)
+        isSignedIn = auth.isSignedIn
+        phoneNumber = auth.phone
         phase = .idle
         scheduleSync(after: .zero)
     }
 
     func signOut() {
-        session = nil
+        auth.signOut()
+        isSignedIn = false
+        phoneNumber = nil
         phase = .signedOut
         watermark = nil
         snapshot = [:]
         lastSyncedAt = nil
-        KeychainStore.delete(account: Self.sessionAccount)
         try? FileManager.default.removeItem(at: stateURL)
-    }
-
-    private func setSession(_ new: SupabaseSession) {
-        session = new
-        if let data = try? JSONEncoder().encode(new) {
-            KeychainStore.save(data, account: Self.sessionAccount)
-        }
     }
 
     // MARK: - Sync loop
@@ -147,12 +140,12 @@ final class SyncController {
 
     /// One full pass: refresh the token if needed, pull, merge, apply, push.
     func syncNow() async {
-        guard SupabaseConfig.isConfigured, session != nil, let store, !syncInFlight else { return }
+        guard SupabaseConfig.isConfigured, isSignedIn, let store, !syncInFlight else { return }
         syncInFlight = true
         defer { syncInFlight = false }
         phase = .syncing
         do {
-            let token = try await validAccessToken()
+            let token = try await auth.bearerToken()
             let remote = try await api.changes(since: watermark, accessToken: token)
             let outcome = SyncMerge.merge(
                 local: store.todos,
@@ -176,17 +169,6 @@ final class SyncController {
             logger.error("Sync failed: \(error.localizedDescription)")
             phase = .error(error.localizedDescription)
         }
-    }
-
-    private func validAccessToken() async throws -> String {
-        guard var current = session else {
-            throw SupabaseAuthClient.AuthError.server("Signed out.")
-        }
-        if current.needsRefresh {
-            current = try await auth.refresh(current)
-            setSession(current)
-        }
-        return current.accessToken
     }
 
     private func persistSyncState() {
