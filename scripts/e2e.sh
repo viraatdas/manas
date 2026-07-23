@@ -40,14 +40,14 @@ backend_checks() {
 
   local code
   code="$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL/auth/v1/otp" \
-    -H "apikey: $ANON" -H "Content-Type: application/json" -d '{"phone":"+15555550100"}')"
+    -H "apikey: $ANON" -H "Content-Type: application/json" -d '{"phone":"+14155550137"}')"
   # 429 means the 5s per-number throttle from a very recent run — not a fault.
   [[ "$code" == "200" || "$code" == "429" ]] || FAIL "OTP request returned $code"
   PASS "OTP request accepted ($code)"
 
   local token
   token="$(curl -sf -X POST "$URL/auth/v1/verify" -H "apikey: $ANON" -H "Content-Type: application/json" \
-    -d '{"phone":"+15555550100","token":"123456","type":"sms"}' \
+    -d '{"phone":"+14155550137","token":"123456","type":"sms"}' \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("access_token",""))')"
   [[ -n "$token" ]] || FAIL "verify did not issue an access token"
   PASS "verify issues a JWT"
