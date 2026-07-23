@@ -106,8 +106,17 @@ final class AppStore {
         if let override = ProcessInfo.processInfo.environment["MANAS_STATE_FILE"], !override.isEmpty {
             return URL(fileURLWithPath: override)
         }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        let base: URL
+        if let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            base = support
+        } else {
+            #if os(macOS)
+            base = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support")
+            #else
+            base = FileManager.default.temporaryDirectory
+            #endif
+        }
         return base.appendingPathComponent("Manas/state.json")
     }
 
@@ -302,6 +311,31 @@ final class AppStore {
         todo.day = target
         todo.verdict = nil
         insert(todo)
+    }
+
+    /// Rolls every unfinished todo from an earlier day onto today so nothing
+    /// planned silently falls off the bottom of the feed. Each carried item is
+    /// re-dated to today and its stale verdict cleared (it will be re-judged
+    /// against today's activity), keeping its group. Finished past todos stay
+    /// put as history, and today/future todos are untouched. Carried items lead
+    /// today's list oldest-first, so the longest-lingering task sits on top.
+    /// Returns how many were carried, so a caller can note the rollover.
+    @discardableResult
+    func carryForwardOverdueTodos(now: Date = Date()) -> Int {
+        let today = Calendar.current.startOfDay(for: now)
+        let overdueIndices = todos.indices.filter { !todos[$0].isDone && todos[$0].day < today }
+        guard !overdueIndices.isEmpty else { return 0 }
+        // Snapshot before removal, then drop from the back so earlier indices
+        // stay valid.
+        let carried = overdueIndices.map { todos[$0] }.sorted { $0.day < $1.day }
+        for index in overdueIndices.reversed() { todos.remove(at: index) }
+        // Front-insert newest-first so the oldest overdue ends up on top.
+        for var todo in carried.reversed() {
+            todo.day = today
+            todo.verdict = nil
+            insert(todo)
+        }
+        return carried.count
     }
 
     /// Brings an unfinished past todo forward to the top of today. It will

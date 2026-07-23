@@ -188,6 +188,56 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(moved.verdict, "the stale verdict is cleared for a fresh judgment")
     }
 
+    func testCarryForwardRollsUnfinishedPastTodosOntoTodayOldestFirst() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let lastWeek = calendar.date(byAdding: .day, value: -6, to: today)!
+
+        store.addTodo("Already here")
+        store.addTodo("From yesterday", on: yesterday, group: "Work")
+        store.addTodo("From last week", on: lastWeek)
+        let staleID = store.todos(on: lastWeek)[0].id
+        store.todos[store.todos.firstIndex { $0.id == staleID }!].verdict =
+            Verdict(status: .notStarted, evidence: "No related work that day", judgedAt: date)
+
+        let moved = store.carryForwardOverdueTodos()
+
+        XCTAssertEqual(moved, 2)
+        XCTAssertEqual(
+            store.todosToday.map(\.text),
+            ["From last week", "From yesterday", "Already here"],
+            "carried items lead today, oldest overdue on top, above what was already here"
+        )
+        XCTAssertTrue(store.pastDays.isEmpty, "no unfinished past days remain")
+        let carriedWork = store.todosToday.first { $0.text == "From yesterday" }!
+        XCTAssertEqual(carriedWork.group, "Work", "the group is preserved across the roll-forward")
+        XCTAssertEqual(carriedWork.day, today)
+        XCTAssertNil(
+            store.todosToday.first { $0.text == "From last week" }!.verdict,
+            "the stale verdict is cleared for a fresh judgment"
+        )
+    }
+
+    func testCarryForwardLeavesDoneAndFutureTodosAndReportsNoneWhenClear() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        store.addTodo("Finished yesterday", on: yesterday)
+        store.toggleDone(store.todos(on: yesterday)[0].id)
+        store.addTodo("Today already")
+        store.addTodo("Planned ahead", on: tomorrow)
+
+        XCTAssertEqual(store.carryForwardOverdueTodos(), 0, "nothing unfinished in the past to carry")
+        XCTAssertEqual(store.todos(on: yesterday).map(\.text), ["Finished yesterday"], "done past todos stay put")
+        XCTAssertEqual(store.todosToday.map(\.text), ["Today already"])
+        XCTAssertEqual(store.todos(on: tomorrow).map(\.text), ["Planned ahead"], "future todos never move")
+    }
+
     func testMoveToTodayIgnoresFinishedTodayAndFutureTodos() {
         let store = AppStore(fileURL: tempStateURL())
         let calendar = Calendar.current
