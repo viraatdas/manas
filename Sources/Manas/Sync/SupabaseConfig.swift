@@ -5,9 +5,9 @@ import Foundation
 /// The anon key is a publishable client key — row-level security on the server
 /// is what protects data, so committing it is safe and standard.
 enum SupabaseConfig {
-    /// Filled in by the backend provisioning; see supabase/BACKEND.md.
-    static let projectURL = URL(string: "https://REPLACE_PROJECT_REF.supabase.co")!
-    static let anonKey = "REPLACE_ANON_KEY"
+    /// Provisioned 2026-07-23; see supabase/BACKEND.md.
+    static let projectURL = URL(string: "https://gdnknuiqxmosuwoytrzc.supabase.co")!
+    static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbmtudWlxeG1vc3V3b3l0cnpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4Mzg3OTAsImV4cCI6MjEwMDQxNDc5MH0.g87OA50wBHMyz1Vef2J-0Ru3tknbNbl79AleNALX1mo"
 
     static var isConfigured: Bool {
         !anonKey.hasPrefix("REPLACE")

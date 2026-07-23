@@ -267,10 +267,13 @@ max_frequency = "5s"
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
 
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
+# Placeholder Twilio config: the CLI refuses phone login without a provider,
+# but the test OTP numbers above never reach it. Swap in real credentials
+# (and a real env token) to send actual texts.
 [auth.sms.twilio]
-enabled = false
-account_sid = ""
-message_service_sid = ""
+enabled = true
+account_sid = "ACplaceholder00000000000000000000"
+message_service_sid = "MGplaceholder0000000000000000000"
 # DO NOT commit your Twilio auth token to git. Use environment variable substitution instead:
 auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 
