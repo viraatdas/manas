@@ -39,6 +39,24 @@ struct TodoRecord: Codable, Hashable, Sendable {
         self.deleted = deleted
     }
 
+    /// PostgREST requires every object in a bulk upsert to carry the same
+    /// keys. Swift's synthesized encoder omits nil optionals, which made a
+    /// mixed batch (for example grouped + ungrouped todos) fail with PGRST102.
+    /// Encode nullable columns explicitly so absent values travel as JSON null.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+        try container.encode(day, forKey: .day)
+        try container.encode(groupName, forKey: .groupName)
+        try container.encode(isDone, forKey: .isDone)
+        try container.encode(verdict, forKey: .verdict)
+        try container.encode(position, forKey: .position)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deleted, forKey: .deleted)
+    }
+
     /// Reconstructs the local model. Rows with unparseable days land on today
     /// rather than vanishing.
     var todo: Todo {

@@ -19,10 +19,9 @@ struct SyncSettingsSection: View {
     @State private var errorText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("iPhone sync")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.subheadline.weight(.medium))
 
             if sync.isSignedIn {
                 signedInBody
@@ -40,17 +39,22 @@ struct SyncSettingsSection: View {
     }
 
     private var signedInBody: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Image(systemName: statusSymbol)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(Color.manasAccent)
                 Text(sync.phoneNumber ?? "Signed in")
                     .font(.subheadline)
             }
-            Text(statusLine)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: statusLineSymbol)
+                    .font(.caption2)
+                Text(statusLine)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption)
+            .foregroundStyle(statusLineTint)
             Button("Sign out") {
                 sync.signOut()
                 step = .idle
@@ -64,6 +68,19 @@ struct SyncSettingsSection: View {
     private var statusSymbol: String {
         if case .syncing = sync.phase { return "arrow.triangle.2.circlepath" }
         return "checkmark.icloud"
+    }
+
+    private var statusLineSymbol: String {
+        switch sync.phase {
+        case .syncing: "arrow.triangle.2.circlepath"
+        case .error: "exclamationmark.triangle.fill"
+        default: "clock"
+        }
+    }
+
+    private var statusLineTint: Color {
+        if case .error = sync.phase { return .red }
+        return .secondary
     }
 
     private var statusLine: String {

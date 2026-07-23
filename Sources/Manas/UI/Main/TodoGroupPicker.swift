@@ -189,6 +189,95 @@ private struct TodoGroupPickerPopover: View {
     }
 }
 
+/// Focused creation flow used by a todo row's Move to menu. Creating a group
+/// immediately returns its canonical label so the invoking todo can move into
+/// it without a second menu trip.
+struct TodoGroupCreationPopover: View {
+    @Environment(AppStore.self) private var store
+    var onCreated: (String) -> Void
+    var onCancel: () -> Void
+
+    @State private var name = ""
+    @State private var emoji = ""
+    @FocusState private var isNameFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("New group")
+                    .font(.headline)
+                Text("Name the section and choose an icon.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField("Group name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($isNameFocused)
+                .onSubmit(create)
+                .accessibilityLabel("New group name")
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Icon")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 32), spacing: 5)],
+                    spacing: 5
+                ) {
+                    ForEach(TodoGroupName.emojiPalette, id: \.self) { option in
+                        Button {
+                            emoji = (emoji == option) ? "" : option
+                        } label: {
+                            Text(option)
+                                .font(.title3)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    emoji == option ? Color.manasAccent.opacity(0.16) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                )
+                                .overlay {
+                                    if emoji == option {
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .strokeBorder(Color.manasAccent.opacity(0.5), lineWidth: 1)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Icon \(option)")
+                        .accessibilityAddTraits(emoji == option ? .isSelected : [])
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Create group", action: create)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.manasAccent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(store.canonicalTodoGroup(name) == nil)
+            }
+        }
+        .padding(16)
+        .frame(width: 286)
+        .onAppear {
+            DispatchQueue.main.async { isNameFocused = true }
+        }
+    }
+
+    private func create() {
+        guard let group = store.createGroup(
+            name, emoji: emoji.isEmpty ? nil : emoji
+        ) else { return }
+        onCreated(group)
+    }
+}
+
 private struct GroupOptionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         GroupOptionButtonBody(configuration: configuration)

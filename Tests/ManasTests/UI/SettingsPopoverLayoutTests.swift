@@ -26,18 +26,14 @@ final class SettingsPopoverLayoutTests: XCTestCase {
         )
     }
 
-    /// The unbundled caption must wrap instead of truncating: the settled
-    /// popover comes out at least one caption line taller than the same
-    /// layout with every text forced to a single line.
-    func testUnbundledCaptionWrapsInsteadOfTruncating() {
-        let truncated = settle(makeHost(of: SettingsPopover().lineLimit(1)))
-        let natural = settle(makeHost(of: SettingsPopover()))
+    /// The revised two-section layout has enough horizontal room for status
+    /// copy without recreating the narrow, over-tall panel it replaced.
+    func testPopoverUsesReadableContentWidth() {
+        let size = settle(makeHost(of: SettingsPopover()))
 
-        XCTAssertEqual(natural.width, truncated.width, accuracy: 0.5)
-        XCTAssertGreaterThan(
-            natural.height, truncated.height + 8,
-            "Unbundled login-item caption should wrap to extra lines, not truncate to one."
-        )
+        XCTAssertEqual(size.width, 292, accuracy: 0.5)
+        XCTAssertGreaterThan(size.height, 180)
+        XCTAssertLessThan(size.height, 260)
     }
 
     /// Optional diagnostic: MANAS_POPOVER_DUMP=<dir> writes a PNG of the
@@ -65,6 +61,7 @@ final class SettingsPopoverLayoutTests: XCTestCase {
             view
                 .environment(AppStore.previewEmpty)
                 .environment(SyncController())
+                .background(Color.manasBackground)
         ))
     }
 

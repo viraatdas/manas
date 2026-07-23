@@ -11,8 +11,8 @@ struct SupabaseTodoAPI: Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .server(let status, let body):
-                "Sync failed (\(status)): \(body.prefix(200))"
+            case .server:
+                "Sync couldn’t finish. Manas will retry automatically."
             }
         }
     }

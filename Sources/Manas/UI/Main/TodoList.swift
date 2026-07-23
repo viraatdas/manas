@@ -618,6 +618,7 @@ struct TodoRow: View {
     @State private var editText = ""
     @State private var swipePastThreshold = false
     @State private var isPickingDate = false
+    @State private var isCreatingGroup = false
     @State private var pickedDate = Date()
     @FocusState private var isEditFocused: Bool
 
@@ -643,6 +644,14 @@ struct TodoRow: View {
             .background(frameReporter)
             .contextMenu { todoActionItems }
             .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePickerPopover }
+            .popover(isPresented: $isCreatingGroup, arrowEdge: .bottom) {
+                TodoGroupCreationPopover {
+                    moveToGroup($0)
+                    isCreatingGroup = false
+                } onCancel: {
+                    isCreatingGroup = false
+                }
+            }
         }
     }
 
@@ -945,8 +954,12 @@ struct TodoRow: View {
                 if todo.group == nil {
                     Label("No group", systemImage: "checkmark")
                 } else {
-                    Text("No group")
+                    Label("No group", systemImage: "tray")
                 }
+            }
+            Divider()
+            Button(action: beginCreatingGroup) {
+                Label("New group…", systemImage: "plus")
             }
         } label: {
             Label("Move to", systemImage: "folder")
@@ -968,6 +981,14 @@ struct TodoRow: View {
         guard !destinationMatches else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
             store.setTodoGroup(todo.id, group: group)
+        }
+    }
+
+    private func beginCreatingGroup() {
+        // Let AppKit dismiss the nested context menu before presenting a
+        // SwiftUI popover from the row; presenting both at once flickers.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isCreatingGroup = true
         }
     }
 

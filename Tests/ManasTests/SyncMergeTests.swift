@@ -211,6 +211,32 @@ final class SyncMergeTests: XCTestCase {
         XCTAssertEqual(parsed.first?.day, "2026-07-23")
     }
 
+    func testBulkRecordJSONKeepsIdenticalKeysForNullableColumns() throws {
+        let grouped = record(
+            Todo(
+                text: "Grouped",
+                group: "Manas",
+                verdict: Verdict(status: .done, evidence: "Shipped")
+            ),
+            position: 0,
+            updatedAt: now
+        )
+        let ungrouped = record(
+            Todo(text: "Ungrouped"),
+            position: 1,
+            updatedAt: now
+        )
+
+        let data = try TodoRecord.makeEncoder().encode([grouped, ungrouped])
+        let objects = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        )
+
+        XCTAssertEqual(Set(objects[0].keys), Set(objects[1].keys))
+        XCTAssertTrue(objects[1]["group_name"] is NSNull)
+        XCTAssertTrue(objects[1]["verdict"] is NSNull)
+    }
+
     func testMergedDayOrderFollowsRemotePositions() {
         let day = Calendar.current.startOfDay(for: now)
         let first = Todo(text: "Top", day: day)
