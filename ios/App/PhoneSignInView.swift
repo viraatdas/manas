@@ -61,11 +61,18 @@ struct PhoneSignInView: View {
 
     private var mark: some View {
         VStack(spacing: 14) {
-            Image(systemName: "checklist")
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 66, height: 66)
-                .background(Color.manasAccent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            // The actual app icon, so the sign-in screen matches the home
+            // screen instead of a stand-in glyph. iOS-style rounded corners.
+            Image("BrandMark")
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 76, height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                )
             VStack(spacing: 5) {
                 Text("Manas")
                     .font(.largeTitle.weight(.semibold))
