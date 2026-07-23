@@ -184,19 +184,52 @@ platform :ios do
       UI.message("Compliance note: #{e.message}")
     end
 
-    groups = Spaceship::ConnectAPI::BetaGroup.all(app: app)
-    group = groups.find(&:is_internal_group) || groups.first
-    if group
-      begin
-        group.add_builds(build_ids: [build.id])
-        UI.success("Build #{build.version} added to group '#{group.name}'")
-      rescue => e
-        UI.message("Group note: #{e.message}")
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    groups = (body["data"] || [])
+    group = groups.find { |g| g.dig("attributes", "isInternalGroup") } || groups.first
+    if group.nil?
+      # A fresh app has no groups; create the internal one.
+      code, created = asc_raw(:post, "v1/betaGroups", {
+        data: { type: "betaGroups",
+                attributes: { name: "Internal", isInternalGroup: true, hasAccessToAllBuilds: true },
+                relationships: { app: { data: { type: "apps", id: app.id } } } } })
+      if (200..299).include?(code)
+        group = created["data"]
+        UI.success("Created internal beta group")
+      else
+        UI.important("Could not create internal group (#{code}): #{created.inspect[0, 200]}")
       end
-    else
-      UI.important("No beta group yet — enable internal testing once in App Store Connect › TestFlight")
+    end
+    if group
+      ac, ab = asc_raw(:post, "v1/betaGroups/#{group["id"]}/relationships/builds",
+                       { data: [{ type: "builds", id: build.id }] })
+      if (200..299).include?(ac) || ac == 409
+        UI.success("Build #{build.version} in group '#{group.dig("attributes", "name")}'")
+      else
+        UI.important("Attach build -> #{ac}: #{ab.inspect[0, 200]}")
+      end
     end
     UI.success("Internal TestFlight ready: install from the TestFlight app with the account-holder Apple ID.")
+  end
+
+  desc "Add the account holder as an internal tester."
+  lane :tf_add_tester do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    group = (body["data"] || []).find { |g| g.dig("attributes", "isInternalGroup") }
+    UI.user_error!("no internal group") unless group
+    email = ENV["TF_EMAIL"] || "viraat.laldas@gmail.com"
+    tc, tb = asc_raw(:post, "v1/betaTesters", {
+      data: { type: "betaTesters",
+              attributes: { email: email, firstName: "Viraat", lastName: "Das" },
+              relationships: { betaGroups: { data: [{ type: "betaGroups", id: group["id"] }] } } } })
+    UI.message("add tester #{email} -> #{tc}: #{tb.inspect[0, 160]}")
+    gc, gb = asc_raw(:get, "v1/betaGroups/#{group["id"]}/betaTesters?limit=20")
+    (gb["data"] || []).each { |t| UI.success("tester: #{t.dig("attributes", "email")} (#{t.dig("attributes", "state")})") }
   end
 
   desc "Report the latest build's processing state; clear export compliance when possible."
