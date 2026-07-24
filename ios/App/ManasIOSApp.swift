@@ -8,7 +8,7 @@ import SwiftUI
 @main
 struct ManasIOSApp: App {
     @State private var store = AppStore(fileURL: AppGroup.stateURL)
-    @State private var sync = SyncController(stateURL: AppGroup.syncStateURL)
+    @State private var sync = SyncController(auth: StytchSyncAuth(), stateURL: AppGroup.syncStateURL)
 
     var body: some Scene {
         WindowGroup {

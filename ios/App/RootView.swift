@@ -32,6 +32,19 @@ struct RootView: View {
             sync.refreshAuthState()
             #if DEBUG
             if isPreviewSignedIn { DemoSeed.seedIfEmpty(store) }
+            // Verification seam: sign in via the real StytchSyncAuth → edge
+            // function path using phone/code from launch arguments.
+            if let phone = UserDefaults.standard.string(forKey: "probePhone"),
+               let code = UserDefaults.standard.string(forKey: "probeCode"), !sync.isSignedIn {
+                try? await Task.sleep(for: .seconds(2))
+                do {
+                    try await sync.requestCode(phone: phone)
+                    try await sync.verifyCode(phone: phone, code: code)
+                    NSLog("[ManasProbe] Stytch sign-in OK")
+                } catch {
+                    NSLog("[ManasProbe] Stytch sign-in FAILED: \(error)")
+                }
+            }
             // Headless sign-in for simulator verification (no SMS is sent):
             // `-manasTestSignIn` uses the beta test number; a specific account
             // comes via `-manasProbePhone +1... -manasProbeCode 123456` launch

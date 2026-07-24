@@ -9,6 +9,11 @@ enum SupabaseConfig {
     static let projectURL = URL(string: "https://gdnknuiqxmosuwoytrzc.supabase.co")!
     static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbmtudWlxeG1vc3V3b3l0cnpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4Mzg3OTAsImV4cCI6MjEwMDQxNDc5MH0.g87OA50wBHMyz1Vef2J-0Ru3tknbNbl79AleNALX1mo"
 
+    /// The Stytch phone-OTP bridge edge function (real SMS, no web view).
+    static var stytchAuthURL: URL {
+        projectURL.appendingPathComponent("functions/v1/stytch-auth")
+    }
+
     static var isConfigured: Bool {
         !anonKey.hasPrefix("REPLACE")
     }

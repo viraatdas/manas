@@ -1,0 +1,98 @@
+// Stytch phone-OTP bridge. Stytch delivers the real SMS and verifies the code
+// (a pure API — no web view, so sign-in can never redirect). On success we
+// exchange that proof for a genuine Supabase session using a server-only
+// internal code, so the app's existing PostgREST + RLS sync layer works
+// unchanged. The Stytch secret lives only here, never in the app binary.
+//
+// Deploy: supabase functions deploy stytch-auth --no-verify-jwt
+// Secrets: STYTCH_PROJECT_ID, STYTCH_SECRET, INTERNAL_OTP
+
+const STYTCH_PROJECT_ID = Deno.env.get("STYTCH_PROJECT_ID")!;
+const STYTCH_SECRET = Deno.env.get("STYTCH_SECRET")!;
+const INTERNAL_OTP = Deno.env.get("INTERNAL_OTP")!;
+// Defaults to production; set to https://test.stytch.com for the test env.
+const STYTCH_BASE = Deno.env.get("STYTCH_BASE_URL") ?? "https://api.stytch.com";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+const STYTCH_AUTH = "Basic " + btoa(`${STYTCH_PROJECT_ID}:${STYTCH_SECRET}`);
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  let payload: { action?: string; phone?: string; method_id?: string; code?: string };
+  try {
+    payload = await req.json();
+  } catch {
+    return json({ error: "Invalid request." }, 400);
+  }
+  const { action, phone, method_id, code } = payload;
+
+  // Beta allowlist: while Stytch live SMS is pending billing, one allowlisted
+  // phone can sign in with a private fixed code (set as function secrets, never
+  // in the app). Remove DEV_PHONE/DEV_CODE once Stytch billing is enabled and
+  // this becomes real SMS for everyone.
+  const DEV_PHONE = Deno.env.get("DEV_PHONE");
+  const DEV_CODE = Deno.env.get("DEV_CODE");
+  const isDev = DEV_PHONE && DEV_CODE && phone === DEV_PHONE;
+
+  // Step 1 — send the OTP via Stytch (real SMS).
+  if (action === "send") {
+    if (!phone) return json({ error: "Missing phone number." }, 400);
+    if (isDev) return json({ method_id: "dev" });
+    // login_or_create signs new numbers up as well as returning users.
+    const r = await fetch(`${STYTCH_BASE}/v1/otps/sms/login_or_create`, {
+      method: "POST",
+      headers: { Authorization: STYTCH_AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ phone_number: phone, expiration_minutes: 10 }),
+    });
+    const d = await r.json();
+    if (!r.ok) return json({ error: d.error_message || "Couldn't send the code." }, 400);
+    // phone_id is the method_id the authenticate call needs.
+    return json({ method_id: d.phone_id });
+  }
+
+  // Step 2 — verify the code with Stytch, then mint a Supabase session.
+  if (action === "verify") {
+    if (!method_id || !code || !phone) return json({ error: "Missing code." }, 400);
+    if (isDev && code === DEV_CODE) {
+      const v = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+        method: "POST",
+        headers: { apikey: ANON, "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, token: INTERNAL_OTP, type: "sms" }),
+      });
+      const session = await v.json();
+      if (!v.ok || !session.access_token) return json({ error: "exchange failed" }, 500);
+      return json({ session });
+    }
+    const a = await fetch(`${STYTCH_BASE}/v1/otps/authenticate`, {
+      method: "POST",
+      headers: { Authorization: STYTCH_AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ method_id, code, session_duration_minutes: 5 }),
+    });
+    const ad = await a.json();
+    if (!a.ok) return json({ error: ad.error_message || "That code didn't match." }, 401);
+
+    // Exchange the verified phone for a real Supabase session via the phone's
+    // internal test OTP (server-side only), so RLS/sync work unchanged.
+    const v = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+      method: "POST",
+      headers: { apikey: ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, token: INTERNAL_OTP, type: "sms" }),
+    });
+    const session = await v.json();
+    if (!v.ok || !session.access_token) {
+      return json({ error: "Signed in, but the session couldn't be created." }, 500);
+    }
+    return json({ session });
+  }
+
+  return json({ error: "Unknown action." }, 400);
+});

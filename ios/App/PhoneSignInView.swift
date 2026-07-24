@@ -213,7 +213,7 @@ struct PhoneSignInView: View {
     }
 
     private var footnote: some View {
-        Text("SMS uses test numbers during the beta. Try +1 555 555 0100 with code 123456.")
+        Text("We'll text you a code to sign in. Standard rates may apply.")
             .font(.caption)
             .foregroundStyle(.tertiary)
             .multilineTextAlignment(.center)
