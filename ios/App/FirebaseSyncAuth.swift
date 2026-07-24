@@ -40,6 +40,15 @@ final class FirebaseSyncAuth: SyncAuth {
         verificationID = nil
     }
 
+    #if DEBUG
+    /// Simulator-only seam: skips Firebase's app-verification step so test
+    /// flows can run where there's no push hardware. Never call in release.
+    static func setAppVerificationDisabledForTesting(_ disabled: Bool) {
+        guard FirebaseApp.app() != nil else { return }
+        Auth.auth().settings?.isAppVerificationDisabledForTesting = disabled
+    }
+    #endif
+
     enum AuthError: LocalizedError {
         case unavailable, noCodeRequested, signedOut
         var errorDescription: String? {

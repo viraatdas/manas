@@ -13,12 +13,9 @@ struct ManasIOSApp: App {
     @State private var sync: SyncController
 
     init() {
-        // Firebase must come up before the auth backend touches it.
-        if FirebaseApp.app() == nil,
-           let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-           let options = FirebaseOptions(contentsOfFile: path) {
-            FirebaseApp.configure(options: options)
-        }
+        // FirebaseApp.configure() runs in ManasAppDelegate (the delegate must
+        // exist first for phone-auth swizzling); auth state is re-read once
+        // the UI appears via SyncController.refreshAuthState().
         _store = State(initialValue: AppStore(fileURL: AppGroup.stateURL))
         _sync = State(initialValue: SyncController(
             auth: FirebaseSyncAuth(),

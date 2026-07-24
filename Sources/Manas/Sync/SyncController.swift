@@ -64,6 +64,15 @@ final class SyncController {
 
     // MARK: - Sign in / out
 
+    /// Re-reads the backend's restored session. iOS configures Firebase after
+    /// this controller is created (the app delegate must exist first), so the
+    /// root view calls this once the UI is up to pick up a persisted sign-in.
+    func refreshAuthState() {
+        isSignedIn = auth.isSignedIn
+        phoneNumber = auth.phone
+        if isSignedIn, phase == .signedOut { phase = .idle }
+    }
+
     func requestCode(phone: String) async throws {
         try await auth.requestCode(phone: phone)
     }
