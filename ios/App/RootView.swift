@@ -32,57 +32,26 @@ struct RootView: View {
             sync.refreshAuthState()
             #if DEBUG
             if isPreviewSignedIn { DemoSeed.seedIfEmpty(store) }
-            if ProcessInfo.processInfo.arguments.contains("-manasFirebaseSignIn"), !sync.isSignedIn {
-                await runSignInProbe(phone: "+15555550100", code: "123456", disableAppVerification: true)
-            }
-            // Real-number probe: pass the number via launch arguments
-            // (`-manasRealSignIn +1...`) so no phone number lives in source.
-            if let phone = UserDefaults.standard.string(forKey: "manasRealSignIn"), !sync.isSignedIn {
-                await runSignInProbe(phone: phone, code: nil, disableAppVerification: false)
+            // Headless sign-in for simulator verification (no SMS is sent):
+            // `-manasTestSignIn` uses the beta test number; a specific account
+            // comes via `-manasProbePhone +1... -manasProbeCode 123456` launch
+            // arguments so no real number ever lives in source.
+            let probePhone = UserDefaults.standard.string(forKey: "manasProbePhone")
+                ?? (ProcessInfo.processInfo.arguments.contains("-manasTestSignIn") ? "+15555550100" : nil)
+            if let probePhone, !sync.isSignedIn {
+                let probeCode = UserDefaults.standard.string(forKey: "manasProbeCode") ?? "123456"
+                try? await Task.sleep(for: .seconds(2))
+                do {
+                    try await sync.requestCode(phone: probePhone)
+                    try await sync.verifyCode(phone: probePhone, code: probeCode)
+                    NSLog("[ManasProbe] signed in")
+                } catch {
+                    NSLog("[ManasProbe] sign-in FAILED: \(error)")
+                }
             }
             #endif
         }
     }
-
-    #if DEBUG
-    /// Headless sign-in probe for simulator verification. With a nil code it
-    /// requests the SMS, then polls Documents/otp.txt for the code the user
-    /// relays from their phone.
-    private func runSignInProbe(phone: String, code: String?, disableAppVerification: Bool) async {
-        try? await Task.sleep(for: .seconds(2))
-        if disableAppVerification {
-            FirebaseSyncAuth.setAppVerificationDisabledForTesting(true)
-        }
-        do {
-            try await sync.requestCode(phone: phone)
-            NSLog("[ManasProbe] requestCode OK for \(phone)")
-        } catch {
-            NSLog("[ManasProbe] requestCode FAILED: \(error)")
-            return
-        }
-        var otp = code
-        if otp == nil {
-            let codeURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("otp.txt")
-            NSLog("[ManasProbe] awaiting code at \(codeURL.path)")
-            for _ in 0..<180 {
-                if let read = try? String(contentsOf: codeURL, encoding: .utf8)
-                    .trimmingCharacters(in: .whitespacesAndNewlines), read.count == 6 {
-                    otp = read
-                    break
-                }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-        guard let otp else { NSLog("[ManasProbe] no code arrived"); return }
-        do {
-            try await sync.verifyCode(phone: phone, code: otp)
-            NSLog("[ManasProbe] verify OK — signed in as \(phone)")
-        } catch {
-            NSLog("[ManasProbe] verify FAILED: \(error)")
-        }
-    }
-    #endif
 
     /// DEBUG-only screenshot seam: `-manasPreviewSignedIn` skips the sign-in
     /// gate and shows a seeded feed so captures don't need a live session.
