@@ -16,19 +16,23 @@ struct PhoneSignInView: View {
     private enum Step: Equatable { case phone, code }
 
     @State private var step: Step = .phone
-    /// The national number after the +1 prefix, digits only (formatting is
+    /// The national number after the dial code, digits only (formatting is
     /// applied for display and stripped on submit).
     @State private var nationalDigits = ""
+    @State private var country: Country = .unitedStates
     @State private var code = ""
     @State private var isSubmitting = false
     @State private var error: String?
 
     @FocusState private var phoneFocused: Bool
 
-    /// The full E.164 number the backend is called with. Fixed +1 for the beta;
-    /// the field only collects the national part.
-    private var e164: String { "+1" + nationalDigits }
-    private var canSendCode: Bool { nationalDigits.count == 10 && !isSubmitting }
+    /// The full E.164 number the backend is called with.
+    private var e164: String { country.dialCode + nationalDigits }
+    private var canSendCode: Bool {
+        nationalDigits.count >= country.minDigits
+            && nationalDigits.count <= country.maxDigits
+            && !isSubmitting
+    }
     private var canVerify: Bool { code.count == 6 && !isSubmitting }
 
     var body: some View {
@@ -73,14 +77,8 @@ struct PhoneSignInView: View {
                     RoundedRectangle(cornerRadius: 17, style: .continuous)
                         .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
                 )
-            VStack(spacing: 5) {
-                Text("Manas")
-                    .font(.largeTitle.weight(.semibold))
-                Text("Plan your day. See what actually happened.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text("Manas")
+                .font(.largeTitle.weight(.semibold))
         }
     }
 
@@ -91,15 +89,34 @@ struct PhoneSignInView: View {
             Text("Enter your phone number")
                 .font(.headline)
             HStack(spacing: 10) {
-                Text("+1")
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 2)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(Color.hairline).frame(width: 0.5, height: 22)
-                            .offset(x: 8)
+                Menu {
+                    ForEach(Country.all) { option in
+                        Button {
+                            Haptics.tap()
+                            country = option
+                            nationalDigits = String(nationalDigits.prefix(option.maxDigits))
+                        } label: {
+                            Text("\(option.flag)  \(option.name)  \(option.dialCode)")
+                        }
                     }
-                TextField("555 555 0100", text: nationalField)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("\(country.flag) \(country.dialCode)")
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.primary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // Keep the label in text colors, not the system accent.
+                .tint(.primary)
+                .padding(.trailing, 2)
+                .overlay(alignment: .trailing) {
+                    Rectangle().fill(Color.hairline).frame(width: 0.5, height: 22)
+                        .offset(x: 8)
+                }
+                TextField(country.placeholder, text: nationalField)
                     .font(.body.monospacedDigit())
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
@@ -205,27 +222,16 @@ struct PhoneSignInView: View {
 
     // MARK: - Formatting
 
-    /// Binding that keeps `nationalDigits` clean (digits only, max 10) while the
-    /// field shows a grouped "555 555 0100" for legibility.
+    /// Binding that keeps `nationalDigits` clean (digits only, clamped to the
+    /// country's length) while the field shows a grouped number for legibility.
     private var nationalField: Binding<String> {
         Binding(
-            get: { Self.formatNational(nationalDigits) },
-            set: { nationalDigits = String($0.filter(\.isNumber).prefix(10)) }
+            get: { country.format(nationalDigits) },
+            set: { nationalDigits = String($0.filter(\.isNumber).prefix(country.maxDigits)) }
         )
     }
 
-    /// Groups up to ten digits as 3-3-4, the familiar US shape.
-    private static func formatNational(_ digits: String) -> String {
-        let d = Array(digits.prefix(10))
-        var out = ""
-        for (index, ch) in d.enumerated() {
-            if index == 3 || index == 6 { out.append(" ") }
-            out.append(ch)
-        }
-        return out
-    }
-
-    private var displayNumber: String { "+1 " + Self.formatNational(nationalDigits) }
+    private var displayNumber: String { "\(country.dialCode) \(country.format(nationalDigits))" }
 
     // MARK: - Actions
 
@@ -274,6 +280,62 @@ struct PhoneSignInView: View {
         if let last = message.last, !".!?".contains(last) { message.append(".") }
         return message
     }
+}
+
+/// A dial-code choice for the sign-in field: enough metadata to validate,
+/// clamp, and prettify a national number. A curated list beats a 240-row
+/// picker for a beta; unlisted regions can ship later by adding rows.
+struct Country: Identifiable, Equatable {
+    let flag: String
+    let name: String
+    let dialCode: String
+    let minDigits: Int
+    let maxDigits: Int
+    let placeholder: String
+    /// Indexes (0-based) after which a space is inserted for display.
+    let groupBreaks: [Int]
+
+    var id: String { name }
+
+    func format(_ digits: String) -> String {
+        var out = ""
+        for (index, ch) in digits.prefix(maxDigits).enumerated() {
+            if groupBreaks.contains(index) { out.append(" ") }
+            out.append(ch)
+        }
+        return out
+    }
+
+    static let unitedStates = Country(
+        flag: "🇺🇸", name: "United States", dialCode: "+1",
+        minDigits: 10, maxDigits: 10, placeholder: "555 555 0100", groupBreaks: [3, 6]
+    )
+
+    static let all: [Country] = [
+        .unitedStates,
+        Country(flag: "🇨🇦", name: "Canada", dialCode: "+1",
+                minDigits: 10, maxDigits: 10, placeholder: "555 555 0100", groupBreaks: [3, 6]),
+        Country(flag: "🇮🇳", name: "India", dialCode: "+91",
+                minDigits: 10, maxDigits: 10, placeholder: "98765 43210", groupBreaks: [5]),
+        Country(flag: "🇬🇧", name: "United Kingdom", dialCode: "+44",
+                minDigits: 9, maxDigits: 10, placeholder: "7911 123456", groupBreaks: [4]),
+        Country(flag: "🇦🇺", name: "Australia", dialCode: "+61",
+                minDigits: 9, maxDigits: 9, placeholder: "412 345 678", groupBreaks: [3, 6]),
+        Country(flag: "🇩🇪", name: "Germany", dialCode: "+49",
+                minDigits: 10, maxDigits: 11, placeholder: "1512 3456789", groupBreaks: [4]),
+        Country(flag: "🇫🇷", name: "France", dialCode: "+33",
+                minDigits: 9, maxDigits: 9, placeholder: "6 12 34 56 78", groupBreaks: [1, 3, 5, 7]),
+        Country(flag: "🇯🇵", name: "Japan", dialCode: "+81",
+                minDigits: 10, maxDigits: 10, placeholder: "90 1234 5678", groupBreaks: [2, 6]),
+        Country(flag: "🇧🇷", name: "Brazil", dialCode: "+55",
+                minDigits: 10, maxDigits: 11, placeholder: "11 91234 5678", groupBreaks: [2, 7]),
+        Country(flag: "🇲🇽", name: "Mexico", dialCode: "+52",
+                minDigits: 10, maxDigits: 10, placeholder: "55 1234 5678", groupBreaks: [2, 6]),
+        Country(flag: "🇸🇬", name: "Singapore", dialCode: "+65",
+                minDigits: 8, maxDigits: 8, placeholder: "9123 4567", groupBreaks: [4]),
+        Country(flag: "🇦🇪", name: "United Arab Emirates", dialCode: "+971",
+                minDigits: 9, maxDigits: 9, placeholder: "50 123 4567", groupBreaks: [2, 5]),
+    ]
 }
 
 /// A six-box one-time-code field. A single hidden `.oneTimeCode` text field
