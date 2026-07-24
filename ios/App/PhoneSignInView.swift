@@ -20,6 +20,7 @@ struct PhoneSignInView: View {
     /// applied for display and stripped on submit).
     @State private var nationalDigits = ""
     @State private var country: Country = .unitedStates
+    @State private var showingCountryPicker = false
     @State private var code = ""
     @State private var isSubmitting = false
     @State private var error: String?
@@ -89,28 +90,22 @@ struct PhoneSignInView: View {
             Text("Enter your phone number")
                 .font(.headline)
             HStack(spacing: 10) {
-                Menu {
-                    ForEach(Country.all) { option in
-                        Button {
-                            Haptics.tap()
-                            country = option
-                            nationalDigits = String(nationalDigits.prefix(option.maxDigits))
-                        } label: {
-                            Text("\(option.flag)  \(option.name)  \(option.dialCode)")
-                        }
-                    }
+                Button {
+                    Haptics.tap()
+                    phoneFocused = false
+                    showingCountryPicker = true
                 } label: {
-                    HStack(spacing: 4) {
-                        Text("\(country.flag) \(country.dialCode)")
+                    HStack(spacing: 5) {
+                        Text(country.flag).font(.body)
+                        Text(country.dialCode)
                             .font(.body.monospacedDigit())
                             .foregroundStyle(.primary)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
                 }
-                // Keep the label in text colors, not the system accent.
-                .tint(.primary)
+                .buttonStyle(.plain)
                 .padding(.trailing, 2)
                 .overlay(alignment: .trailing) {
                     Rectangle().fill(Color.hairline).frame(width: 0.5, height: 22)
@@ -138,6 +133,13 @@ struct PhoneSignInView: View {
             primaryButton(title: "Send code", isBusy: isSubmitting, enabled: canSendCode, action: sendCode)
         }
         .transition(.move(edge: .leading).combined(with: .opacity))
+        .sheet(isPresented: $showingCountryPicker) {
+            CountryPickerSheet(selected: country) { picked in
+                country = picked
+                nationalDigits = String(nationalDigits.prefix(picked.maxDigits))
+            }
+            .preferredColorScheme(.light)
+        }
         .task {
             // Land focus on the field the first time the phone step appears so
             // the number pad is ready without a tap.
@@ -311,14 +313,21 @@ struct Country: Identifiable, Equatable {
         minDigits: 10, maxDigits: 10, placeholder: "555 555 0100", groupBreaks: [3, 6]
     )
 
+    /// A generic 7–15 digit country entry for the long tail, so any number can
+    /// be dialed even without a bespoke format.
+    private static func generic(_ flag: String, _ name: String, _ dial: String) -> Country {
+        Country(flag: flag, name: name, dialCode: dial,
+                minDigits: 6, maxDigits: 14, placeholder: "phone number", groupBreaks: [3, 6, 9])
+    }
+
     static let all: [Country] = [
         .unitedStates,
         Country(flag: "🇨🇦", name: "Canada", dialCode: "+1",
                 minDigits: 10, maxDigits: 10, placeholder: "555 555 0100", groupBreaks: [3, 6]),
-        Country(flag: "🇮🇳", name: "India", dialCode: "+91",
-                minDigits: 10, maxDigits: 10, placeholder: "98765 43210", groupBreaks: [5]),
         Country(flag: "🇬🇧", name: "United Kingdom", dialCode: "+44",
                 minDigits: 9, maxDigits: 10, placeholder: "7911 123456", groupBreaks: [4]),
+        Country(flag: "🇮🇳", name: "India", dialCode: "+91",
+                minDigits: 10, maxDigits: 10, placeholder: "98765 43210", groupBreaks: [5]),
         Country(flag: "🇦🇺", name: "Australia", dialCode: "+61",
                 minDigits: 9, maxDigits: 9, placeholder: "412 345 678", groupBreaks: [3, 6]),
         Country(flag: "🇩🇪", name: "Germany", dialCode: "+49",
@@ -335,7 +344,86 @@ struct Country: Identifiable, Equatable {
                 minDigits: 8, maxDigits: 8, placeholder: "9123 4567", groupBreaks: [4]),
         Country(flag: "🇦🇪", name: "United Arab Emirates", dialCode: "+971",
                 minDigits: 9, maxDigits: 9, placeholder: "50 123 4567", groupBreaks: [2, 5]),
+        generic("🇮🇪", "Ireland", "+353"), generic("🇳🇱", "Netherlands", "+31"),
+        generic("🇪🇸", "Spain", "+34"), generic("🇮🇹", "Italy", "+39"),
+        generic("🇵🇹", "Portugal", "+351"), generic("🇨🇭", "Switzerland", "+41"),
+        generic("🇸🇪", "Sweden", "+46"), generic("🇳🇴", "Norway", "+47"),
+        generic("🇩🇰", "Denmark", "+45"), generic("🇫🇮", "Finland", "+358"),
+        generic("🇵🇱", "Poland", "+48"), generic("🇦🇹", "Austria", "+43"),
+        generic("🇧🇪", "Belgium", "+32"), generic("🇬🇷", "Greece", "+30"),
+        generic("🇨🇿", "Czechia", "+420"), generic("🇷🇴", "Romania", "+40"),
+        generic("🇳🇿", "New Zealand", "+64"), generic("🇿🇦", "South Africa", "+27"),
+        generic("🇳🇬", "Nigeria", "+234"), generic("🇰🇪", "Kenya", "+254"),
+        generic("🇪🇬", "Egypt", "+20"), generic("🇸🇦", "Saudi Arabia", "+966"),
+        generic("🇮🇱", "Israel", "+972"), generic("🇹🇷", "Türkiye", "+90"),
+        generic("🇰🇷", "South Korea", "+82"), generic("🇨🇳", "China", "+86"),
+        generic("🇭🇰", "Hong Kong", "+852"), generic("🇹🇼", "Taiwan", "+886"),
+        generic("🇹🇭", "Thailand", "+66"), generic("🇮🇩", "Indonesia", "+62"),
+        generic("🇲🇾", "Malaysia", "+60"), generic("🇵🇭", "Philippines", "+63"),
+        generic("🇻🇳", "Vietnam", "+84"), generic("🇵🇰", "Pakistan", "+92"),
+        generic("🇧🇩", "Bangladesh", "+880"), generic("🇱🇰", "Sri Lanka", "+94"),
+        generic("🇦🇷", "Argentina", "+54"), generic("🇨🇱", "Chile", "+56"),
+        generic("🇨🇴", "Colombia", "+57"), generic("🇵🇪", "Peru", "+51"),
+        generic("🇺🇦", "Ukraine", "+380"), generic("🇷🇺", "Russia", "+7"),
     ]
+}
+
+/// A searchable full-screen country picker — better than a long inline menu.
+/// Filter by name or dial code; tap to select.
+private struct CountryPickerSheet: View {
+    let selected: Country
+    let onSelect: (Country) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var results: [Country] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return Country.all }
+        return Country.all.filter {
+            $0.name.lowercased().contains(q) || $0.dialCode.contains(q)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(results) { country in
+                Button {
+                    Haptics.tap()
+                    onSelect(country)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(country.flag).font(.title3)
+                        Text(country.name)
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text(country.dialCode)
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        if country == selected {
+                            Image(systemName: "checkmark")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color.manasAccent)
+                        }
+                    }
+                }
+                .listRowBackground(Color.surfaceRaised)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.manasBackground)
+            .searchable(text: $query, prompt: "Search country or code")
+            .navigationTitle("Country")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .tint(Color.manasAccent)
+                }
+            }
+        }
+    }
 }
 
 /// A six-box one-time-code field. A single hidden `.oneTimeCode` text field

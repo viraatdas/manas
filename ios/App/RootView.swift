@@ -14,6 +14,8 @@ struct RootView: View {
                 PhoneSignInView()
             }
         }
+        // One warm coral accent everywhere, like the desktop — not iOS blue.
+        .tint(Color.manasAccent)
         // The sign-in screen is the brand moment — always the light look;
         // the feed follows the system appearance once signed in.
         .preferredColorScheme(isPreviewSignedIn || sync.isSignedIn ? nil : .light)

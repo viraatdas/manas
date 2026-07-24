@@ -60,11 +60,6 @@ struct MobileFeedHeader: View {
 
     private var menu: some View {
         Menu {
-            if let phone = sync.phoneNumber {
-                Section("Signed in") {
-                    Label(phone, systemImage: "phone.fill")
-                }
-            }
             Button(role: .destructive) {
                 confirmingSignOut = true
             } label: {

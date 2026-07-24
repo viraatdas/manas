@@ -33,11 +33,25 @@ extension Color {
     /// Hairline border color, straight from the system.
     static let hairline = Color(nsColor: .separatorColor)
     #else
-    /// The same semantic surfaces mapped to their iOS counterparts, so shared
-    /// views keep an identical hierarchy on both platforms.
-    static let manasBackground = Color(uiColor: .systemGroupedBackground)
-    static let surface1 = Color(uiColor: .secondarySystemGroupedBackground)
-    static let surfaceRaised = Color(uiColor: .secondarySystemGroupedBackground)
+    /// iOS surfaces tuned to the desktop's warm, bright neutral tone rather
+    /// than iOS's cooler default grays, so the two apps read as one product.
+    /// Light: a warm paper background with clean white cards; dark mirrors the
+    /// mac's near-black window with slightly-raised cards.
+    static let manasBackground = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+            : UIColor(red: 0.955, green: 0.949, blue: 0.937, alpha: 1)
+    })
+    static let surface1 = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.145, green: 0.145, blue: 0.155, alpha: 1)
+            : UIColor(red: 0.98, green: 0.976, blue: 0.968, alpha: 1)
+    })
+    static let surfaceRaised = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1)
+            : UIColor.white
+    })
     static let hairline = Color(uiColor: .separator)
     #endif
 }

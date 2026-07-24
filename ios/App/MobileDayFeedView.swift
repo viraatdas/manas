@@ -70,6 +70,9 @@ struct MobileDayFeedView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            // Match the desktop's warm neutral instead of iOS's cooler gray.
+            .scrollContentBackground(.hidden)
+            .background(Color.manasBackground)
             .scrollDismissesKeyboard(.interactively)
             .onAppear { anchorToday(proxy) }
         }
