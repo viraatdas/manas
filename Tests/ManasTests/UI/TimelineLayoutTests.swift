@@ -35,6 +35,21 @@ final class TimelineLayoutTests: XCTestCase {
         XCTAssertEqual(days.filter { $0.kind == .future }.count, 14)
     }
 
+    func testFeedScrollIDsStayUniqueWhenPastInputRepeatsOrIncludesToday() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let days = DayFeed.days(
+            past: [yesterday, yesterday.addingTimeInterval(3_600), today],
+            today: today,
+            futureHorizon: 7,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(days.filter { $0.kind == .past }.map(\.date), [yesterday])
+        XCTAssertEqual(Set(days.map(\.id)).count, days.count)
+    }
+
     func testDayFeedSectionRendersEmptyAndPopulatedStates() {
         let store = AppStore.previewTimeline
         let today = Calendar.current.startOfDay(for: Date())

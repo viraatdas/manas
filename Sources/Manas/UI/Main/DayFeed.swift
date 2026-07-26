@@ -18,9 +18,11 @@ struct DayFeed: View {
     @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// How many future days are materialized right now; grows as the user
-    /// nears the bottom so the horizon feels endless without building it all.
-    @State private var futureHorizon = 7
+    /// Four months of planning targets are cheap here because LazyVStack only
+    /// realizes visible rows. Keeping the data horizon stable is important:
+    /// growing it from a row's onAppear mutates layout while AppKit is placing
+    /// a focused text cursor and can send the scroll view into a render loop.
+    private static let futureHorizon = 120
     @State private var isTodayVisible = true
     @State private var viewportFrame: CGRect = .zero
     /// A future day gets a real NSTextField only while the user is composing
@@ -29,18 +31,17 @@ struct DayFeed: View {
     @State private var activeFutureEditorDay: Date?
 
     private let calendar = Calendar.current
-    private static let maxFutureHorizon = 120
 
     private var today: Date { calendar.startOfDay(for: Date()) }
 
     /// Top-to-bottom: past days with todos (oldest first), Today, then the
-    /// rolling future horizon. Only past days that carry todos appear, so the
+    /// fixed future horizon. Only past days that carry todos appear, so the
     /// history above Today is real, not a wall of empty days.
     private var feedDays: [FeedDay] {
         Self.days(
             past: store.pastDays.map(\.day),
             today: today,
-            futureHorizon: futureHorizon,
+            futureHorizon: Self.futureHorizon,
             calendar: calendar
         )
     }
@@ -53,13 +54,16 @@ struct DayFeed: View {
         futureHorizon: Int,
         calendar: Calendar = .current
     ) -> [FeedDay] {
+        let normalizedToday = calendar.startOfDay(for: today)
+        var seenPastDays = Set<Date>()
         var days = past
             .map { calendar.startOfDay(for: $0) }
+            .filter { $0 < normalizedToday && seenPastDays.insert($0).inserted }
             .sorted()
             .map { FeedDay(date: $0, kind: .past) }
-        days.append(FeedDay(date: today, kind: .today))
+        days.append(FeedDay(date: normalizedToday, kind: .today))
         for offset in 1...max(1, futureHorizon) {
-            if let date = calendar.date(byAdding: .day, value: offset, to: today) {
+            if let date = calendar.date(byAdding: .day, value: offset, to: normalizedToday) {
                 days.append(FeedDay(date: date, kind: .future))
             }
         }
@@ -82,11 +86,15 @@ struct DayFeed: View {
                                 .padding(.bottom, 26)
                                 .opacity(feedDay.kind == .past ? 0.68 : 1)
                                 .background(todayFrameReporter(for: feedDay))
-                                .onAppear { extendHorizonIfNeeded(feedDay) }
+                                // ScrollViewReader needs one concrete target.
+                                // Keep the ID on the section body; putting it
+                                // on Section propagates the same ID to both its
+                                // flattened header and body and can lock focus
+                                // into a full-speed layout loop.
+                                .id(feedDay.date)
                         } header: {
                             DayFeedHeader(date: feedDay.date, kind: feedDay.kind)
                         }
-                        .id(feedDay.date)
                     }
                 }
                 .padding(.bottom, 44)
@@ -158,15 +166,7 @@ struct DayFeed: View {
         }
     }
 
-    // MARK: - Rolling horizon & visibility plumbing
-
-    private func extendHorizonIfNeeded(_ feedDay: FeedDay) {
-        guard feedDay.kind == .future,
-              feedDay.date == feedDays.last?.date,
-              futureHorizon < Self.maxFutureHorizon
-        else { return }
-        futureHorizon = min(Self.maxFutureHorizon, futureHorizon + 7)
-    }
+    // MARK: - Visibility plumbing
 
     /// Publishes Today's frame (in global space) so the feed knows when to
     /// show the Today pill.
