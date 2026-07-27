@@ -381,6 +381,9 @@ private struct FirstTodoOnboardingPage: View {
             OnboardingLoopView()
                 .frame(maxWidth: 500)
 
+            QuickCaptureOnboardingTip()
+                .frame(maxWidth: 500)
+
             Text("Manas checks once when you enter the app, then quietly refreshes every hour.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -388,6 +391,45 @@ private struct FirstTodoOnboardingPage: View {
                 .frame(maxWidth: 440)
         }
         .padding(.vertical, 16)
+    }
+}
+
+private struct QuickCaptureOnboardingTip: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 5) {
+                Image(systemName: "capslock.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text("×2")
+                    .font(.caption.weight(.bold))
+            }
+            .foregroundStyle(Color.manasAccent)
+            .frame(width: 64, height: 34)
+            .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.hairline, lineWidth: 0.5)
+            }
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Quick capture from anywhere")
+                    .font(.subheadline.weight(.semibold))
+                Text("Double-tap Caps Lock to open Manas at Today, ready to type.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(Color.surface1, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "Quick capture from anywhere. Double-tap Caps Lock to open Manas at Today, ready to type."
+        )
     }
 }
 
