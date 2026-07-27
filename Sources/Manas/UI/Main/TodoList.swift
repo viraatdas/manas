@@ -642,6 +642,10 @@ struct TodoRow: View {
             }
             .overlay { if isSelected { selectionRing } }
             .background(frameReporter)
+            // Make the whole visual row a context-menu target, including the
+            // whitespace between its text and trailing controls. Child
+            // controls keep their normal left-click behavior.
+            .contentShape(Rectangle())
             .contextMenu { todoActionItems }
             .popover(isPresented: $isPickingDate, arrowEdge: .bottom) { datePickerPopover }
             .popover(isPresented: $isCreatingGroup, arrowEdge: .bottom) {
