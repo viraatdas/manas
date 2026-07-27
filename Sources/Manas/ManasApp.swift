@@ -6,13 +6,43 @@ import SwiftUI
 /// comes to the front even when launched via `swift run` (no app bundle).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let quickCaptureShortcut = QuickCaptureShortcutController()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        quickCaptureShortcut.start()
+
+        // Retain the SwiftUI window after its close button is clicked. Manas
+        // remains available for global quick capture until the user explicitly
+        // quits the app.
+        Task { @MainActor in
+            await Task.yield()
+            Self.mainWindow?.isReleasedWhenClosed = false
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        guard !flag else { return true }
+        Self.mainWindow?.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        quickCaptureShortcut.stop()
+    }
+
+    static var mainWindow: NSWindow? {
+        NSApp.windows.first {
+            $0.identifier?.rawValue == "main" || $0.title == "Manas"
+        }
     }
 }
 

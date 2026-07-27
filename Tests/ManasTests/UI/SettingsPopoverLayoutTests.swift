@@ -57,10 +57,12 @@ final class SettingsPopoverLayoutTests: XCTestCase {
     }
 
     private func makeHost(of view: some View) -> NSHostingView<AnyView> {
-        NSHostingView(rootView: AnyView(
+        let stateURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("manas-settings-layout-\(UUID().uuidString).json")
+        return NSHostingView(rootView: AnyView(
             view
                 .environment(AppStore.previewEmpty)
-                .environment(SyncController())
+                .environment(SyncController(auth: SignedOutTestAuth(), stateURL: stateURL))
                 .background(Color.manasBackground)
         ))
     }
@@ -74,4 +76,15 @@ final class SettingsPopoverLayoutTests: XCTestCase {
         }
         return host.fittingSize
     }
+}
+
+@MainActor
+private final class SignedOutTestAuth: SyncAuth {
+    let isSignedIn = false
+    let phone: String? = nil
+
+    func requestCode(phone: String) async throws {}
+    func verifyCode(phone: String, code: String) async throws {}
+    func bearerToken() async throws -> String { "" }
+    func signOut() {}
 }
