@@ -13,6 +13,17 @@ struct SourceHealthButton: View {
         store.sourceStatuses.contains { [.permissionRequired, .failed].contains($0.state) }
     }
 
+    private var isChecking: Bool {
+        store.sourceStatuses.contains { $0.state == .syncing }
+    }
+
+    private var accessibilityStatus: String {
+        if hasIssue { return "Attention needed" }
+        if isChecking { return "Checking" }
+        if readyCount > 0 { return "Ready" }
+        return "Not checked yet"
+    }
+
     var body: some View {
         Button {
             isPresented.toggle()
@@ -21,8 +32,8 @@ struct SourceHealthButton: View {
                 Circle()
                     .fill(hasIssue ? Color.orange : (readyCount > 0 ? Color.green : Color.secondary))
                     .frame(width: 7, height: 7)
-                Text("\(readyCount)/\(store.sourceStatuses.count)")
-                    .font(.caption.monospacedDigit())
+                Text("Sources")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 7)
@@ -30,8 +41,9 @@ struct SourceHealthButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.hoverIcon)
-        .help("Activity sources")
-        .accessibilityLabel("\(readyCount) of \(store.sourceStatuses.count) activity sources ready")
+        .help("Sources")
+        .accessibilityLabel("Sources")
+        .accessibilityValue(accessibilityStatus)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             SourceHealthPopover()
         }
@@ -48,7 +60,7 @@ struct SourceHealthPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Activity sources")
+                Text("Sources")
                     .font(.headline)
                 Text("Manas checks each source independently.")
                     .font(.caption)
@@ -142,10 +154,7 @@ private struct SourceStatusRow: View {
         return switch status.state {
         case .waiting: "Waiting for the first check"
         case .syncing: "Checking today…"
-        case .ready:
-            status.activityCount == 0
-                ? "Ready · no activity today"
-                : "Ready · \(status.activityCount) \(status.activityCount == 1 ? "activity" : "activities")"
+        case .ready: "Ready"
         case .permissionRequired: "Full Disk Access required"
         case .unavailable: "Not available"
         case .failed: "Could not sync"

@@ -2,11 +2,10 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Screen 1 header: the Manas wordmark with one quiet caption line (date,
-/// check-in status, sources) on the left; source health, refresh, and settings
-/// on the right. Days are navigated by scrolling the feed, so the header no
-/// longer pages between dates. The spinning refresh icon is the only visible
-/// sign that a check-in is running.
+/// Screen 1 header: the Manas wordmark with one quiet caption line (date and
+/// check-in status) on the left; source health, refresh, and settings on the
+/// right. Days are navigated by scrolling the feed, so the header no longer
+/// pages between dates.
 struct MainHeaderView: View {
     @Environment(AppStore.self) private var store
     @State private var showingSettings = false
@@ -42,7 +41,7 @@ struct MainHeaderView: View {
         }
     }
 
-    /// One quiet caption line: the date, then check-in status, then sources.
+    /// One quiet caption line: the date, then check-in status.
     private var subtitle: String {
         var parts = [Date().formatted(.dateTime.weekday(.wide).month(.wide).day())]
         if store.isCheckingIn {
@@ -53,19 +52,14 @@ struct MainHeaderView: View {
         } else {
             parts.append("Not checked yet")
         }
-        if !store.sourceStatuses.isEmpty {
-            parts.append("\(store.syncedSourceCount) of \(store.sourceStatuses.count) sources")
-        }
         return parts.joined(separator: " · ")
     }
 }
 
-/// The manual re-check control: an arrow.clockwise that spins while a check
-/// is running and ignores clicks until it finishes.
+/// The manual re-check control. The header caption communicates the in-progress
+/// state, so the icon stays still and simply ignores clicks until the check ends.
 private struct RefreshButton: View {
     @Environment(AppStore.self) private var store
-    @State private var rotation = 0.0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -74,7 +68,6 @@ private struct RefreshButton: View {
             Image(systemName: "arrow.clockwise")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .rotationEffect(.degrees(rotation))
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
@@ -82,24 +75,6 @@ private struct RefreshButton: View {
         .disabled(store.isCheckingIn)
         .accessibilityLabel(store.isCheckingIn ? "Checking now" : "Check now")
         .help(store.isCheckingIn ? "Checking your day…" : "Check your day now")
-        .onAppear { if store.isCheckingIn { startSpinning() } }
-        .onChange(of: store.isCheckingIn) { _, checking in
-            if checking {
-                startSpinning()
-            } else {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { rotation = 0 }
-            }
-        }
-    }
-
-    private func startSpinning() {
-        rotation = 0
-        guard !reduceMotion else { return }
-        withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
-            rotation = 360
-        }
     }
 }
 
