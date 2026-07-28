@@ -145,6 +145,30 @@
     font-size: 13px;
     color: var(--faint);
   }
+  .store-status {
+    margin-top: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    border: 1px solid rgba(216, 90, 48, 0.22);
+    border-radius: 999px;
+    background: rgba(216, 90, 48, 0.06);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+  }
+  .store-status .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(216, 90, 48, 0.12);
+  }
+  .store-status strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
   /* header download pill */
   header.site .get {
     margin-left: auto;
@@ -433,6 +457,10 @@
         View on GitHub
       </a>
     </div>
+    <p class="store-status rise d2">
+      <span class="status-dot" aria-hidden="true"></span>
+      <strong>iPhone app</strong> · Awaiting App Store review
+    </p>
     <p class="cta-note rise d2">macOS 14+ · Apple silicon · unzip and drag to Applications · on first launch, right-click the app and choose Open</p>
   </section>
 
