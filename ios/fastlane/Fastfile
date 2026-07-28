@@ -425,6 +425,65 @@ platform :ios do
     UI.success("Attached build #{build_number} to External Testers")
   end
 
+  desc "Declare no third-party content and a 4+ App Store age rating."
+  lane :store_compliance do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    code, response = asc_raw(:patch, "v1/apps/#{app.id}", {
+      data: {
+        type: "apps",
+        id: app.id,
+        attributes: { contentRightsDeclaration: "DOES_NOT_USE_THIRD_PARTY_CONTENT" },
+      },
+    })
+    UI.user_error!("Content-rights update failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+
+    app_info = app.fetch_edit_app_info || app.fetch_live_app_info
+    UI.user_error!("No editable app info") unless app_info
+    declaration = app_info.fetch_age_rating_declaration
+    UI.user_error!("No age-rating declaration") unless declaration
+    rating_attributes = {
+      alcoholTobaccoOrDrugUseOrReferences: "NONE",
+      contests: "NONE",
+      gamblingSimulated: "NONE",
+      gunsOrOtherWeapons: "NONE",
+      horrorOrFearThemes: "NONE",
+      matureOrSuggestiveThemes: "NONE",
+      medicalOrTreatmentInformation: "NONE",
+      profanityOrCrudeHumor: "NONE",
+      sexualContentGraphicAndNudity: "NONE",
+      sexualContentOrNudity: "NONE",
+      violenceCartoonOrFantasy: "NONE",
+      violenceRealisticProlongedGraphicOrSadistic: "NONE",
+      violenceRealistic: "NONE",
+      advertising: false,
+      ageAssurance: false,
+      gambling: false,
+      healthOrWellnessTopics: false,
+      lootBox: false,
+      messagingAndChat: false,
+      parentalControls: false,
+      unrestrictedWebAccess: false,
+      userGeneratedContent: false,
+      ageRatingOverrideV2: "NONE",
+      koreaAgeRatingOverride: "NONE",
+    }
+    code, response = asc_raw(:patch, "v1/ageRatingDeclarations/#{declaration.id}", {
+      data: {
+        type: "ageRatingDeclarations",
+        id: declaration.id,
+        attributes: rating_attributes,
+      },
+    })
+    UI.user_error!("Age-rating update failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+    UI.success("Content rights and 4+ age rating configured")
+  end
+
   desc "Complete TestFlight review details and submit the external build for beta review."
   lane :submit_beta_review do
     require "spaceship"
@@ -449,21 +508,15 @@ platform :ios do
       demoAccountRequired: true,
       notes: File.read("fastlane/metadata/review_information/notes.txt"),
     }
-    _, details_body = asc_raw(:get, "v1/apps/#{app.id}/betaAppReviewDetail")
-    detail = details_body["data"]
-    if detail
-      code, response = asc_raw(:patch, "v1/betaAppReviewDetails/#{detail["id"]}", {
-        data: { type: "betaAppReviewDetails", id: detail["id"], attributes: beta_attributes },
-      })
-    else
-      code, response = asc_raw(:post, "v1/betaAppReviewDetails", {
-        data: {
-          type: "betaAppReviewDetails",
-          attributes: beta_attributes,
-          relationships: { app: { data: { type: "apps", id: app.id } } },
-        },
-      })
-    end
+    _, details_body = asc_raw(
+      :get,
+      "v1/betaAppReviewDetails?filter%5Bapp%5D=#{app.id}&limit=1"
+    )
+    detail = (details_body["data"] || []).first
+    UI.user_error!("Beta review detail not found") unless detail
+    code, response = asc_raw(:patch, "v1/betaAppReviewDetails/#{detail["id"]}", {
+      data: { type: "betaAppReviewDetails", id: detail["id"], attributes: beta_attributes },
+    })
     UI.user_error!("Beta review details failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
 
     _, app_localizations_body = asc_raw(:get, "v1/apps/#{app.id}/betaAppLocalizations?limit=20")
