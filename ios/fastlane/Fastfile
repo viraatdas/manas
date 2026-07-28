@@ -167,15 +167,22 @@ platform :ios do
     app = Spaceship::ConnectAPI::App.find(APP_ID)
     UI.user_error!("App #{APP_ID} not found") unless app
 
+    expected_build = ENV["TF_BUILD_NUMBER"]
     build = nil
     40.times do |i|
-      build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+      candidates = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      build = if expected_build
+        candidates.find { |candidate| candidate.version == expected_build }
+      else
+        candidates.first
+      end
       state = build&.processing_state
-      UI.message("[#{i}] build #{build&.version} state=#{state || 'none yet'}")
+      label = expected_build || "latest"
+      UI.message("[#{i}] build #{label}: #{build&.version || 'not visible'} state=#{state || 'none yet'}")
       break if state == "VALID"
       sleep(15)
     end
-    UI.user_error!("No build became VALID") unless build&.processing_state == "VALID"
+    UI.user_error!("Build #{expected_build || 'latest'} did not become VALID") unless build&.processing_state == "VALID"
 
     begin
       build.update(attributes: { usesNonExemptEncryption: false })
@@ -200,7 +207,7 @@ platform :ios do
         UI.important("Could not create internal group (#{code}): #{created.inspect[0, 200]}")
       end
     end
-    if group
+    if group && !group.dig("attributes", "hasAccessToAllBuilds")
       ac, ab = asc_raw(:post, "v1/betaGroups/#{group["id"]}/relationships/builds",
                        { data: [{ type: "builds", id: build.id }] })
       if (200..299).include?(ac) || ac == 409
@@ -208,6 +215,8 @@ platform :ios do
       else
         UI.important("Attach build -> #{ac}: #{ab.inspect[0, 200]}")
       end
+    elsif group
+      UI.success("Group '#{group.dig("attributes", "name")}' already has access to all builds")
     end
     UI.success("Internal TestFlight ready: install from the TestFlight app with the account-holder Apple ID.")
   end
@@ -248,6 +257,252 @@ platform :ios do
     UI.message("add tester #{email} -> #{tc}: #{tb.inspect[0, 160]}")
     gc, gb = asc_raw(:get, "v1/betaGroups/#{group["id"]}/betaTesters?limit=20")
     (gb["data"] || []).each { |t| UI.success("tester: #{t.dig("attributes", "email")} (#{t.dig("attributes", "state")})") }
+  end
+
+  desc "Create the external group and invite the requested testers."
+  lane :tf_invite_external do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    _, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    group = (body["data"] || []).find do |candidate|
+      !candidate.dig("attributes", "isInternalGroup") &&
+        candidate.dig("attributes", "name") == "External Testers"
+    end
+    unless group
+      code, created = asc_raw(:post, "v1/betaGroups", {
+        data: {
+          type: "betaGroups",
+          attributes: {
+            name: "External Testers",
+            isInternalGroup: false,
+            hasAccessToAllBuilds: false,
+            publicLinkEnabled: false,
+          },
+          relationships: { app: { data: { type: "apps", id: app.id } } },
+        },
+      })
+      UI.user_error!("Create external group failed (#{code}): #{created.inspect}") unless (200..299).include?(code)
+      group = created["data"]
+      UI.success("Created external TestFlight group")
+    end
+
+    testers = [
+      ["nikitaaggarwal777@gmail.com", "Nikita", "Aggarwal"],
+      ["vaageesha.das@gmail.com", "Vaageesha", "Das"],
+    ]
+    _, existing_body = asc_raw(:get, "v1/betaGroups/#{group["id"]}/betaTesters?limit=200")
+    existing = (existing_body["data"] || []).map { |tester| tester.dig("attributes", "email").downcase }
+    testers.each do |email, first_name, last_name|
+      if existing.include?(email.downcase)
+        UI.message("#{email} is already in External Testers")
+        next
+      end
+      code, response = asc_raw(:post, "v1/betaTesters", {
+        data: {
+          type: "betaTesters",
+          attributes: { email: email, firstName: first_name, lastName: last_name },
+          relationships: {
+            betaGroups: { data: [{ type: "betaGroups", id: group["id"] }] },
+          },
+        },
+      })
+      UI.user_error!("Invite #{email} failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+      UI.success("Added #{email} to External Testers")
+    end
+  end
+
+  desc "Upload App Store listing metadata and screenshots without submitting."
+  lane :store_metadata do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured") unless key
+    screenshots_path = ENV["STORE_SCREENSHOTS_PATH"]
+    UI.user_error!("Set STORE_SCREENSHOTS_PATH") if screenshots_path.to_s.empty?
+    screenshots_only = ENV["STORE_SCREENSHOTS_ONLY"] == "1"
+    review_phone = ENV["ASC_REVIEW_PHONE"]
+    review_information = if review_phone.to_s.empty?
+      nil
+    else
+      {
+        first_name: "Viraat",
+        last_name: "Das",
+        phone_number: review_phone,
+        email_address: "viraat.laldas@gmail.com",
+        demo_user: "+1 555 555 0100",
+        demo_password: "123456",
+        notes: File.read("fastlane/metadata/review_information/notes.txt"),
+      }
+    end
+    upload_to_app_store(
+      api_key: key,
+      app_identifier: APP_ID,
+      app_version: "1.0",
+      metadata_path: "fastlane/metadata",
+      screenshots_path: screenshots_path,
+      skip_binary_upload: true,
+      skip_metadata: screenshots_only,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      submit_for_review: false,
+      automatic_release: false,
+      force: true,
+      run_precheck_before_submit: false,
+      app_review_information: review_information,
+    )
+  end
+
+  desc "Attach a processed build to App Store 1.0 and prepare external TestFlight."
+  lane :prepare_review_build do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    build_number = ENV["TF_BUILD_NUMBER"] || UI.user_error!("Set TF_BUILD_NUMBER")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+    UI.user_error!("Build #{build_number} is #{build.processing_state}") unless build.processing_state == "VALID"
+
+    _, versions_body = asc_raw(
+      :get,
+      "v1/apps/#{app.id}/appStoreVersions?filter%5Bplatform%5D=IOS&filter%5BversionString%5D=1.0&limit=1"
+    )
+    version = (versions_body["data"] || []).first
+    UI.user_error!("App Store version 1.0 not found") unless version
+    code, response = asc_raw(
+      :patch,
+      "v1/appStoreVersions/#{version["id"]}/relationships/build",
+      { data: { type: "builds", id: build.id } }
+    )
+    UI.user_error!("Attach App Store build failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+    UI.success("Attached build #{build_number} to App Store version 1.0")
+
+    _, groups_body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    group = (groups_body["data"] || []).find do |candidate|
+      !candidate.dig("attributes", "isInternalGroup") &&
+        candidate.dig("attributes", "name") == "External Testers"
+    end
+    UI.user_error!("External Testers group not found") unless group
+
+    _, localizations_body = asc_raw(:get, "v1/builds/#{build.id}/betaBuildLocalizations?limit=20")
+    localization = (localizations_body["data"] || []).find do |candidate|
+      candidate.dig("attributes", "locale") == "en-US"
+    end
+    attributes = {
+      whatsNew: "Plan your day in a continuous feed, organize todos into groups, sync securely with Mac, and review evidence-backed progress.",
+    }
+    if localization
+      code, response = asc_raw(
+        :patch,
+        "v1/betaBuildLocalizations/#{localization["id"]}",
+        { data: { type: "betaBuildLocalizations", id: localization["id"], attributes: attributes } }
+      )
+    else
+      code, response = asc_raw(:post, "v1/betaBuildLocalizations", {
+        data: {
+          type: "betaBuildLocalizations",
+          attributes: attributes.merge(locale: "en-US"),
+          relationships: { build: { data: { type: "builds", id: build.id } } },
+        },
+      })
+    end
+    UI.user_error!("Beta build notes failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+
+    code, response = asc_raw(
+      :post,
+      "v1/betaGroups/#{group["id"]}/relationships/builds",
+      { data: [{ type: "builds", id: build.id }] }
+    )
+    unless (200..299).include?(code) || code == 409
+      UI.user_error!("Attach external TestFlight build failed (#{code}): #{response.inspect}")
+    end
+    UI.success("Attached build #{build_number} to External Testers")
+  end
+
+  desc "Complete TestFlight review details and submit the external build for beta review."
+  lane :submit_beta_review do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    build_number = ENV["TF_BUILD_NUMBER"] || UI.user_error!("Set TF_BUILD_NUMBER")
+    phone = ENV["ASC_REVIEW_PHONE"] || UI.user_error!("Set ASC_REVIEW_PHONE with +country code")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+
+    beta_attributes = {
+      contactEmail: "viraat.laldas@gmail.com",
+      contactFirstName: "Viraat",
+      contactLastName: "Das",
+      contactPhone: phone,
+      demoAccountName: "+1 555 555 0100",
+      demoAccountPassword: "123456",
+      demoAccountRequired: true,
+      notes: File.read("fastlane/metadata/review_information/notes.txt"),
+    }
+    _, details_body = asc_raw(:get, "v1/apps/#{app.id}/betaAppReviewDetail")
+    detail = details_body["data"]
+    if detail
+      code, response = asc_raw(:patch, "v1/betaAppReviewDetails/#{detail["id"]}", {
+        data: { type: "betaAppReviewDetails", id: detail["id"], attributes: beta_attributes },
+      })
+    else
+      code, response = asc_raw(:post, "v1/betaAppReviewDetails", {
+        data: {
+          type: "betaAppReviewDetails",
+          attributes: beta_attributes,
+          relationships: { app: { data: { type: "apps", id: app.id } } },
+        },
+      })
+    end
+    UI.user_error!("Beta review details failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+
+    _, app_localizations_body = asc_raw(:get, "v1/apps/#{app.id}/betaAppLocalizations?limit=20")
+    localization = (app_localizations_body["data"] || []).find do |candidate|
+      candidate.dig("attributes", "locale") == "en-US"
+    end
+    localization_attributes = {
+      description: "A focused daily todo planner with secure iPhone–Mac sync and optional evidence-backed progress from local Mac context.",
+      feedbackEmail: "viraat.laldas@gmail.com",
+      marketingUrl: "https://manas.viraat.dev/",
+      privacyPolicyUrl: "https://manas.viraat.dev/privacy/",
+    }
+    if localization
+      code, response = asc_raw(:patch, "v1/betaAppLocalizations/#{localization["id"]}", {
+        data: {
+          type: "betaAppLocalizations",
+          id: localization["id"],
+          attributes: localization_attributes,
+        },
+      })
+    else
+      code, response = asc_raw(:post, "v1/betaAppLocalizations", {
+        data: {
+          type: "betaAppLocalizations",
+          attributes: localization_attributes.merge(locale: "en-US"),
+          relationships: { app: { data: { type: "apps", id: app.id } } },
+        },
+      })
+    end
+    UI.user_error!("Beta app localization failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+
+    code, response = asc_raw(:post, "v1/betaAppReviewSubmissions", {
+      data: {
+        type: "betaAppReviewSubmissions",
+        relationships: { build: { data: { type: "builds", id: build.id } } },
+      },
+    })
+    UI.user_error!("Beta review submission failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+    UI.success("Build #{build_number} submitted for TestFlight beta review")
   end
 
   desc "Report the latest build's processing state; clear export compliance when possible."
