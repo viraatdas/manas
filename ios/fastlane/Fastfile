@@ -334,7 +334,7 @@ platform :ios do
         email_address: "viraat.laldas@gmail.com",
         demo_user: "+1 555 555 0100",
         demo_password: "123456",
-        notes: File.read("fastlane/metadata/review_information/notes.txt"),
+        notes: File.read(File.expand_path("metadata/review_information/notes.txt", __dir__)),
       }
     end
     upload_to_app_store(
@@ -484,6 +484,161 @@ platform :ios do
     UI.success("Content rights and 4+ age rating configured")
   end
 
+  desc "Declare and publish Manas App Privacy data usage."
+  lane :store_privacy do
+    require "spaceship"
+    Spaceship::ConnectAPI.login(
+      ENV["FASTLANE_APPLE_ID"] || "viraat.laldas@gmail.com",
+      nil,
+      use_portal: false,
+      use_tunes: true,
+      tunes_team_id: ENV["FASTLANE_ITC_TEAM_ID"] || "118673131",
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    desired = [
+      ["PHONE_NUMBER", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
+      ["USER_ID", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
+      ["OTHER_USER_CONTENT", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
+    ]
+    usages = Spaceship::ConnectAPI::AppDataUsage.all(
+      app_id: app.id,
+      includes: "category,dataProtection,purpose",
+    )
+    existing = usages.map do |usage|
+      [usage.category&.id, usage.data_protection&.id, usage.purpose&.id]
+    end
+    unexpected = existing.compact - desired
+    unless unexpected.empty?
+      UI.user_error!("Unexpected existing privacy declarations: #{unexpected.inspect}")
+    end
+
+    desired.each do |category, protection, purpose|
+      if existing.include?([category, protection, purpose])
+        UI.message("Privacy declaration already present: #{category}")
+        next
+      end
+      Spaceship::ConnectAPI::AppDataUsage.create(
+        app_id: app.id,
+        app_data_usage_category_id: category,
+        app_data_usage_protection_id: protection,
+        app_data_usage_purpose_id: purpose,
+      )
+      UI.success("Declared #{category} as linked data for app functionality")
+    end
+
+    state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
+    UI.user_error!("Privacy publish state not found") unless state
+    state.publish!
+    UI.success("Published App Privacy responses")
+  end
+
+  desc "Make Manas free and available in all App Store territories."
+  lane :store_pricing do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    schedule_code, schedule_body = asc_raw(:get, "v1/apps/#{app.id}/appPriceSchedule")
+    active_free_price = false
+    if (200..299).include?(schedule_code)
+      schedule_id = schedule_body.dig("data", "id")
+      if schedule_id
+        manual_code, manual_body = asc_raw(
+          :get,
+          "v1/appPriceSchedules/#{schedule_id}/manualPrices?include=appPricePoint&limit=200"
+        )
+        UI.user_error!("Manual-price lookup failed (#{manual_code}): #{manual_body.inspect}") unless (200..299).include?(manual_code)
+        price_points = (manual_body["included"] || []).to_h do |resource|
+          [resource["id"], resource.dig("attributes", "customerPrice")]
+        end
+        active_free_price = (manual_body["data"] || []).any? do |price|
+          point_id = price.dig("relationships", "appPricePoint", "data", "id")
+          price.dig("attributes", "endDate").nil? && price_points[point_id].to_f.zero?
+        end
+      end
+    end
+
+    unless active_free_price
+      points_code, points_body = asc_raw(
+        :get,
+        "v1/apps/#{app.id}/appPricePoints?filter%5Bterritory%5D=USA&limit=200"
+      )
+      UI.user_error!("Price-point lookup failed (#{points_code}): #{points_body.inspect}") unless (200..299).include?(points_code)
+      free_point = (points_body["data"] || []).find do |point|
+        point.dig("attributes", "customerPrice").to_f.zero?
+      end
+      UI.user_error!("Free USA price point not found") unless free_point
+      price_id = "${newprice-0}"
+      code, response = asc_raw(:post, "v1/appPriceSchedules", {
+        data: {
+          type: "appPriceSchedules",
+          attributes: {},
+          relationships: {
+            app: { data: { type: "apps", id: app.id } },
+            baseTerritory: { data: { type: "territories", id: "USA" } },
+            manualPrices: { data: [{ type: "appPrices", id: price_id }] },
+          },
+        },
+        included: [{
+          type: "appPrices",
+          id: price_id,
+          attributes: { startDate: nil, endDate: nil },
+          relationships: {
+            appPricePoint: {
+              data: { type: "appPricePoints", id: free_point["id"] },
+            },
+          },
+        }],
+      })
+      UI.user_error!("Free price schedule failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
+      UI.success("Configured free App Store pricing")
+    else
+      UI.success("Free App Store pricing is already active")
+    end
+
+    availability_code, = asc_raw(:get, "v1/apps/#{app.id}/appAvailabilityV2")
+    unless (200..299).include?(availability_code)
+      territories_code, territories_body = asc_raw(:get, "v1/territories?limit=200")
+      UI.user_error!("Territory lookup failed (#{territories_code})") unless (200..299).include?(territories_code)
+      territories = territories_body["data"] || []
+      linkages = []
+      included = territories.each_with_index.map do |territory, index|
+        placeholder = "${territoryAvailability-#{index}}"
+        linkages << { type: "territoryAvailabilities", id: placeholder }
+        {
+          type: "territoryAvailabilities",
+          id: placeholder,
+          attributes: { available: true, preOrderEnabled: false },
+          relationships: {
+            territory: {
+              data: { type: "territories", id: territory["id"] },
+            },
+          },
+        }
+      end
+      code, response = asc_raw(:post, "v2/appAvailabilities", {
+        data: {
+          type: "appAvailabilities",
+          attributes: { availableInNewTerritories: true },
+          relationships: {
+            app: { data: { type: "apps", id: app.id } },
+            territoryAvailabilities: { data: linkages },
+          },
+        },
+        included: included,
+      })
+      UI.user_error!("Worldwide availability failed (#{code}): #{response.inspect[0, 1000]}") unless (200..299).include?(code)
+      UI.success("Enabled all App Store territories")
+    else
+      UI.success("App Store availability already exists")
+    end
+  end
+
   desc "Complete TestFlight review details and submit the external build for beta review."
   lane :submit_beta_review do
     require "spaceship"
@@ -506,7 +661,7 @@ platform :ios do
       demoAccountName: "+1 555 555 0100",
       demoAccountPassword: "123456",
       demoAccountRequired: true,
-      notes: File.read("fastlane/metadata/review_information/notes.txt"),
+      notes: File.read(File.expand_path("metadata/review_information/notes.txt", __dir__)),
     }
     _, details_body = asc_raw(
       :get,
@@ -556,6 +711,79 @@ platform :ios do
     })
     UI.user_error!("Beta review submission failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
     UI.success("Build #{build_number} submitted for TestFlight beta review")
+  end
+
+  desc "Submit App Store version 1.0 build 11 for review."
+  lane :submit_app_review do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured") unless key
+    upload_to_app_store(
+      api_key: key,
+      app_identifier: APP_ID,
+      app_version: "1.0",
+      build_number: ENV["TF_BUILD_NUMBER"] || "11",
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: true,
+      automatic_release: false,
+      force: true,
+      run_precheck_before_submit: true,
+      precheck_include_in_app_purchases: false,
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        content_rights_contains_third_party_content: false,
+      },
+    )
+  end
+
+  desc "Verify App Store review, TestFlight review, and external tester state."
+  lane :release_status do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+
+    versions_code, versions_body = asc_raw(
+      :get,
+      "v1/apps/#{app.id}/appStoreVersions?filter%5Bplatform%5D=IOS&filter%5BversionString%5D=1.0&limit=1"
+    )
+    UI.user_error!("Version status lookup failed (#{versions_code})") unless (200..299).include?(versions_code)
+    version = (versions_body["data"] || []).first
+    UI.user_error!("App Store version 1.0 not found") unless version
+    UI.success("App Store 1.0 state=#{version.dig("attributes", "appStoreState")}")
+
+    build_number = ENV["TF_BUILD_NUMBER"] || "11"
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+    beta_code, beta_body = asc_raw(
+      :get,
+      "v1/betaAppReviewSubmissions?filter%5Bbuild%5D=#{build.id}&limit=20"
+    )
+    UI.user_error!("Beta review status lookup failed (#{beta_code})") unless (200..299).include?(beta_code)
+    beta_submission = (beta_body["data"] || []).first
+    beta_state = beta_submission&.dig("attributes", "betaReviewState") || "NOT_SUBMITTED"
+    UI.success("TestFlight build #{build_number} review state=#{beta_state}")
+
+    _, groups_body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    group = (groups_body["data"] || []).find do |candidate|
+      !candidate.dig("attributes", "isInternalGroup") &&
+        candidate.dig("attributes", "name") == "External Testers"
+    end
+    UI.user_error!("External Testers group not found") unless group
+    testers_code, testers_body = asc_raw(
+      :get,
+      "v1/betaGroups/#{group["id"]}/betaTesters?limit=200"
+    )
+    UI.user_error!("Tester lookup failed (#{testers_code})") unless (200..299).include?(testers_code)
+    tester_emails = (testers_body["data"] || []).map { |tester| tester.dig("attributes", "email")&.downcase }
+    ["nikitaaggarwal777@gmail.com", "vaageesha.das@gmail.com"].each do |email|
+      UI.user_error!("#{email} is missing from External Testers") unless tester_emails.include?(email.downcase)
+      UI.success("#{email} is in External Testers")
+    end
   end
 
   desc "Report the latest build's processing state; clear export compliance when possible."
