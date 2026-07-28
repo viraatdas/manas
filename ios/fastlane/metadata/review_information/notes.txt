@@ -1,0 +1,5 @@
+Use +1 555 555 0100 with verification code 123456. No real SMS is required.
+
+The iPhone app works as a standalone todo planner. The Mac app can optionally add local activity context and sync evidence-backed progress to the iPhone; those Mac permissions and data sources are not required for review.
+
+To delete the test account and its synced data, open the More menu (…) in the top-right corner and choose Delete account.

@@ -7,6 +7,20 @@ import SwiftUI
 struct MobileFeedHeader: View {
     @Environment(SyncController.self) private var sync
     @State private var confirmingSignOut = false
+    @State private var accountAlert: AccountAlert?
+    @State private var isDeletingAccount = false
+
+    private enum AccountAlert: Identifiable {
+        case confirmDeletion
+        case failure(String)
+
+        var id: String {
+            switch self {
+            case .confirmDeletion: "confirm"
+            case .failure: "failure"
+            }
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -60,11 +74,24 @@ struct MobileFeedHeader: View {
 
     private var menu: some View {
         Menu {
+            if let phone = sync.phoneNumber {
+                Text(phone)
+            }
             Button(role: .destructive) {
                 confirmingSignOut = true
             } label: {
                 Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
             }
+            Divider()
+            Button(role: .destructive) {
+                accountAlert = .confirmDeletion
+            } label: {
+                Label(
+                    isDeletingAccount ? "Deleting account…" : "Delete account…",
+                    systemImage: "person.crop.circle.badge.minus"
+                )
+            }
+            .disabled(isDeletingAccount)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
@@ -82,6 +109,39 @@ struct MobileFeedHeader: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your todos stay on this device. Sync stops until you sign back in.")
+        }
+        .alert(item: $accountAlert) { alert in
+            switch alert {
+            case .confirmDeletion:
+                Alert(
+                    title: Text("Delete your account?"),
+                    message: Text(
+                        "This permanently deletes your synced todos and account data from Manas, "
+                        + "then clears this iPhone. This can’t be undone."
+                    ),
+                    primaryButton: .destructive(Text("Delete account")) {
+                        Task { await deleteAccount() }
+                    },
+                    secondaryButton: .cancel()
+                )
+            case .failure(let message):
+                Alert(
+                    title: Text("Couldn’t delete account"),
+                    message: Text(message),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
+        }
+    }
+
+    private func deleteAccount() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        do {
+            try await sync.deleteAccount()
+            Haptics.bump()
+        } catch {
+            accountAlert = .failure(error.localizedDescription)
         }
     }
 

@@ -38,6 +38,12 @@ final class SupabaseSyncAuth: SyncAuth {
         return current.accessToken
     }
 
+    func deleteAccount() async throws {
+        let token = try await bearerToken()
+        try await AccountDeletionClient().delete(accessToken: token)
+        signOut()
+    }
+
     func signOut() {
         session = nil
         KeychainStore.delete(account: Self.account)

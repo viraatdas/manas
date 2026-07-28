@@ -203,6 +203,19 @@ final class AppStore {
         }
     }
 
+    /// Removes all user-authored and derived state from this installation.
+    /// Used after the server confirms account deletion.
+    func resetUserData() {
+        todos = []
+        discoveredActivities = []
+        usageRecords = []
+        groupEmojis = [:]
+        customGroups = []
+        lastCheckedAt = nil
+        lastAutomaticCheckAt = nil
+        syncedSourceCount = 0
+    }
+
     /// Canonicalizes an incoming group label, reusing an existing spelling
     /// when the same theme comes back with different case or spacing so a
     /// re-check never forks "Manas" and "manas" into two clusters.

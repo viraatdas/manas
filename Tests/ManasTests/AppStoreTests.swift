@@ -728,4 +728,40 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(week[4].records.count, 1, "record from two days ago lands in the right slot")
         XCTAssertEqual(week.filter { $0.records.isEmpty }.count, 5, "empty days are filled in for the sparkline")
     }
+
+    func testResetUserDataClearsPersistedPersonalState() {
+        let url = tempStateURL()
+        let store = AppStore(fileURL: url)
+        store.addTodo("Private plan", group: "Work")
+        store.discoveredActivities = [
+            DiscoveredActivity(title: "Private activity", evidence: "local source", source: .claude)
+        ]
+        store.usageRecords = [
+            UsageRecord(
+                timestamp: date,
+                model: "sonnet",
+                tokensIn: 100,
+                tokensOut: 20,
+                costUSD: 0.01,
+                summary: "One check"
+            )
+        ]
+        _ = store.createGroup("Secret project", emoji: "🔒")
+        store.lastCheckedAt = date
+        store.lastAutomaticCheckAt = date
+        store.syncedSourceCount = 4
+
+        store.resetUserData()
+        store.saveNow()
+
+        let reloaded = AppStore(fileURL: url)
+        XCTAssertTrue(reloaded.todos.isEmpty)
+        XCTAssertTrue(reloaded.discoveredActivities.isEmpty)
+        XCTAssertTrue(reloaded.usageRecords.isEmpty)
+        XCTAssertTrue(reloaded.groupEmojis.isEmpty)
+        XCTAssertTrue(reloaded.customGroups.isEmpty)
+        XCTAssertNil(reloaded.lastCheckedAt)
+        XCTAssertNil(reloaded.lastAutomaticCheckAt)
+        XCTAssertEqual(reloaded.syncedSourceCount, 0)
+    }
 }

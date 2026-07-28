@@ -86,7 +86,32 @@ final class SyncController {
     }
 
     func signOut() {
+        stop()
         auth.signOut()
+        isSignedIn = false
+        phoneNumber = nil
+        phase = .signedOut
+        watermark = nil
+        snapshot = [:]
+        lastSyncedAt = nil
+        try? FileManager.default.removeItem(at: stateURL)
+    }
+
+    /// Deletes the authenticated server account, then removes every local
+    /// trace only after the server confirms success. A transient network error
+    /// therefore never strands the user with local data gone but an account
+    /// still active.
+    func deleteAccount() async throws {
+        stop()
+        do {
+            try await auth.deleteAccount()
+        } catch {
+            if isSignedIn { startLoopIfPossible() }
+            throw error
+        }
+
+        store?.resetUserData()
+        store?.saveNow()
         isSignedIn = false
         phoneNumber = nil
         phase = .signedOut
@@ -102,6 +127,10 @@ final class SyncController {
     /// ~2s after any local change, and a steady pull every minute.
     func start(store: AppStore) {
         self.store = store
+        startLoopIfPossible()
+    }
+
+    private func startLoopIfPossible() {
         guard loopTask == nil else { return }
         observeStore()
         loopTask = Task { [weak self] in

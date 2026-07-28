@@ -68,6 +68,12 @@ final class StytchSyncAuth: SyncAuth {
         return current.accessToken
     }
 
+    func deleteAccount() async throws {
+        let token = try await bearerToken()
+        try await AccountDeletionClient().delete(accessToken: token)
+        signOut()
+    }
+
     func signOut() {
         session = nil
         methodID = nil

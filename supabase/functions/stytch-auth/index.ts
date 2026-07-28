@@ -14,6 +14,7 @@ const INTERNAL_OTP = Deno.env.get("INTERNAL_OTP")!;
 const STYTCH_BASE = Deno.env.get("STYTCH_BASE_URL") ?? "https://api.stytch.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const STYTCH_AUTH = "Basic " + btoa(`${STYTCH_PROJECT_ID}:${STYTCH_SECRET}`);
 
@@ -34,6 +35,83 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid request." }, 400);
   }
   const { action, phone, method_id, code } = payload;
+
+  // Account deletion is authenticated independently because this function is
+  // also the public entry point for requesting an OTP. Identity comes only
+  // from the verified Supabase bearer token, never from request JSON.
+  if (action === "delete") {
+    const authorization = req.headers.get("Authorization");
+    if (!authorization?.startsWith("Bearer ")) {
+      return json({ error: "Sign in again before deleting your account." }, 401);
+    }
+
+    const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: ANON, Authorization: authorization },
+    });
+    const user = await userResponse.json();
+    if (!userResponse.ok || !user.id || !user.phone) {
+      return json({ error: "Your session expired. Sign in again and retry." }, 401);
+    }
+
+    const e164Phone = user.phone.startsWith("+") ? user.phone : `+${user.phone}`;
+    const phoneID = e164Phone.replace(/[^0-9]/g, "");
+
+    // Resolve the matching Stytch record before deleting anything. Dev/test
+    // accounts may exist only in Supabase, in which case this is an empty list.
+    const searchResponse = await fetch(`${STYTCH_BASE}/v1/users/search`, {
+      method: "POST",
+      headers: { Authorization: STYTCH_AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        limit: 10,
+        query: {
+          operator: "AND",
+          operands: [{ filter_name: "phone_number", filter_value: [e164Phone] }],
+        },
+      }),
+    });
+    const search = await searchResponse.json();
+    if (!searchResponse.ok) {
+      return json({ error: "Account deletion couldn’t reach the identity service." }, 502);
+    }
+
+    const todosResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/todos?user_id=eq.${encodeURIComponent(phoneID)}`,
+      {
+        method: "DELETE",
+        headers: {
+          apikey: ANON,
+          Authorization: authorization,
+          Prefer: "return=minimal",
+        },
+      },
+    );
+    if (!todosResponse.ok) {
+      return json({ error: "Your synced todos couldn’t be deleted." }, 502);
+    }
+
+    for (const result of search.results ?? []) {
+      const stytchDelete = await fetch(`${STYTCH_BASE}/v1/users/${result.user_id}`, {
+        method: "DELETE",
+        headers: { Authorization: STYTCH_AUTH },
+      });
+      if (!stytchDelete.ok) {
+        return json({ error: "Your identity record couldn’t be deleted." }, 502);
+      }
+    }
+
+    const supabaseDelete = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+      method: "DELETE",
+      headers: {
+        apikey: SERVICE_ROLE,
+        Authorization: `Bearer ${SERVICE_ROLE}`,
+      },
+    });
+    if (!supabaseDelete.ok) {
+      return json({ error: "Your account couldn’t be deleted." }, 502);
+    }
+
+    return json({ deleted: true });
+  }
 
   // Beta allowlist: while Stytch live SMS is pending billing, one allowlisted
   // phone can sign in with a private fixed code (set as function secrets, never

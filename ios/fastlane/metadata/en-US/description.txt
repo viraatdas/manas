@@ -1,0 +1,13 @@
+Manas keeps your todos in sync between iPhone and Mac, then helps you compare your plan with the work you actually did.
+
+On iPhone:
+• Capture todos the moment they come to mind
+• Organize tasks into clear groups
+• Plan today and upcoming days in one continuous feed
+• See evidence-backed progress from your Mac
+• Keep a focused widget on your Home Screen
+• Sync securely across devices with phone sign-in
+
+On Mac, Manas can read your local day context—coding sessions, Screen Time, browser history, and Messages—to show whether each todo is done, in progress, or not started. Raw source databases stay on your Mac.
+
+No ads. No analytics. No selling your data.
