@@ -191,7 +191,7 @@ platform :ios do
       UI.message("Compliance note: #{e.message}")
     end
 
-    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    code, body = asc_raw(:get, "v1/betaGroups?filter%5Bapp%5D=#{app.id}&limit=50")
     groups = (body["data"] || [])
     group = groups.find { |g| g.dig("attributes", "isInternalGroup") } || groups.first
     if group.nil?
@@ -246,7 +246,7 @@ platform :ios do
       key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
     )
     app = Spaceship::ConnectAPI::App.find(APP_ID)
-    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    code, body = asc_raw(:get, "v1/betaGroups?filter%5Bapp%5D=#{app.id}&limit=50")
     group = (body["data"] || []).find { |g| g.dig("attributes", "isInternalGroup") }
     UI.user_error!("no internal group") unless group
     email = ENV["TF_EMAIL"] || "viraat.laldas@gmail.com"
@@ -268,9 +268,11 @@ platform :ios do
     app = Spaceship::ConnectAPI::App.find(APP_ID)
     UI.user_error!("App #{APP_ID} not found") unless app
 
-    _, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    groups_code, body = asc_raw(:get, "v1/betaGroups?limit=200")
+    UI.user_error!("Group lookup failed (#{groups_code}): #{body.inspect}") unless (200..299).include?(groups_code)
     group = (body["data"] || []).find do |candidate|
-      !candidate.dig("attributes", "isInternalGroup") &&
+      candidate.dig("relationships", "app", "data", "id") == app.id &&
+        !candidate.dig("attributes", "isInternalGroup") &&
         candidate.dig("attributes", "name") == "External Testers"
     end
     unless group
@@ -294,6 +296,7 @@ platform :ios do
     testers = [
       ["nikitaaggarwal777@gmail.com", "Nikita", "Aggarwal"],
       ["vaageesha.das@gmail.com", "Vaageesha", "Das"],
+      ["itsme@krithikrao.com", "Krithik", "Rao"],
     ]
     _, existing_body = asc_raw(:get, "v1/betaGroups/#{group["id"]}/betaTesters?limit=200")
     existing = (existing_body["data"] || []).map { |tester| tester.dig("attributes", "email").downcase }
@@ -383,7 +386,7 @@ platform :ios do
     UI.user_error!("Attach App Store build failed (#{code}): #{response.inspect}") unless (200..299).include?(code)
     UI.success("Attached build #{build_number} to App Store version 1.0")
 
-    _, groups_body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    _, groups_body = asc_raw(:get, "v1/betaGroups?filter%5Bapp%5D=#{app.id}&limit=50")
     group = (groups_body["data"] || []).find do |candidate|
       !candidate.dig("attributes", "isInternalGroup") &&
         candidate.dig("attributes", "name") == "External Testers"
@@ -501,6 +504,8 @@ platform :ios do
       ["PHONE_NUMBER", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
       ["USER_ID", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
       ["OTHER_USER_CONTENT", "DATA_LINKED_TO_YOU", "APP_FUNCTIONALITY"],
+      ["DEVICE_ID", "DATA_NOT_LINKED_TO_YOU", "ANALYTICS"],
+      ["PRODUCT_INTERACTION", "DATA_NOT_LINKED_TO_YOU", "ANALYTICS"],
     ]
     usages = Spaceship::ConnectAPI::AppDataUsage.all(
       app_id: app.id,
@@ -525,7 +530,7 @@ platform :ios do
         app_data_usage_protection_id: protection,
         app_data_usage_purpose_id: purpose,
       )
-      UI.success("Declared #{category} as linked data for app functionality")
+      UI.success("Declared #{category} / #{protection} / #{purpose}")
     end
 
     state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
@@ -768,7 +773,7 @@ platform :ios do
     beta_state = beta_submission&.dig("attributes", "betaReviewState") || "NOT_SUBMITTED"
     UI.success("TestFlight build #{build_number} review state=#{beta_state}")
 
-    _, groups_body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=50")
+    _, groups_body = asc_raw(:get, "v1/betaGroups?filter%5Bapp%5D=#{app.id}&limit=50")
     group = (groups_body["data"] || []).find do |candidate|
       !candidate.dig("attributes", "isInternalGroup") &&
         candidate.dig("attributes", "name") == "External Testers"
@@ -780,9 +785,119 @@ platform :ios do
     )
     UI.user_error!("Tester lookup failed (#{testers_code})") unless (200..299).include?(testers_code)
     tester_emails = (testers_body["data"] || []).map { |tester| tester.dig("attributes", "email")&.downcase }
-    ["nikitaaggarwal777@gmail.com", "vaageesha.das@gmail.com"].each do |email|
+    [
+      "nikitaaggarwal777@gmail.com",
+      "vaageesha.das@gmail.com",
+      "itsme@krithikrao.com",
+    ].each do |email|
       UI.user_error!("#{email} is missing from External Testers") unless tester_emails.include?(email.downcase)
       UI.success("#{email} is in External Testers")
+    end
+  end
+
+  desc "List external TestFlight groups and their tester memberships."
+  lane :tf_groups_status do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    code, body = asc_raw(
+      :get,
+      "v1/betaGroups?include=app%2CbetaTesters%2Cbuilds&limit=200&limit%5BbetaTesters%5D=50&limit%5Bbuilds%5D=50"
+    )
+    UI.user_error!("Group lookup failed (#{code}): #{body.inspect}") unless (200..299).include?(code)
+    testers_by_id = (body["included"] || []).filter_map do |resource|
+      next unless resource["type"] == "betaTesters"
+      [resource["id"], resource.dig("attributes", "email")]
+    end.to_h
+    builds_by_id = (body["included"] || []).filter_map do |resource|
+      next unless resource["type"] == "builds"
+      [resource["id"], resource.dig("attributes", "version")]
+    end.to_h
+    groups = (body["data"] || []).select do |group|
+      group.dig("relationships", "app", "data", "id") == app.id &&
+        !group.dig("attributes", "isInternalGroup")
+    end
+    groups.each do |group|
+      emails = (group.dig("relationships", "betaTesters", "data") || [])
+        .filter_map { |tester| testers_by_id[tester["id"]] }
+        .sort
+      builds = (group.dig("relationships", "builds", "data") || [])
+        .filter_map { |build| builds_by_id[build["id"]] }
+        .sort
+      UI.message("group=#{group["id"]} name=#{group.dig("attributes", "name").inspect} builds=#{builds.inspect} testers=#{emails.inspect}")
+    end
+  end
+
+  desc "Consolidate external testers into the group that owns the approved build."
+  lane :tf_consolidate_external do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    build_number = ENV["TF_BUILD_NUMBER"] || "11"
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+
+    code, body = asc_raw(
+      :get,
+      "v1/betaGroups?include=app%2CbetaTesters%2Cbuilds&limit=200&limit%5BbetaTesters%5D=50&limit%5Bbuilds%5D=50"
+    )
+    UI.user_error!("Group lookup failed (#{code}): #{body.inspect}") unless (200..299).include?(code)
+    groups = (body["data"] || []).select do |group|
+      group.dig("relationships", "app", "data", "id") == app.id &&
+        !group.dig("attributes", "isInternalGroup") &&
+        group.dig("attributes", "name") == "External Testers"
+    end
+    target = groups.find do |group|
+      (group.dig("relationships", "builds", "data") || []).any? { |item| item["id"] == build.id }
+    end
+    UI.user_error!("No External Testers group owns build #{build_number}") unless target
+
+    desired_emails = [
+      "nikitaaggarwal777@gmail.com",
+      "vaageesha.das@gmail.com",
+      "itsme@krithikrao.com",
+    ]
+    testers_by_email = (body["included"] || []).filter_map do |resource|
+      next unless resource["type"] == "betaTesters"
+      email = resource.dig("attributes", "email")&.downcase
+      [email, resource] if email
+    end.to_h
+    missing_resources = desired_emails.filter_map do |email|
+      resource = testers_by_email[email]
+      UI.user_error!("Tester #{email} was not found") unless resource
+      next if (target.dig("relationships", "betaTesters", "data") || []).any? { |item| item["id"] == resource["id"] }
+      { type: "betaTesters", id: resource["id"] }
+    end
+    unless missing_resources.empty?
+      add_code, add_body = asc_raw(
+        :post,
+        "v1/betaGroups/#{target["id"]}/relationships/betaTesters",
+        { data: missing_resources }
+      )
+      UI.user_error!("Add testers to build-backed group failed (#{add_code}): #{add_body.inspect}") unless (200..299).include?(add_code)
+    end
+
+    verify_code, verify_body = asc_raw(:get, "v1/betaGroups/#{target["id"]}/betaTesters?limit=200")
+    UI.user_error!("Tester verification failed (#{verify_code}): #{verify_body.inspect}") unless (200..299).include?(verify_code)
+    verified_emails = (verify_body["data"] || []).map { |tester| tester.dig("attributes", "email")&.downcase }
+    desired_emails.each do |email|
+      UI.user_error!("#{email} is missing from the build-backed group") unless verified_emails.include?(email)
+      UI.success("#{email} has access to TestFlight build #{build_number}")
+    end
+
+    groups.each do |group|
+      next if group["id"] == target["id"]
+      next unless (group.dig("relationships", "builds", "data") || []).empty?
+      delete_code, delete_body = asc_raw(:delete, "v1/betaGroups/#{group["id"]}")
+      UI.user_error!("Delete redundant group #{group["id"]} failed (#{delete_code}): #{delete_body.inspect}") unless (200..299).include?(delete_code)
+      UI.success("Removed redundant empty-build TestFlight group #{group["id"]}")
     end
   end
 

@@ -165,8 +165,10 @@ final class AppStore {
     func createGroup(_ rawValue: String, emoji: String? = nil) -> String? {
         guard let group = canonicalTodoGroup(rawValue) else { return nil }
         let key = TodoGroupName.key(for: group)
-        if !standingGroups.contains(where: { TodoGroupName.key(for: $0) == key }) {
+        let isNew = !standingGroups.contains(where: { TodoGroupName.key(for: $0) == key })
+        if isNew {
             customGroups.append(group)
+            UsageAnalytics.shared.capture(.groupCreated)
         }
         if emoji != nil { setGroupEmoji(group, emoji: emoji) }
         return group
@@ -231,6 +233,10 @@ final class AppStore {
         guard !trimmed.isEmpty else { return nil }
         let todo = Todo(text: trimmed, day: day, group: canonicalTodoGroup(group))
         insert(todo)
+        UsageAnalytics.shared.capture(.todoCreated(
+            day: UsageAnalytics.dayRelation(for: day),
+            hasGroup: todo.group != nil
+        ))
         return todo
     }
 
@@ -239,7 +245,10 @@ final class AppStore {
     /// never overwritten by a later check-in.
     func setTodoGroup(_ id: Todo.ID, group: String?) {
         guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
-        todos[index].group = canonicalTodoGroup(group)
+        let canonical = canonicalTodoGroup(group)
+        guard todos[index].group != canonical else { return }
+        todos[index].group = canonical
+        UsageAnalytics.shared.capture(.todoGroupChanged(hasGroup: canonical != nil))
     }
 
     /// New todos go on top of their day's group. A day's first todo lands at
@@ -300,6 +309,17 @@ final class AppStore {
     func toggleDone(_ id: Todo.ID) {
         guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
         todos[index].isDone.toggle()
+        let todo = todos[index]
+        let event: UsageAnalytics.Event = todo.isDone
+            ? .todoCompleted(
+                day: UsageAnalytics.dayRelation(for: todo.day),
+                hasGroup: todo.group != nil
+            )
+            : .todoReopened(
+                day: UsageAnalytics.dayRelation(for: todo.day),
+                hasGroup: todo.group != nil
+            )
+        UsageAnalytics.shared.capture(event)
     }
 
     /// Accepting a "done" verdict also checks the todo off.
@@ -324,6 +344,9 @@ final class AppStore {
         todo.day = target
         todo.verdict = nil
         insert(todo)
+        UsageAnalytics.shared.capture(.todoRescheduled(
+            day: UsageAnalytics.dayRelation(for: target)
+        ))
     }
 
     /// Rolls every unfinished todo from an earlier day onto today so nothing
@@ -364,6 +387,7 @@ final class AppStore {
         todo.day = today
         todo.verdict = nil
         insert(todo)
+        UsageAnalytics.shared.capture(.todoRescheduled(day: .today))
     }
 
     // MARK: - Day groups
@@ -452,6 +476,7 @@ final class AppStore {
             verdict: Verdict(status: .done, evidence: activity.evidence, accepted: true)
         )
         insert(todo)
+        UsageAnalytics.shared.capture(.discoveredTodoAdded)
         return todo
     }
 

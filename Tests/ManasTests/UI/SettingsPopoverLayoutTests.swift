@@ -26,14 +26,14 @@ final class SettingsPopoverLayoutTests: XCTestCase {
         )
     }
 
-    /// The revised two-section layout has enough horizontal room for status
-    /// copy without recreating the narrow, over-tall panel it replaced.
+    /// Sync, privacy, and login controls have enough horizontal room for their
+    /// explanatory copy without turning the popover into a narrow column.
     func testPopoverUsesReadableContentWidth() {
         let size = settle(makeHost(of: SettingsPopover()))
 
-        XCTAssertEqual(size.width, 292, accuracy: 0.5)
-        XCTAssertGreaterThan(size.height, 180)
-        XCTAssertLessThan(size.height, 260)
+        XCTAssertEqual(size.width, 320, accuracy: 0.5)
+        XCTAssertGreaterThan(size.height, 260)
+        XCTAssertLessThan(size.height, 320)
     }
 
     /// Optional diagnostic: MANAS_POPOVER_DUMP=<dir> writes a PNG of the

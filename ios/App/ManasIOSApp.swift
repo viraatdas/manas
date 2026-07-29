@@ -7,6 +7,7 @@ import SwiftUI
 /// views, so sign-in can never detour through a browser page.
 @main
 struct ManasIOSApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = AppStore(fileURL: AppGroup.stateURL)
     @State private var sync = SyncController(auth: StytchSyncAuth(), stateURL: AppGroup.syncStateURL)
 
@@ -15,6 +16,14 @@ struct ManasIOSApp: App {
             RootView()
                 .environment(store)
                 .environment(sync)
+                .onAppear {
+                    UsageAnalytics.shared.captureAppOpened()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        UsageAnalytics.shared.captureAppOpened()
+                    }
+                }
         }
     }
 }

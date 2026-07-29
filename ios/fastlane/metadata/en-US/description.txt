@@ -10,4 +10,4 @@ On iPhone:
 
 On Mac, Manas can read your local day context—coding sessions, Screen Time, browser history, and Messages—to show whether each todo is done, in progress, or not started. Raw source databases stay on your Mac.
 
-No ads. No analytics. No selling your data.
+No ads. No tracking. No selling your data. Optional anonymous usage sharing is off by default and never includes your todo text or local activity.

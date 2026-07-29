@@ -6,16 +6,19 @@ import SwiftUI
 /// a navigation bar so the large title and status read together.
 struct MobileFeedHeader: View {
     @Environment(SyncController.self) private var sync
+    @State private var analytics = UsageAnalytics.shared
     @State private var confirmingSignOut = false
     @State private var accountAlert: AccountAlert?
     @State private var isDeletingAccount = false
 
     private enum AccountAlert: Identifiable {
+        case analyticsConsent
         case confirmDeletion
         case failure(String)
 
         var id: String {
             switch self {
+            case .analyticsConsent: "analytics"
             case .confirmDeletion: "confirm"
             case .failure: "failure"
             }
@@ -74,6 +77,20 @@ struct MobileFeedHeader: View {
 
     private var menu: some View {
         Menu {
+            Button {
+                if analytics.isEnabled {
+                    analytics.setEnabled(false)
+                } else {
+                    accountAlert = .analyticsConsent
+                }
+            } label: {
+                Label(
+                    analytics.isEnabled ? "Stop sharing usage" : "Share anonymous usage…",
+                    systemImage: analytics.isEnabled ? "checkmark.circle.fill" : "chart.bar"
+                )
+            }
+            .disabled(!analytics.isConfigured)
+            Divider()
             if let phone = sync.phoneNumber {
                 Text(phone)
             }
@@ -112,6 +129,18 @@ struct MobileFeedHeader: View {
         }
         .alert(item: $accountAlert) { alert in
             switch alert {
+            case .analyticsConsent:
+                Alert(
+                    title: Text("Share anonymous usage?"),
+                    message: Text(
+                        "Manas sends feature events and success counts—never todo text, "
+                        + "messages, browsing, phone numbers, keystrokes, or screen recordings."
+                    ),
+                    primaryButton: .default(Text("Share usage")) {
+                        analytics.setEnabled(true)
+                    },
+                    secondaryButton: .cancel()
+                )
             case .confirmDeletion:
                 Alert(
                     title: Text("Delete your account?"),

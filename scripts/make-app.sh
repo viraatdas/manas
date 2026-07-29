@@ -20,6 +20,11 @@ BUNDLE_ID="dev.viraat.manas"
 DIST_DIR="$REPO_ROOT/dist"
 APP="$DIST_DIR/$APP_NAME.app"
 ICON_SRC="$REPO_ROOT/assets/icon/Manas.icns"
+POSTHOG_TOKEN="${MANAS_POSTHOG_PROJECT_TOKEN:-}"
+ANALYTICS_PLIST_ENTRY=""
+if [[ "$POSTHOG_TOKEN" == phc_* ]]; then
+  ANALYTICS_PLIST_ENTRY=$'\t<key>ManasPostHogProjectToken</key>\n\t<string>'"$POSTHOG_TOKEN"$'</string>'
+fi
 
 echo "==> Building $APP_NAME (release)"
 swift build -c release --package-path "$REPO_ROOT" --product "$APP_NAME"
@@ -56,9 +61,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.6</string>
+	<string>0.2.7</string>
 	<key>CFBundleVersion</key>
-	<string>13</string>
+	<string>14</string>
+$ANALYTICS_PLIST_ENTRY
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSApplicationCategoryType</key>

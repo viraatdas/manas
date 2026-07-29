@@ -69,6 +69,12 @@ struct ManasApp: App {
                     store.stopAutoCheckIns()
                     store.saveNow()
                 }
+                .onAppear {
+                    UsageAnalytics.shared.captureAppOpened()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    UsageAnalytics.shared.captureAppOpened()
+                }
         }
         .defaultSize(width: 560, height: 780)
         .commands {

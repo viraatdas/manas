@@ -5,6 +5,8 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(SyncController.self) private var sync
+    @State private var analytics = UsageAnalytics.shared
+    @State private var showingAnalyticsConsent = false
 
     var body: some View {
         Group {
@@ -27,6 +29,7 @@ struct RootView: View {
             guard !isPreviewSignedIn, sync.isSignedIn else { return }
             store.carryForwardOverdueTodos()
             sync.start(store: store)
+            requestAnalyticsConsentIfNeeded()
         }
         .task {
             // Firebase configures in the app delegate, after SyncController
@@ -66,6 +69,20 @@ struct RootView: View {
             }
             #endif
         }
+        .alert("Help improve Manas?", isPresented: $showingAnalyticsConsent) {
+            Button("Not now", role: .cancel) {
+                analytics.setEnabled(false)
+            }
+            Button("Share anonymous usage") {
+                analytics.setEnabled(true)
+            }
+        } message: {
+            Text(
+                "Manas can send anonymous feature events and success counts. "
+                + "It never sends todo text, messages, browsing, phone numbers, "
+                + "keystrokes, or screen recordings. You can turn this off anytime."
+            )
+        }
     }
 
     /// DEBUG-only screenshot seam: `-manasPreviewSignedIn` skips the sign-in
@@ -76,5 +93,13 @@ struct RootView: View {
         #else
         false
         #endif
+    }
+
+    private func requestAnalyticsConsentIfNeeded() {
+        guard !isPreviewSignedIn, analytics.shouldRequestConsent else { return }
+        Task { @MainActor in
+            await Task.yield()
+            showingAnalyticsConsent = true
+        }
     }
 }

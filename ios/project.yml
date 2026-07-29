@@ -15,7 +15,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "11"
+    CURRENT_PROJECT_VERSION: "12"
+    # Inject the public, write-only PostHog project token at archive time.
+    # Keeping this empty makes analytics unavailable in ordinary dev builds.
+    MANAS_POSTHOG_PROJECT_TOKEN: ""
 
 targets:
   Manas:
@@ -26,6 +29,7 @@ targets:
       - path: Shared
       - path: ../Sources/Manas/Models
       - path: ../Sources/Manas/Store/AppStore.swift
+      - path: ../Sources/Manas/Analytics
       - path: ../Sources/Manas/Design
       - path: ../Sources/Manas/Sync
     settings:
@@ -49,6 +53,7 @@ targets:
         CFBundleDisplayName: Manas
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ManasPostHogProjectToken: $(MANAS_POSTHOG_PROJECT_TOKEN)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

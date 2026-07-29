@@ -112,6 +112,7 @@ final class SyncController {
 
         store?.resetUserData()
         store?.saveNow()
+        UsageAnalytics.shared.resetAfterAccountDeletion()
         isSignedIn = false
         phoneNumber = nil
         phase = .signedOut

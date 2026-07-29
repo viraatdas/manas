@@ -87,6 +87,7 @@ final class QuickCaptureShortcutController {
     }
 
     private func presentQuickCapture() {
+        UsageAnalytics.shared.capture(.quickCaptureOpened)
         NSApp.activate(ignoringOtherApps: true)
 
         if let window = AppDelegate.mainWindow {

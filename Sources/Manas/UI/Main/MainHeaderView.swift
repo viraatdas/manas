@@ -84,6 +84,7 @@ private struct RefreshButton: View {
 /// Settings › Login items; coming back to the app re-reads the outcome.
 struct SettingsPopover: View {
     @State private var loginItem: LoginItemController
+    @State private var analytics = UsageAnalytics.shared
 
     init(loginItem: LoginItemController = .standard()) {
         _loginItem = State(initialValue: loginItem)
@@ -93,15 +94,40 @@ struct SettingsPopover: View {
         VStack(alignment: .leading, spacing: 14) {
             SyncSettingsSection()
             Divider()
+            analyticsSection
+            Divider()
             launchAtLoginSection
         }
         .padding(16)
-        .frame(width: 292)
+        .frame(width: 320)
         .onAppear { loginItem.refresh() }
         // The user approves us in System Settings, then comes back — pick up
         // the new status the moment the app is active again.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             loginItem.refresh()
+        }
+    }
+
+    private var analyticsSection: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Share anonymous usage")
+                    .font(.subheadline.weight(.medium))
+                Text("Sends feature events and success counts. Never todo text, messages, browsing, phone number, or screen recordings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: Binding(
+                get: { analytics.isEnabled },
+                set: { analytics.setEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(.manasAccent)
+            .labelsHidden()
+            .disabled(!analytics.isConfigured)
         }
     }
 

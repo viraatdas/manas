@@ -10,6 +10,8 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("hasCompletedManasOnboarding") private var hasCompletedOnboarding = false
     @State private var isOnboardingPresented = false
+    @State private var showingAnalyticsConsent = false
+    @State private var analytics = UsageAnalytics.shared
 
     private let showsOnboardingOnFirstLaunch: Bool
     private let startsAutoCheckIns: Bool
@@ -49,8 +51,11 @@ struct ContentView: View {
             store.carryForwardOverdueTodos()
             if showsOnboardingOnFirstLaunch, !hasCompletedOnboarding {
                 isOnboardingPresented = true
-            } else if startsAutoCheckIns {
-                store.startAutoCheckIns()
+            } else {
+                if startsAutoCheckIns {
+                    store.startAutoCheckIns()
+                }
+                requestAnalyticsConsentIfNeeded()
             }
         }
         // Cloud sync runs whenever a session exists (signed in from the gear
@@ -69,6 +74,20 @@ struct ContentView: View {
         // unfinished todos forward without needing a relaunch.
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: RunLoop.main)) { _ in
             store.carryForwardOverdueTodos()
+        }
+        .alert("Help improve Manas?", isPresented: $showingAnalyticsConsent) {
+            Button("Not now", role: .cancel) {
+                analytics.setEnabled(false)
+            }
+            Button("Share anonymous usage") {
+                analytics.setEnabled(true)
+            }
+        } message: {
+            Text(
+                "Manas can send anonymous feature events and success counts. "
+                + "It never sends todo text, messages, browsing, phone numbers, "
+                + "keystrokes, or screen recordings. You can change this in Settings."
+            )
         }
     }
 
@@ -91,6 +110,15 @@ struct ContentView: View {
         isOnboardingPresented = false
         if startsAutoCheckIns {
             store.startAutoCheckIns()
+        }
+        requestAnalyticsConsentIfNeeded()
+    }
+
+    private func requestAnalyticsConsentIfNeeded() {
+        guard analytics.shouldRequestConsent else { return }
+        Task { @MainActor in
+            await Task.yield()
+            showingAnalyticsConsent = true
         }
     }
 }

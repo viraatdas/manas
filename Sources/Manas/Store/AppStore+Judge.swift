@@ -145,16 +145,25 @@ extension AppStore {
         if isAutomatic { lastAutomaticCheckAt = Date() }
         isCheckingIn = true
         lastCheckInError = nil
+        UsageAnalytics.shared.capture(.checkInStarted(automatic: isAutomatic))
         let task = Task { [weak self] in
             do {
                 try await self?.judgeToday(
                     aggregator: aggregator,
                     judge: judge ?? ClaudeCLIJudge(timeout: Self.judgeTimeout)
                 )
+                if let self {
+                    UsageAnalytics.shared.capture(.checkInCompleted(
+                        automatic: isAutomatic,
+                        sourceCount: self.syncedSourceCount,
+                        todoCount: self.todosToday.count
+                    ))
+                }
             } catch is CancellationError {
                 // App is quitting or the check was superseded; stay quiet.
             } catch {
                 self?.lastCheckInError = error.localizedDescription
+                UsageAnalytics.shared.capture(.checkInFailed(automatic: isAutomatic))
             }
             self?.isCheckingIn = false
         }

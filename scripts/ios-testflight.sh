@@ -21,6 +21,7 @@ EXPORT_DIR="$BUILD_DIR/export"
 # shellcheck disable=SC1091
 source "$IOS_DIR/fastlane/.asc.env"
 : "${ASC_KEY_ID:?fill ios/fastlane/.asc.env}" "${ASC_ISSUER_ID:?}" "${ASC_KEY_PATH:?}" "${APPLE_TEAM_ID:?}"
+: "${MANAS_POSTHOG_PROJECT_TOKEN:?fill the public PostHog project token in ios/fastlane/.asc.env}"
 
 echo "==> Generating Xcode project"
 (cd "$IOS_DIR" && xcodegen generate)
@@ -36,6 +37,7 @@ xcodebuild archive \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHIVE" \
   DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+  MANAS_POSTHOG_PROJECT_TOKEN="$MANAS_POSTHOG_PROJECT_TOKEN" \
   | grep -E "error|warning: Signing|ARCHIVE" || true
 [[ -d "$ARCHIVE" ]] || { echo "error: archive missing at $ARCHIVE" >&2; exit 1; }
 
