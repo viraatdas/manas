@@ -297,6 +297,7 @@ platform :ios do
       ["nikitaaggarwal777@gmail.com", "Nikita", "Aggarwal"],
       ["vaageesha.das@gmail.com", "Vaageesha", "Das"],
       ["itsme@krithikrao.com", "Krithik", "Rao"],
+      ["dark.luck4777@krithikrao.com", "Krithik", "Rao"],
     ]
     _, existing_body = asc_raw(:get, "v1/betaGroups/#{group["id"]}/betaTesters?limit=200")
     existing = (existing_body["data"] || []).map { |tester| tester.dig("attributes", "email").downcase }
@@ -789,6 +790,7 @@ platform :ios do
       "nikitaaggarwal777@gmail.com",
       "vaageesha.das@gmail.com",
       "itsme@krithikrao.com",
+      "dark.luck4777@krithikrao.com",
     ].each do |email|
       UI.user_error!("#{email} is missing from External Testers") unless tester_emails.include?(email.downcase)
       UI.success("#{email} is in External Testers")
@@ -863,6 +865,7 @@ platform :ios do
       "nikitaaggarwal777@gmail.com",
       "vaageesha.das@gmail.com",
       "itsme@krithikrao.com",
+      "dark.luck4777@krithikrao.com",
     ]
     testers_by_email = (body["included"] || []).filter_map do |resource|
       next unless resource["type"] == "betaTesters"
