@@ -32,8 +32,7 @@ struct RootView: View {
             requestAnalyticsConsentIfNeeded()
         }
         .task {
-            // Firebase configures in the app delegate, after SyncController
-            // was built — pick up a restored session now.
+            // Pick up any session restored from the shared keychain.
             sync.refreshAuthState()
             #if DEBUG
             if isPreviewSignedIn { DemoSeed.seedIfEmpty(store) }

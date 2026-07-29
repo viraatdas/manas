@@ -1,11 +1,9 @@
 import Foundation
 
-/// The auth backend `SyncController` drives. Two implementations exist because
-/// the platforms differ: the Mac uses Supabase's own phone auth (works
-/// headlessly, cross-platform HTTP), iOS uses Firebase (real SMS on Google's
-/// network, but its phone-auth SDK is iOS-only). Both ultimately yield a bearer
-/// token whose phone-number claim keys the same rows, so a number reaches the
-/// same todos from either app.
+/// The auth backend `SyncController` drives. macOS and iOS both use the
+/// dependency-free Stytch bridge, which returns a Supabase bearer token after
+/// verifying the phone number. The normalized phone claim keys sync rows, so
+/// either device can create the account and the other reaches the same todos.
 @MainActor
 protocol SyncAuth: AnyObject {
     /// A restored session from a previous launch, if any.

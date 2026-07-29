@@ -44,12 +44,12 @@ final class SyncController {
     @ObservationIgnored private var snapshot: [UUID: TodoRecord] = [:]
 
     /// - Parameters:
-    ///   - auth: the platform's auth backend; the Mac's Supabase phone auth by
-    ///     default, iOS injects a Firebase-backed one.
+    ///   - auth: the phone-auth backend. Both platforms default to the same
+    ///     Stytch-backed flow so either device can be the first one signed in.
     ///   - stateURL: where to persist the watermark + snapshot; defaults to
     ///     `sync-state.json` beside the app's state file.
     init(auth: (any SyncAuth)? = nil, stateURL: URL? = nil) {
-        self.auth = auth ?? SupabaseSyncAuth()
+        self.auth = auth ?? StytchSyncAuth()
         self.stateURL = stateURL
             ?? AppStore.defaultStateURL.deletingLastPathComponent().appendingPathComponent("sync-state.json")
         isSignedIn = self.auth.isSignedIn
@@ -64,9 +64,7 @@ final class SyncController {
 
     // MARK: - Sign in / out
 
-    /// Re-reads the backend's restored session. iOS configures Firebase after
-    /// this controller is created (the app delegate must exist first), so the
-    /// root view calls this once the UI is up to pick up a persisted sign-in.
+    /// Re-reads a session restored from the shared keychain after the UI is up.
     func refreshAuthState() {
         isSignedIn = auth.isSignedIn
         phoneNumber = auth.phone

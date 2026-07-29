@@ -1,8 +1,8 @@
 import Foundation
 
-/// Supabase phone-OTP auth — the Mac's backend, and the fallback everywhere
-/// Firebase isn't wired up. Holds the GoTrue session, persists it in the
-/// keychain, and refreshes the access token when it nears expiry.
+/// Legacy direct Supabase phone-OTP auth retained for migrations and backend
+/// tests. Shipping apps use `StytchSyncAuth` on both platforms so their SMS
+/// branding and first-device behavior are identical.
 @MainActor
 final class SupabaseSyncAuth: SyncAuth {
     private let client = SupabaseAuthClient()

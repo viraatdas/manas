@@ -3,8 +3,8 @@ import SwiftUI
 /// iOS entry point. The store persists into the app's container so the widget
 /// (via a shared keychain snapshot) renders the same todos, and the sync
 /// controller keeps that state converged with the desktop app through the
-/// shared backend. Auth is Supabase phone-OTP — a pure REST flow with no web
-/// views, so sign-in can never detour through a browser page.
+/// shared backend. Auth uses the same Stytch REST bridge as macOS, with no web
+/// views, so either platform can be the first device signed in.
 @main
 struct ManasIOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
