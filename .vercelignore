@@ -1,0 +1,10 @@
+.build
+.git
+.jj
+.rudder
+.rudder-worktrees
+.claude
+.vercel
+dist
+ios/build
+ios/.build
