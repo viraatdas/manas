@@ -21,7 +21,16 @@ EXPORT_DIR="$BUILD_DIR/export"
 # shellcheck disable=SC1091
 source "$IOS_DIR/fastlane/.asc.env"
 : "${ASC_KEY_ID:?fill ios/fastlane/.asc.env}" "${ASC_ISSUER_ID:?}" "${ASC_KEY_PATH:?}" "${APPLE_TEAM_ID:?}"
-: "${MANAS_POSTHOG_PROJECT_TOKEN:?fill the public PostHog project token in ios/fastlane/.asc.env}"
+# Analytics is optional, exactly as it is for the mac app: make-app.sh omits
+# the Info.plist key when no token is set, and every macOS release to date has
+# shipped that way. A hard requirement here only meant iOS couldn't ship at all
+# without a token, which is a worse outcome than shipping without analytics.
+MANAS_POSTHOG_PROJECT_TOKEN="${MANAS_POSTHOG_PROJECT_TOKEN:-}"
+if [[ "$MANAS_POSTHOG_PROJECT_TOKEN" != phc_* ]]; then
+  echo "note: no MANAS_POSTHOG_PROJECT_TOKEN set — building without analytics."
+  echo "      Set it in ios/fastlane/.asc.env to enable them."
+  MANAS_POSTHOG_PROJECT_TOKEN=""
+fi
 
 echo "==> Generating Xcode project"
 (cd "$IOS_DIR" && xcodegen generate)
