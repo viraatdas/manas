@@ -226,10 +226,30 @@ struct PhoneSignInView: View {
 
     /// Binding that keeps `nationalDigits` clean (digits only, clamped to the
     /// country's length) while the field shows a grouped number for legibility.
+    /// iOS AutoFill may supply a complete international value; in that case,
+    /// infer its country and remove the dial code before updating this field.
     private var nationalField: Binding<String> {
         Binding(
             get: { country.format(nationalDigits) },
-            set: { nationalDigits = String($0.filter(\.isNumber).prefix(country.maxDigits)) }
+            set: { rawValue in
+                let parsed = PhoneNumberInput.parse(
+                    rawValue,
+                    selectedDialCode: country.dialCode,
+                    knownDialCodes: Country.all.map(\.dialCode)
+                )
+                var resolvedCountry = country
+                if let inferredDialCode = parsed.internationalDialCode,
+                   inferredDialCode != country.dialCode,
+                   let inferredCountry = Country.all.first(where: {
+                       $0.dialCode == inferredDialCode
+                   }) {
+                    resolvedCountry = inferredCountry
+                    country = inferredCountry
+                }
+                nationalDigits = String(
+                    parsed.nationalDigits.prefix(resolvedCountry.maxDigits)
+                )
+            }
         )
     }
 
