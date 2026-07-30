@@ -3,6 +3,17 @@
     <channel>
         <title>Manas</title>
         <item>
+            <title>0.3.2</title>
+            <pubDate>Thu, 30 Jul 2026 18:35:42 -0400</pubDate>
+            <link>https://manas.viraat.dev</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/viraatdas/manas/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/viraatdas/manas/releases/download/v0.3.2/Manas-0.3.2.dmg" length="2268768" type="application/octet-stream" sparkle:edSignature="KZ7c/ZRTCugBuosMWA1O0t1/dNqVWo4ZTUEt5jnAE0Fr8yUE1vIimjwyydNLJNbXv3T/+2/58J6beylNshMkCA=="/>
+        </item>
+        <item>
             <title>0.3.1</title>
             <pubDate>Thu, 30 Jul 2026 13:36:36 -0400</pubDate>
             <link>https://manas.viraat.dev</link>
