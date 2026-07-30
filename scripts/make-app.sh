@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds Manas.app from the SPM package: release binary, icon, Info.plist,
-# and signature. Output lands at dist/Manas.app (repo-relative).
+# embedded Sparkle updater, and signature. Output lands at dist/Manas.app
+# (repo-relative).
 #
 #   scripts/make-app.sh
 #
@@ -11,12 +12,23 @@
 # Access remains attached to a stable code requirement across local rebuilds.
 # Set MANAS_CODESIGN_IDENTITY to override it; otherwise the script falls back
 # to ad-hoc signing. Notarization is deliberately out of scope here.
+#
+# Shipping a new version is three steps: bump VERSION/BUILD below, run this
+# script, then scripts/release.sh to notarize, publish, and refresh the
+# appcast that installed copies poll.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Manas"
 BUNDLE_ID="dev.viraat.manas"
+VERSION="0.3.0"
+BUILD="16"
+# Where installed copies look for new versions, and the public half of the
+# EdDSA key their Sparkle verifies the feed with. The private half lives in the
+# login keychain (Sparkle's generate_keys); scripts/release.sh signs with it.
+APPCAST_URL="https://manas.viraat.dev/appcast.xml"
+SPARKLE_PUBLIC_KEY="P5QH0XAKouuSIU8RJtzTTH/6dfUDP/BBc3OtoKP8Yfg="
 DIST_DIR="$REPO_ROOT/dist"
 APP="$DIST_DIR/$APP_NAME.app"
 ICON_SRC="$REPO_ROOT/assets/icon/Manas.icns"
@@ -32,12 +44,19 @@ BIN_PATH="$(swift build -c release --package-path "$REPO_ROOT" --show-bin-path)/
 [[ -x "$BIN_PATH" ]] || { echo "error: built binary not found at $BIN_PATH" >&2; exit 1; }
 [[ -f "$ICON_SRC" ]] || { echo "error: icon not found at $ICON_SRC" >&2; exit 1; }
 
+SPARKLE_SRC="$(find "$REPO_ROOT/.build/artifacts" -type d -name 'Sparkle.framework' -path '*macos*' -print -quit)"
+[[ -d "$SPARKLE_SRC" ]] || { echo "error: Sparkle.framework not found under .build/artifacts" >&2; exit 1; }
+
 echo "==> Assembling $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_PATH" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ICON_SRC" "$APP/Contents/Resources/$APP_NAME.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# ditto rather than cp -R: the framework is a tree of symlinks whose layout
+# codesign refuses to accept if it is flattened.
+ditto "$SPARKLE_SRC" "$APP/Contents/Frameworks/Sparkle.framework"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -61,9 +80,22 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.8</string>
+	<string>$VERSION</string>
 	<key>CFBundleVersion</key>
-	<string>15</string>
+	<string>$BUILD</string>
+	<key>SUFeedURL</key>
+	<string>$APPCAST_URL</string>
+	<key>SUPublicEDKey</key>
+	<string>$SPARKLE_PUBLIC_KEY</string>
+	<!-- Check daily, then download and install without asking. Sparkle only
+	     accepts a build carrying the same Developer ID signature as this one,
+	     so the swap keeps the app's Full Disk Access grant. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 $ANALYTICS_PLIST_ENTRY
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
@@ -84,13 +116,33 @@ if [[ -z "$SIGN_IDENTITY" ]]; then
 fi
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
+# Sparkle ships its own nested helpers (two XPC services, an updater app, and
+# the Autoupdate tool). Each is a separate code-signing target and has to be
+# signed before the framework that contains it — `--deep` walks the tree in an
+# order codesign itself calls unreliable, and leaves the helpers unusable.
+SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
+NESTED=(
+  "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+  "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+  "$SPARKLE_FW/Versions/B/Updater.app"
+  "$SPARKLE_FW/Versions/B/Autoupdate"
+  "$SPARKLE_FW"
+)
+
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   echo "==> Signing (ad-hoc fallback)"
-  codesign --force --deep -s - "$APP"
+  for target in "${NESTED[@]}"; do
+    [[ -e "$target" ]] && codesign --force -s - "$target"
+  done
+  codesign --force -s - "$APP"
 else
   echo "==> Signing ($SIGN_IDENTITY)"
-  codesign --force --deep --options runtime --timestamp -s "$SIGN_IDENTITY" "$APP"
+  for target in "${NESTED[@]}"; do
+    [[ -e "$target" ]] && \
+      codesign --force --options runtime --timestamp -s "$SIGN_IDENTITY" "$target"
+  done
+  codesign --force --options runtime --timestamp -s "$SIGN_IDENTITY" "$APP"
 fi
-codesign --verify --strict "$APP"
+codesign --verify --strict --deep "$APP"
 
 echo "==> Done: $APP"

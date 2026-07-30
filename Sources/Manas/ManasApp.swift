@@ -51,6 +51,7 @@ struct ManasApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = AppStore()
     @State private var sync = SyncController()
+    @State private var updates = UpdateController()
 
     var body: some Scene {
         Window("Manas", id: "main") {
@@ -78,6 +79,12 @@ struct ManasApp: App {
         }
         .defaultSize(width: 560, height: 780)
         .commands {
+            // Updates install themselves on a daily schedule; this is just the
+            // conventional escape hatch, in its conventional place under About.
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updates.checkForUpdates() }
+                    .disabled(!updates.canCheckForUpdates)
+            }
             CommandMenu("Go") {
                 Button("Today") {
                     NotificationCenter.default.post(name: .manasJumpToToday, object: nil)
