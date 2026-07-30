@@ -403,14 +403,14 @@ final class AppStore {
     /// One day's todos clustered by the judge's automatic group: the unlabeled
     /// cluster of ungrouped todos leads, then each labeled group in the order
     /// its first todo appears. Each group keeps the day's todo order so newly
-    /// added items stay on top.
+    /// added items stay on top, with completed todos sunk to the bottom.
     func todoGroups(on day: Date) -> [TodoGroup] {
         let dayTodos = todos(on: day)
         var groups: [TodoGroup] = []
 
         let ungrouped = dayTodos.filter { $0.group == nil }
         if !ungrouped.isEmpty {
-            groups.append(TodoGroup(group: nil, todos: ungrouped))
+            groups.append(TodoGroup(group: nil, todos: sinkingDone(ungrouped)))
         }
 
         var order: [String] = []
@@ -426,9 +426,19 @@ final class AppStore {
         }
         for key in order {
             guard let entry = byKey[key] else { continue }
-            groups.append(TodoGroup(group: entry.label, todos: entry.todos))
+            groups.append(TodoGroup(group: entry.label, todos: sinkingDone(entry.todos)))
         }
         return groups
+    }
+
+    /// Finished todos drop below the unfinished ones so the live list stays
+    /// short without losing the day's record. Partitioning (rather than a
+    /// sort) keeps each half in its stored order, and because this is a
+    /// display-only view over `todos`, the synced `position` of every row is
+    /// untouched — a completion never rewrites the day's order for the
+    /// other device.
+    private func sinkingDone(_ todos: [Todo]) -> [Todo] {
+        todos.filter { !$0.isDone } + todos.filter(\.isDone)
     }
 
     /// Days before today that have todos, newest first — read-only history.

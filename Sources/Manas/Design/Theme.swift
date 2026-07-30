@@ -33,25 +33,21 @@ extension Color {
     /// Hairline border color, straight from the system.
     static let hairline = Color(nsColor: .separatorColor)
     #else
-    /// iOS surfaces tuned to the desktop's warm, bright neutral tone rather
-    /// than iOS's cooler default grays, so the two apps read as one product.
-    /// Light: a warm paper background with clean white cards; dark mirrors the
-    /// mac's near-black window with slightly-raised cards.
-    static let manasBackground = Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1)
-            : UIColor(red: 0.955, green: 0.949, blue: 0.937, alpha: 1)
-    })
-    static let surface1 = Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.145, green: 0.145, blue: 0.155, alpha: 1)
-            : UIColor(red: 0.98, green: 0.976, blue: 0.968, alpha: 1)
-    })
-    static let surfaceRaised = Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1)
-            : UIColor.white
-    })
+    /// iOS mirrors the mac's semantic surfaces instead of the warm paper
+    /// palette it used to carry. The desktop moved to system colors — plain
+    /// content background, cards told apart by their hairline rather than by
+    /// tint — and matching that here is what keeps the two apps reading as
+    /// one product in either appearance.
+    static let manasBackground = Color(uiColor: .systemBackground)
+
+    /// The quieter secondary surface (e.g. discovered activities), a step
+    /// down from `manasBackground` and sitting on it without a border.
+    static let surface1 = Color(uiColor: .secondarySystemBackground)
+
+    /// Cards carry the content background and rely on their hairline border
+    /// for separation, exactly as they do on macOS.
+    static let surfaceRaised = Color(uiColor: .systemBackground)
+
     static let hairline = Color(uiColor: .separator)
     #endif
 }

@@ -79,16 +79,9 @@ final class PersonalActivitySourceTests: XCTestCase {
         let directory = try IngestionFixtures.makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let database = directory.appendingPathComponent("chat.db")
-        let messageDate = Int64(
-            IngestionFixtures.date("2026-07-10T11:00:00Z").timeIntervalSinceReferenceDate * 1_000_000_000
-        )
+        let messageDate = messageTime("2026-07-10T11:00:00Z")
         try makeDatabase(database, sql: """
-            CREATE TABLE message(
-                ROWID INTEGER PRIMARY KEY, date INTEGER, is_from_me INTEGER, text TEXT,
-                attributedBody BLOB, service TEXT, is_empty INTEGER, is_system_message INTEGER,
-                item_type INTEGER, is_spam INTEGER, associated_message_type INTEGER
-            );
-            CREATE TABLE chat_message_join(chat_id INTEGER, message_id INTEGER);
+            \(messagesSchema)
             INSERT INTO message VALUES(1, \(messageDate), 1, 'Finished the launch brief for person@example.com', NULL, 'iMessage', 0, 0, 0, 0, 0);
             INSERT INTO chat_message_join VALUES(42, 1);
             """)
@@ -105,6 +98,70 @@ final class PersonalActivitySourceTests: XCTestCase {
         XCTAssertFalse(activities.first?.summary.contains("42") == true)
     }
 
+    func testMessagesCoverSMSAndRCSAlongsideIMessage() async throws {
+        let directory = try IngestionFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appendingPathComponent("chat.db")
+        let date = messageTime("2026-07-10T11:00:00Z")
+        try makeDatabase(database, sql: """
+            \(messagesSchema)
+            INSERT INTO message VALUES(1, \(date), 0, 'Can you book the table', NULL, 'iMessage', 0, 0, 0, 0, 0);
+            INSERT INTO message VALUES(2, \(date), 0, 'Pharmacy pickup is ready', NULL, 'SMS', 0, 0, 0, 0, 0);
+            INSERT INTO message VALUES(3, \(date), 0, 'Grabbing the keys tonight', NULL, 'RCS', 0, 0, 0, 0, 0);
+            INSERT INTO message VALUES(4, \(date), 0, 'Ignore this one', NULL, 'iMessageLite', 0, 0, 0, 0, 0);
+            INSERT INTO chat_message_join VALUES(1, 1);
+            INSERT INTO chat_message_join VALUES(2, 2);
+            INSERT INTO chat_message_join VALUES(3, 3);
+            INSERT INTO chat_message_join VALUES(4, 4);
+            """)
+
+        let activities = try await MessagesSource(
+            databaseURL: database,
+            calendar: IngestionFixtures.utcCalendar
+        ).fetchActivities(for: IngestionFixtures.day)
+
+        let text = activities.flatMap(\.features).joined(separator: " ")
+        XCTAssertEqual(activities.count, 3, "iMessage, SMS, and RCS each cluster into their own conversation")
+        XCTAssertTrue(text.contains("Pharmacy pickup is ready"), "SMS is read")
+        XCTAssertTrue(text.contains("Grabbing the keys tonight"), "RCS is read")
+        XCTAssertFalse(text.contains("Ignore this one"), "unrecognized services stay out")
+    }
+
+    /// The cap used to read oldest-first, which froze the judge's view of a
+    /// busy day at whenever its 80th message landed.
+    func testMessagesKeepTheMostRecentSliceOfABusyDay() async throws {
+        let directory = try IngestionFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appendingPathComponent("chat.db")
+        let start = IngestionFixtures.date("2026-07-10T00:00:00Z")
+        let inserts = (1...100).map { index -> String in
+            let stamp = Int64(
+                start.addingTimeInterval(Double(index) * 60).timeIntervalSinceReferenceDate * 1_000_000_000
+            )
+            return """
+                INSERT INTO message VALUES(\(index), \(stamp), 0, 'message \(index)', NULL, 'iMessage', 0, 0, 0, 0, 0);
+                INSERT INTO chat_message_join VALUES(7, \(index));
+                """
+        }
+        try makeDatabase(database, sql: messagesSchema + "\n" + inserts.joined(separator: "\n"))
+
+        let activities = try await MessagesSource(
+            databaseURL: database,
+            calendar: IngestionFixtures.utcCalendar
+        ).fetchActivities(for: IngestionFixtures.day)
+
+        let activity = try XCTUnwrap(activities.first)
+        XCTAssertEqual(activities.count, 1)
+        XCTAssertEqual(activity.summary, "Messages conversation · 80 messages", "the cap holds at 80")
+        let text = activity.features.joined(separator: " ")
+        XCTAssertTrue(text.contains("message 100"), "the day's latest message survives the cap")
+        XCTAssertFalse(text.contains("message 1'"), "the day's first message is dropped, not kept")
+        XCTAssertEqual(
+            activity.endedAt, start.addingTimeInterval(100 * 60),
+            "the conversation runs up to its most recent message"
+        )
+    }
+
     func testAttributedBodyExtractorIsDefensive() {
         let body = Data([0, 1, 2]) + Data("NSString\0Finished the release notes".utf8) + Data([0xff, 0])
         XCTAssertEqual(MessagesSource.textFromAttributedBody(body), "Finished the release notes")
@@ -115,6 +172,21 @@ final class PersonalActivitySourceTests: XCTestCase {
         let raw = "Email person@example.com or call +1 (415) 555-0123 about https://example.com?a=secret"
         let result = ActivityPrivacySanitizer.text(raw, limit: 200)
         XCTAssertEqual(result, "Email [email] or call [phone] about [link]")
+    }
+
+    /// The columns `MessagesSource` reads, in the order the fixtures insert them.
+    private let messagesSchema = """
+        CREATE TABLE message(
+            ROWID INTEGER PRIMARY KEY, date INTEGER, is_from_me INTEGER, text TEXT,
+            attributedBody BLOB, service TEXT, is_empty INTEGER, is_system_message INTEGER,
+            item_type INTEGER, is_spam INTEGER, associated_message_type INTEGER
+        );
+        CREATE TABLE chat_message_join(chat_id INTEGER, message_id INTEGER);
+        """
+
+    /// Messages stores dates as nanoseconds since the 2001 reference date.
+    private func messageTime(_ iso: String) -> Int64 {
+        Int64(IngestionFixtures.date(iso).timeIntervalSinceReferenceDate * 1_000_000_000)
     }
 
     private func chromiumTime(_ date: Date) -> Int64 {

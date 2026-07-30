@@ -422,6 +422,48 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(groups[2].todos.map(\.text), ["Rotate keys"])
     }
 
+    func testTodoGroupsSinkCompletedTodosWithoutReorderingTheStore() {
+        let store = AppStore(fileURL: tempStateURL())
+        let today = Calendar.current.startOfDay(for: Date())
+        store.todos = [
+            Todo(text: "Done first", day: today, isDone: true),
+            Todo(text: "Open one", day: today),
+            Todo(text: "Done second", day: today, isDone: true),
+            Todo(text: "Open two", day: today),
+            Todo(text: "Grouped done", day: today, group: "Manas", isDone: true),
+            Todo(text: "Grouped open", day: today, group: "Manas"),
+        ]
+        let stored = store.todos.map(\.text)
+
+        let groups = store.todoGroups(on: Date())
+        XCTAssertEqual(
+            groups[0].todos.map(\.text), ["Open one", "Open two", "Done first", "Done second"],
+            "unfinished todos lead, and each half keeps its stored order"
+        )
+        XCTAssertEqual(
+            groups[1].todos.map(\.text), ["Grouped open", "Grouped done"],
+            "every group sinks its own completed todos"
+        )
+        XCTAssertEqual(
+            store.todos.map(\.text), stored,
+            "sinking is display-only, so the stored order (and every synced position) is untouched"
+        )
+    }
+
+    func testCompletingATodoDoesNotDisturbTheStoredOrder() {
+        let store = AppStore(fileURL: tempStateURL())
+        let today = Calendar.current.startOfDay(for: Date())
+        store.todos = [
+            Todo(text: "A", day: today),
+            Todo(text: "B", day: today),
+            Todo(text: "C", day: today),
+        ]
+        store.toggleDone(store.todos[0].id)
+
+        XCTAssertEqual(store.todos.map(\.text), ["A", "B", "C"], "the flat array never re-sorts on completion")
+        XCTAssertEqual(store.todoGroups(on: Date())[0].todos.map(\.text), ["B", "C", "A"])
+    }
+
     func testCreatedGroupBecomesAStandingBucketBeforeAnyTodo() {
         let store = AppStore(fileURL: tempStateURL())
         let group = store.createGroup("Vancouver trip", emoji: "✈️")

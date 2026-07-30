@@ -29,6 +29,30 @@ final class JudgePromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("time sink"))
     }
 
+    func testPromptAsksForCommitmentsFoundInConversations() {
+        let prompt = JudgePromptBuilder.build(todos: [], activities: [])
+        XCTAssertTrue(prompt.contains("commitments"))
+        XCTAssertTrue(prompt.contains("[messages] conversations"))
+        // Commitments are ordinary discoveries, so they reach the list through
+        // the same add-to-todos path as unlisted work — not a new section.
+        XCTAssertTrue(prompt.contains("\"source\" to \"messages\""))
+        // A commitment is only worth surfacing while it is still outstanding.
+        XCTAssertTrue(prompt.contains("still needs doing"))
+    }
+
+    func testPromptKeepsMessageEvidenceAnonymous() {
+        let activity = WorkActivity(
+            source: .messages,
+            summary: "Messages conversation · 4 messages",
+            features: ["Reply: can you book the table?", "You: yeah I'll do it tonight"],
+            startedAt: date
+        )
+        let prompt = JudgePromptBuilder.build(todos: [], activities: [activity])
+        XCTAssertTrue(prompt.contains("[messages]"))
+        XCTAssertTrue(prompt.contains("can you book the table?"))
+        XCTAssertTrue(prompt.contains("never name or describe the other person"))
+    }
+
     func testPromptContainsActivityDetails() {
         let activity = WorkActivity(
             source: .codex,

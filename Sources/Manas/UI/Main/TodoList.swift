@@ -469,6 +469,16 @@ private struct TodoGroupBlock: View {
         dragController?.previewReorder(group.todos, inGroup: frameKey) ?? group.todos
     }
 
+    /// Whether the row after `todo` is the first completed one, i.e. `todo`
+    /// sits on the boundary between the live list and the finished list.
+    private func startsDoneRun(after todo: Todo, in rows: [Todo]) -> Bool {
+        guard !todo.isDone,
+              let index = rows.firstIndex(where: { $0.id == todo.id }),
+              rows.indices.contains(index + 1)
+        else { return false }
+        return rows[index + 1].isDone
+    }
+
     @ViewBuilder
     private var content: some View {
         if group.todos.isEmpty {
@@ -484,7 +494,9 @@ private struct TodoGroupBlock: View {
                         isSelected: todo.id == selectedTodoID
                     )
                     if todo.id != rows.last?.id {
-                        Divider().padding(.leading, 54)
+                        // A full-bleed rule marks where the finished todos
+                        // start; every other row gets the usual inset one.
+                        Divider().padding(.leading, startsDoneRun(after: todo, in: rows) ? 0 : 54)
                     }
                 }
             }

@@ -1,8 +1,9 @@
 import Foundation
 
-/// Reads same-day iMessage text without joining contact handles or chat names.
-/// Conversations are anonymous activity clusters; only capped, redacted text
-/// snippets are passed to the judge and raw rows are never persisted.
+/// Reads the day's messages — iMessage, SMS, and RCS alike — without joining
+/// contact handles or chat names. Conversations are anonymous activity
+/// clusters; only capped, redacted text snippets are passed to the judge and
+/// raw rows are never persisted.
 struct MessagesSource: ActivitySource {
     var source: WorkSource { .messages }
     var name: String { source.displayName }
@@ -36,14 +37,14 @@ struct MessagesSource: ActivitySource {
                 FROM message AS m
                 JOIN chat_message_join AS cmj ON cmj.message_id = m.ROWID
                 WHERE m.date >= ?1 AND m.date < ?2
-                  AND m.service = 'iMessage'
+                  AND m.service IN ('iMessage', 'SMS', 'RCS')
                   AND IFNULL(m.is_empty, 0) = 0
                   AND IFNULL(m.is_system_message, 0) = 0
                   AND IFNULL(m.item_type, 0) = 0
                   AND IFNULL(m.is_spam, 0) = 0
                   AND IFNULL(m.associated_message_type, 0) = 0
                   AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
-                ORDER BY m.date ASC, m.ROWID ASC
+                ORDER BY m.date DESC, m.ROWID DESC
                 LIMIT 500
                 """,
                 bindings: [.integer(start), .integer(end)]
@@ -52,6 +53,10 @@ struct MessagesSource: ActivitySource {
             throw map(error)
         }
 
+        // Rows arrive newest-first so the cap keeps the most recent slice of
+        // the day. Reading oldest-first instead froze the judge's view at
+        // whenever the 80th message of the day landed, which on a busy morning
+        // was the middle of the night.
         var seenRows: Set<Int64> = []
         var messages: [Message] = []
         for row in rows {
@@ -78,7 +83,9 @@ struct MessagesSource: ActivitySource {
             .compactMap { _, conversation -> WorkActivity? in
                 let sorted = conversation.sorted { $0.date < $1.date }
                 guard let first = sorted.first, let last = sorted.last else { return nil }
-                let snippets = sorted.prefix(12).map {
+                // The tail of a thread carries the ask ("can you grab milk?");
+                // its opening lines are usually stale by check-in time.
+                let snippets = sorted.suffix(12).map {
                     "\($0.isFromMe ? "You" : "Reply"): \($0.text)"
                 }
                 return WorkActivity(

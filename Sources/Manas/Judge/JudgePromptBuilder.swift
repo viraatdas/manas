@@ -7,7 +7,8 @@ enum JudgePromptBuilder {
         lines.append(
             "You are the daily check-in judge for Manas, a personal \"control panel of the day\" macOS app. "
                 + "Given the user's todos and the day's observed activity, judge how each todo is going, "
-                + "spot extra work the user did that is not on the list, and flag clear time sinks "
+                + "spot extra work the user did that is not on the list, pull out commitments the user made "
+                + "and requests aimed at them in their conversations, and flag clear time sinks "
                 + "(long stretches of social media, YouTube, or other entertainment scrolling)."
         )
         lines.append(
@@ -76,8 +77,10 @@ enum JudgePromptBuilder {
     Rules:
     - Give exactly one verdict per todo, copying its id verbatim into todoID.
     - Use "done" only if the activity clearly shows the todo was finished, "in_progress" if work on it clearly started, "not_started" if the activity shows no related work, and "unknown" if you cannot tell.
-    - Write every evidence line as one concise sentence in sentence case, naming the session or project that supports it (for example "The 9:04 AM claude session in manas built the usage strip").
-    - List under "discovered" both real work not on the list AND clear time sinks. For a time sink (a long stretch on social media, YouTube, or entertainment, seen in Screen Time app usage or browsing) set "group" to exactly "Waste of time"; for anything else set "group" to null. Each discovery gets a short sentence-case title. Use an empty array if there is nothing new.
+    - Write every evidence line as one concise sentence in sentence case, naming the session or project that supports it (for example "The 9:04 AM claude session in manas built the usage strip"). For a message commitment, give the approximate time and whether the user promised it or was asked (for example "Around 8 AM a conversation asked the user to book the table, and they agreed") — never name or describe the other person.
+    - List under "discovered" three kinds of thing: real work not on the list, commitments and requests from conversations, AND clear time sinks. For a time sink (a long stretch on social media, YouTube, or entertainment, seen in Screen Time app usage or browsing) set "group" to exactly "Waste of time"; for anything else set "group" to null. Each discovery gets a short sentence-case title. Use an empty array if there is nothing new.
+    - Read the [messages] conversations for things the user now owes someone: a promise they made ("I'll send it tonight", "yeah I'll book it") or a request pointed at them that they accepted or left open ("can you pick up the prescription?"). Title each as a short action in the user's own words where you can, set "source" to "messages", and set "group" to null.
+    - Only surface a message commitment that still needs doing. Skip small talk, plans already settled inside the thread, anything the conversation shows was finished, and anything today's todos already cover. When it is unclear whether the user actually took something on, leave it out.
     - For a "Waste of time" discovery, begin its evidence with the approximate clock time or time range it happened, then the detail — for example "2:10 to 3:05 PM, X and Instagram home feeds in Arc" or "Around 4 PM, 25 minutes of YouTube clips". Use approximate wall-clock times from the observed activity; never invent precise times you cannot support.
     - Set each discovery's "source" to the source of the session or app it came from.
     - Do not invent activity that is not listed above; only flag a time sink when the observed duration is clearly significant.
