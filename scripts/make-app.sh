@@ -22,8 +22,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Manas"
 BUNDLE_ID="dev.viraat.manas"
-VERSION="0.3.0"
-BUILD="16"
+VERSION="0.3.1"
+BUILD="17"
 # Where installed copies look for new versions, and the public half of the
 # EdDSA key their Sparkle verifies the feed with. The private half lives in the
 # login keychain (Sparkle's generate_keys); scripts/release.sh signs with it.
@@ -32,7 +32,19 @@ SPARKLE_PUBLIC_KEY="P5QH0XAKouuSIU8RJtzTTH/6dfUDP/BBc3OtoKP8Yfg="
 DIST_DIR="$REPO_ROOT/dist"
 APP="$DIST_DIR/$APP_NAME.app"
 ICON_SRC="$REPO_ROOT/assets/icon/Manas.icns"
+# release.env (gitignored) carries the analytics token for both platforms, so
+# a release build picks it up without anyone having to remember to export it.
+# An explicit env var still wins, for one-off builds.
+if [[ -z "${MANAS_POSTHOG_PROJECT_TOKEN:-}" && -f "$REPO_ROOT/release.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/release.env"
+fi
 POSTHOG_TOKEN="${MANAS_POSTHOG_PROJECT_TOKEN:-}"
+if [[ "$POSTHOG_TOKEN" == phc_* ]]; then
+  echo "==> Analytics enabled (${POSTHOG_TOKEN:0:12}…)"
+else
+  echo "==> No analytics token — building without analytics"
+fi
 ANALYTICS_PLIST_ENTRY=""
 if [[ "$POSTHOG_TOKEN" == phc_* ]]; then
   ANALYTICS_PLIST_ENTRY=$'\t<key>ManasPostHogProjectToken</key>\n\t<string>'"$POSTHOG_TOKEN"$'</string>'

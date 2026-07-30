@@ -21,14 +21,21 @@ EXPORT_DIR="$BUILD_DIR/export"
 # shellcheck disable=SC1091
 source "$IOS_DIR/fastlane/.asc.env"
 : "${ASC_KEY_ID:?fill ios/fastlane/.asc.env}" "${ASC_ISSUER_ID:?}" "${ASC_KEY_PATH:?}" "${APPLE_TEAM_ID:?}"
-# Analytics is optional, exactly as it is for the mac app: make-app.sh omits
-# the Info.plist key when no token is set, and every macOS release to date has
-# shipped that way. A hard requirement here only meant iOS couldn't ship at all
-# without a token, which is a worse outcome than shipping without analytics.
+# release.env (gitignored) is the one place the analytics token lives, shared
+# with the mac build so the two platforms always report to the same project.
+if [[ -z "${MANAS_POSTHOG_PROJECT_TOKEN:-}" && -f "$REPO_ROOT/release.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/release.env"
+fi
+
+# Analytics stays optional rather than fatal: a missing token should degrade to
+# a build without analytics, not block the release outright.
 MANAS_POSTHOG_PROJECT_TOKEN="${MANAS_POSTHOG_PROJECT_TOKEN:-}"
-if [[ "$MANAS_POSTHOG_PROJECT_TOKEN" != phc_* ]]; then
+if [[ "$MANAS_POSTHOG_PROJECT_TOKEN" == phc_* ]]; then
+  echo "==> Analytics enabled (${MANAS_POSTHOG_PROJECT_TOKEN:0:12}…)"
+else
   echo "note: no MANAS_POSTHOG_PROJECT_TOKEN set — building without analytics."
-  echo "      Set it in ios/fastlane/.asc.env to enable them."
+  echo "      Set it in release.env at the repo root to enable them."
   MANAS_POSTHOG_PROJECT_TOKEN=""
 fi
 
