@@ -42,10 +42,16 @@ struct DiscoveredSection: View {
                 .buttonStyle(.plain)
                 .accessibilityHint(isCollapsed ? "Expand suggestions" : "Collapse suggestions")
 
+                // Transitioned as one block rather than row by row, so folding
+                // reads as a single panel closing instead of a stagger of
+                // independent rows each fading on its own.
                 if !isCollapsed {
-                    ForEach(pending) { activity in
-                        DiscoveredRow(activity: activity)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(pending) { activity in
+                            DiscoveredRow(activity: activity)
+                        }
                     }
+                    .transition(.opacity)
                 }
             }
             .padding(14)

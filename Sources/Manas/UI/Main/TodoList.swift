@@ -473,18 +473,23 @@ private struct TodoGroupBlock: View {
                 }
             }
 
-            // A collapsed group hides its rows but keeps reporting its frame,
-            // so it stays a live drop target: dragging a todo onto a folded
-            // header still files it there.
+            // The rows fade out where they sit. They used to carry
+            // `.move(edge: .top)`, which slid them upward through the header
+            // on the way out — the group's contents visibly escaping past
+            // their own title before vanishing. Folding should look like the
+            // rows being covered, not like them leaving.
             if !isCollapsed {
                 content
                     .background(dropHighlight)
-                    .background(frameReporter)
                     .animation(.easeOut(duration: 0.14), value: isTargeted)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
             }
         }
-        .background(isCollapsed ? frameReporter : nil)
+        // Reported from the whole block rather than from the rows, so a
+        // collapsed group is still a live drop target: its header alone
+        // becomes the landing zone, and dragging a todo onto a folded header
+        // still files it there.
+        .background(frameReporter)
     }
 
     /// Only labelled groups fold; the ungrouped cluster that leads the day has
