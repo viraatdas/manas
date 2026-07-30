@@ -73,10 +73,23 @@ rm -rf "$STAGE"
 echo "==> Deploying the site (publishes the appcast)"
 (cd "$REPO_ROOT/site" && vercel deploy --prod --yes)
 
+# The alias is reassigned before the edge has the new file, so a check fired
+# the instant `vercel deploy` returns sees the previous deployment (or a 404 on
+# a first publish). Poll rather than treat that head start as a failed release.
 echo "==> Verifying the published feed"
-PUBLISHED="$(curl -fsS "$SITE_URL/appcast.xml")"
-grep -q "sparkle:shortVersionString=\"$VERSION\"" <<<"$PUBLISHED" \
-  || { echo "error: $SITE_URL/appcast.xml does not advertise $VERSION" >&2; exit 1; }
+PUBLISHED=""
+for attempt in $(seq 1 10); do
+  PUBLISHED="$(curl -fsS "$SITE_URL/appcast.xml" 2>/dev/null || true)"
+  if grep -q "sparkle:shortVersionString=\"$VERSION\"" <<<"$PUBLISHED"; then
+    break
+  fi
+  echo "    not live yet (attempt $attempt/10), waiting…"
+  PUBLISHED=""
+  sleep 6
+done
+
+[[ -n "$PUBLISHED" ]] \
+  || { echo "error: $SITE_URL/appcast.xml never advertised $VERSION" >&2; exit 1; }
 grep -q "sparkle:edSignature" <<<"$PUBLISHED" \
   || { echo "error: published appcast is unsigned" >&2; exit 1; }
 

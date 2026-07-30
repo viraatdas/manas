@@ -15,7 +15,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "12"
+    CURRENT_PROJECT_VERSION: "13"
     # Inject the public, write-only PostHog project token at archive time.
     # Keeping this empty makes analytics unavailable in ordinary dev builds.
     MANAS_POSTHOG_PROJECT_TOKEN: ""

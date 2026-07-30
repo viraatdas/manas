@@ -1,0 +1,17 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Manas</title>
+        <item>
+            <title>0.3.0</title>
+            <pubDate>Thu, 30 Jul 2026 12:32:15 -0400</pubDate>
+            <link>https://manas.viraat.dev</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/viraatdas/manas/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>16</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/viraatdas/manas/releases/download/v0.3.0/Manas-0.3.0.dmg" length="2249346" type="application/octet-stream" sparkle:edSignature="uX6Se1AY/uSarAvHJuWh06dtcLACKyXUpddnxBS+NePyuOBkqO3URypfuUcMsBJSY9uWW5PIkt9YOXYuNKN3CA=="/>
+        </item>
+    </channel>
+</rss>
