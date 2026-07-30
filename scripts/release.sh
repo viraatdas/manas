@@ -77,19 +77,29 @@ echo "==> Deploying the site (publishes the appcast)"
 # the instant `vercel deploy` returns sees the previous deployment (or a 404 on
 # a first publish). Poll rather than treat that head start as a failed release.
 echo "==> Verifying the published feed"
+# generate_appcast writes the version as an element
+# (<sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>), not an
+# attribute. Matching on `shortVersionString="0.3.1"` could never succeed for
+# any version, which is what failed the 0.3.1 release after everything had in
+# fact published. Real edge lag does exist too (the 0.3.0 run 404'd for a
+# moment), hence the retries — but generously, and on the right pattern.
 PUBLISHED=""
-for attempt in $(seq 1 10); do
+for attempt in $(seq 1 20); do
   PUBLISHED="$(curl -fsS "$SITE_URL/appcast.xml" 2>/dev/null || true)"
-  if grep -q "sparkle:shortVersionString=\"$VERSION\"" <<<"$PUBLISHED"; then
+  if grep -q "sparkle:shortVersionString>$VERSION<" <<<"$PUBLISHED"; then
     break
   fi
-  echo "    not live yet (attempt $attempt/10), waiting…"
+  echo "    not live yet (attempt $attempt/20), waiting…"
   PUBLISHED=""
-  sleep 6
+  sleep 15
 done
 
-[[ -n "$PUBLISHED" ]] \
-  || { echo "error: $SITE_URL/appcast.xml never advertised $VERSION" >&2; exit 1; }
+[[ -n "$PUBLISHED" ]] || {
+  echo "error: $SITE_URL/appcast.xml still doesn't advertise $VERSION." >&2
+  echo "       The release itself is already published — this is only the CDN" >&2
+  echo "       lagging. Re-check the URL before rebuilding anything." >&2
+  exit 1
+}
 grep -q "sparkle:edSignature" <<<"$PUBLISHED" \
   || { echo "error: published appcast is unsigned" >&2; exit 1; }
 
