@@ -433,19 +433,37 @@ private struct TodoGroupBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if showsHeader, let label = group.group {
-                HStack(spacing: 7) {
-                    Text(store.emoji(forGroup: label))
-                        .font(.subheadline)
-                    Text(label)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text("\(doneCount)/\(group.todos.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
+                // The whole header is the hit target — a lone chevron is a
+                // small thing to aim at, and there's nothing else to click
+                // here. The tally stays visible while folded so a collapsed
+                // group still says how much is left in it.
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        store.toggleCollapsed(SectionKey.group(label))
+                    }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        Text(store.emoji(forGroup: label))
+                            .font(.subheadline)
+                        Text(label)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text("\(doneCount)/\(group.todos.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(label), \(doneCount) of \(group.todos.count) done")
+                .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
                 .contextMenu {
                     if isDeletable(label) {
                         Button("Delete group", role: .destructive) {
@@ -455,11 +473,25 @@ private struct TodoGroupBlock: View {
                 }
             }
 
-            content
-                .background(dropHighlight)
-                .background(frameReporter)
-                .animation(.easeOut(duration: 0.14), value: isTargeted)
+            // A collapsed group hides its rows but keeps reporting its frame,
+            // so it stays a live drop target: dragging a todo onto a folded
+            // header still files it there.
+            if !isCollapsed {
+                content
+                    .background(dropHighlight)
+                    .background(frameReporter)
+                    .animation(.easeOut(duration: 0.14), value: isTargeted)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .background(isCollapsed ? frameReporter : nil)
+    }
+
+    /// Only labelled groups fold; the ungrouped cluster that leads the day has
+    /// no header to fold it from.
+    private var isCollapsed: Bool {
+        guard showsHeader, let label = group.group else { return false }
+        return store.isCollapsed(SectionKey.group(label))
     }
 
     /// The order to render: normally the group's todos, but while a card is

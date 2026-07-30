@@ -22,6 +22,11 @@ final class AppStore {
     /// Groups the user created, in creation order. Kept even while empty so a
     /// new group shows up as a standing bucket the moment it's made.
     var customGroups: [String] = [] { didSet { scheduleSave() } }
+    /// Sections the user has folded away, by stable key (see `SectionKey`).
+    /// A view preference rather than data: it is deliberately not part of the
+    /// synced todo record, so collapsing a group on the desktop doesn't reach
+    /// across and fold it on the phone.
+    var collapsedSections: Set<String> = [] { didSet { scheduleSave() } }
     var lastCheckedAt: Date? { didSet { scheduleSave() } }
     /// Start time of the latest automatic attempt, successful or not. This
     /// survives relaunches so an update, crash, or CLI failure cannot trigger
@@ -93,6 +98,7 @@ final class AppStore {
             dailyTokenBudget = state.dailyTokenBudget
             groupEmojis = state.groupEmojis ?? [:]
             customGroups = state.customGroups ?? []
+            collapsedSections = Set(state.collapsedSections ?? [])
             lastCheckedAt = state.lastCheckedAt
             lastAutomaticCheckAt = state.lastAutomaticCheckAt
             syncedSourceCount = state.syncedSourceCount
@@ -213,6 +219,7 @@ final class AppStore {
         usageRecords = []
         groupEmojis = [:]
         customGroups = []
+        collapsedSections = []
         lastCheckedAt = nil
         lastAutomaticCheckAt = nil
         syncedSourceCount = 0
@@ -460,6 +467,22 @@ final class AppStore {
             .map { DayGroup(day: $0.key, todos: $0.value) }
     }
 
+    // MARK: - Collapsible sections
+
+    /// Whether a section is folded away. Unknown keys read as expanded, so a
+    /// group collapsed and later deleted leaves nothing behind to clean up.
+    func isCollapsed(_ key: String) -> Bool {
+        collapsedSections.contains(key)
+    }
+
+    func toggleCollapsed(_ key: String) {
+        if collapsedSections.contains(key) {
+            collapsedSections.remove(key)
+        } else {
+            collapsedSections.insert(key)
+        }
+    }
+
     // MARK: - Discovered activities
 
     func dismissDiscovered(_ id: DiscoveredActivity.ID) {
@@ -600,6 +623,9 @@ final class AppStore {
         // cleanly instead of tripping the "start fresh" fallback.
         var groupEmojis: [String: String]?
         var customGroups: [String]?
+        /// Sorted on the way out so the file doesn't churn on every save from
+        /// Set's unstable iteration order.
+        var collapsedSections: [String]?
         var lastCheckedAt: Date?
         var lastAutomaticCheckAt: Date?
         var syncedSourceCount: Int
@@ -613,6 +639,7 @@ final class AppStore {
             dailyTokenBudget: dailyTokenBudget,
             groupEmojis: groupEmojis,
             customGroups: customGroups,
+            collapsedSections: collapsedSections.sorted(),
             lastCheckedAt: lastCheckedAt,
             lastAutomaticCheckAt: lastAutomaticCheckAt,
             syncedSourceCount: syncedSourceCount

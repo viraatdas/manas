@@ -10,14 +10,42 @@ struct DiscoveredSection: View {
         store.discoveredActivities.filter { $0.resolution == .pending }
     }
 
+    private var isCollapsed: Bool { store.isCollapsed(SectionKey.discovered) }
+
     var body: some View {
         if !pending.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("You might have also done this")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                ForEach(pending) { activity in
-                    DiscoveredRow(activity: activity)
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        store.toggleCollapsed(SectionKey.discovered)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        Text("You might have also done this")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        // Folded, the count is the only thing left saying
+                        // there's anything in here.
+                        if isCollapsed {
+                            Text("\(pending.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(isCollapsed ? "Expand suggestions" : "Collapse suggestions")
+
+                if !isCollapsed {
+                    ForEach(pending) { activity in
+                        DiscoveredRow(activity: activity)
+                    }
                 }
             }
             .padding(14)

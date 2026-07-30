@@ -464,6 +464,46 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.todoGroups(on: Date())[0].todos.map(\.text), ["B", "C", "A"])
     }
 
+    func testCollapsedSectionsToggleAndSurviveAReload() {
+        let url = tempStateURL()
+        let store = AppStore(fileURL: url, saveDebounce: .zero)
+        XCTAssertFalse(store.isCollapsed(SectionKey.group("Work")), "sections start expanded")
+
+        store.toggleCollapsed(SectionKey.group("Work"))
+        store.toggleCollapsed(SectionKey.discovered)
+        XCTAssertTrue(store.isCollapsed(SectionKey.group("Work")))
+        XCTAssertTrue(store.isCollapsed(SectionKey.discovered))
+        XCTAssertFalse(store.isCollapsed(SectionKey.group("Personal")), "folding one group leaves the others open")
+        store.saveNow()
+
+        let reloaded = AppStore(fileURL: url)
+        XCTAssertTrue(reloaded.isCollapsed(SectionKey.group("Work")), "a folded group stays folded across launches")
+        XCTAssertTrue(reloaded.isCollapsed(SectionKey.discovered))
+
+        reloaded.toggleCollapsed(SectionKey.group("Work"))
+        XCTAssertFalse(reloaded.isCollapsed(SectionKey.group("Work")))
+    }
+
+    func testSectionKeysAreCaseFoldedAndNamespaced() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.toggleCollapsed(SectionKey.group("Waste of time"))
+        XCTAssertTrue(
+            store.isCollapsed(SectionKey.group("waste of TIME")),
+            "a group's key folds case, so re-capitalizing it doesn't silently unfold the section"
+        )
+        XCTAssertNotEqual(
+            SectionKey.group("discovered"), SectionKey.discovered,
+            "a group named 'discovered' must not collide with the discovered-activities section"
+        )
+    }
+
+    func testResetUserDataClearsCollapsedSections() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.toggleCollapsed(SectionKey.discovered)
+        store.resetUserData()
+        XCTAssertFalse(store.isCollapsed(SectionKey.discovered))
+    }
+
     func testCreatedGroupBecomesAStandingBucketBeforeAnyTodo() {
         let store = AppStore(fileURL: tempStateURL())
         let group = store.createGroup("Vancouver trip", emoji: "✈️")

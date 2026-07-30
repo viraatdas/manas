@@ -133,12 +133,20 @@ private struct DaySectionBody: View {
             EmptyDayRow(kind: feedDay.kind)
         } else {
             ForEach(groups) { group in
+                let collapsed = group.group.map { store.isCollapsed(SectionKey.group($0)) } ?? false
                 if let label = group.group {
                     GroupHeaderRow(label: label, emoji: store.emoji(forGroup: label),
-                                   done: group.todos.filter(\.isDone).count, total: group.todos.count)
+                                   done: group.todos.filter(\.isDone).count, total: group.todos.count,
+                                   isCollapsed: collapsed) {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            store.toggleCollapsed(SectionKey.group(label))
+                        }
+                    }
                 }
-                ForEach(group.todos) { todo in
-                    MobileTodoRow(todo: todo, mode: mode, onEdit: onEdit, onReschedule: onReschedule)
+                if !collapsed {
+                    ForEach(group.todos) { todo in
+                        MobileTodoRow(todo: todo, mode: mode, onEdit: onEdit, onReschedule: onReschedule)
+                    }
                 }
             }
         }
@@ -146,24 +154,38 @@ private struct DaySectionBody: View {
 }
 
 /// A group's badge, label, and done/total tally, set apart from its todos.
+/// Tapping anywhere along the row folds the group away — the whole row rather
+/// than the chevron alone, which is a hard target for a thumb.
 private struct GroupHeaderRow: View {
     let label: String
     let emoji: String
     let done: Int
     let total: Int
+    let isCollapsed: Bool
+    let toggle: () -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
-            Text(emoji).font(.subheadline)
-            Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)
-            Text("\(done)/\(total)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+        Button(action: toggle) {
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                Text(emoji).font(.subheadline)
+                Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text("\(done)/\(total)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.top, 4)
         .listRowSeparator(.hidden)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), \(done) of \(total) done")
+        .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
     }
 }
 

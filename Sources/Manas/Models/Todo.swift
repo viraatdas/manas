@@ -47,6 +47,18 @@ enum TodoGroupName {
     }
 }
 
+/// Stable identifiers for the foldable sections of a day. Namespaced so a
+/// group that happens to be called "discovered" can't collide with the
+/// discovered-activities section, and built on the case-folded group key so
+/// re-capitalizing a group does not silently unfold it.
+enum SectionKey {
+    static func group(_ label: String) -> String {
+        "group:\(TodoGroupName.key(for: label))"
+    }
+
+    static let discovered = "section:discovered"
+}
+
 /// A user todo, optionally annotated with the judge's latest verdict and the
 /// project/theme group the judge clustered it into.
 struct Todo: Identifiable, Codable, Hashable, Sendable {
