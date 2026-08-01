@@ -89,11 +89,22 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         case dismissed
     }
 
+    /// Whether this is work the sources saw the user finish, or something the
+    /// user still owes. Messages produce both — "shipped the release notes" is
+    /// done, "I'll send the invite" is not — and they cannot share a landing
+    /// spot: adding a `done` discovery files a checked-off todo, which would
+    /// quietly mark an outstanding commitment complete the moment it appeared.
+    enum Kind: String, Codable, Hashable, Sendable {
+        case done
+        case owed
+    }
+
     var id: UUID
     var title: String
     var evidence: String
     var source: WorkSource
     var resolution: Resolution
+    var kind: Kind
     /// Automatic project/theme cluster from the judge, inherited by the todo
     /// if the user adds this discovery to their list. nil stays ungrouped.
     var group: String?
@@ -107,6 +118,7 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         evidence: String,
         source: WorkSource,
         resolution: Resolution = .pending,
+        kind: Kind = .done,
         group: String? = nil
     ) {
         self.id = id
@@ -114,11 +126,12 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         self.evidence = evidence
         self.source = source
         self.resolution = resolution
+        self.kind = kind
         self.group = TodoGroupName.normalized(group)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, evidence, source, resolution, group
+        case id, title, evidence, source, resolution, kind, group
     }
 
     init(from decoder: Decoder) throws {
@@ -128,6 +141,9 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         evidence = try container.decode(String.self, forKey: .evidence)
         source = try container.decode(WorkSource.self, forKey: .source)
         resolution = try container.decode(Resolution.self, forKey: .resolution)
+        // Absent in state.json files written before commitments existed; those
+        // discoveries were all observed work.
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .done
         group = TodoGroupName.normalized(
             try container.decodeIfPresent(String.self, forKey: .group)
         )
@@ -140,6 +156,7 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         try container.encode(evidence, forKey: .evidence)
         try container.encode(source, forKey: .source)
         try container.encode(resolution, forKey: .resolution)
+        try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(group, forKey: .group)
     }
 }

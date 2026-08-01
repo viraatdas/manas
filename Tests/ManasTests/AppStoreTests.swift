@@ -737,6 +737,49 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.addDiscoveredToTodos(discovered.id), "already-added items can't be added twice")
     }
 
+    func testAddingAnOwedDiscoveryFilesAnOpenTodo() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.discoveredActivities = [
+            DiscoveredActivity(
+                title: "Send the calendar invite",
+                evidence: "Around 4:32 PM a thread had the user say they'd send an invite.",
+                source: .messages,
+                kind: .owed
+            )
+        ]
+        let todo = store.addDiscoveredToTodos(store.discoveredActivities[0].id)
+
+        XCTAssertEqual(todo?.isDone, false, "a commitment is work still owed, so it cannot land checked off")
+        XCTAssertNil(todo?.verdict, "nothing has been judged yet — there is no evidence it was done")
+        XCTAssertEqual(todo?.text, "Send the calendar invite")
+    }
+
+    func testAddingAnObservedDiscoveryStillFilesItDone() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.discoveredActivities = [
+            DiscoveredActivity(
+                title: "Shipped the release notes",
+                evidence: "The 9:04 AM claude session wrote them.",
+                source: .claude,
+                kind: .done
+            )
+        ]
+        let todo = store.addDiscoveredToTodos(store.discoveredActivities[0].id)
+
+        XCTAssertEqual(todo?.isDone, true)
+        XCTAssertEqual(todo?.verdict?.status, .done)
+        XCTAssertEqual(todo?.verdict?.accepted, true)
+    }
+
+    func testDiscoveriesWrittenBeforeCommitmentsDecodeAsObservedWork() throws {
+        let legacy = #"""
+        {"id":"6C3B2E9A-1F4D-4A21-9E88-6D2C5A7B0E31","title":"Shipped it",
+         "evidence":"e","source":"claude","resolution":"pending"}
+        """#
+        let decoded = try JSONDecoder().decode(DiscoveredActivity.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.kind, .done, "state.json files predating `kind` held only observed work")
+    }
+
     func testTimeSinkDiscoveriesAutoPopulateWasteOfTime() {
         let store = AppStore(fileURL: tempStateURL())
         let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")

@@ -2,10 +2,11 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Screen 1 header: the Manas wordmark with one quiet caption line (date and
-/// check-in status) on the left; source health, refresh, and settings on the
-/// right. Days are navigated by scrolling the feed, so the header no longer
-/// pages between dates.
+/// Screen 1 header: the day you are currently looking at, with one quiet
+/// caption line (today's date and check-in status) beneath it; a jump-to-today
+/// button, source health, refresh, and settings on the right. Days are
+/// navigated by scrolling the feed, and the title follows the scroll so the
+/// window always says which day is on screen.
 struct MainHeaderView: View {
     @Environment(AppStore.self) private var store
     @State private var showingSettings = false
@@ -13,8 +14,10 @@ struct MainHeaderView: View {
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Manas")
+                Text(DayLabel.title(for: store.visibleFeedDay))
                     .font(.title3.weight(.semibold))
+                    .contentTransition(.opacity)
+                    .animation(.easeOut(duration: 0.15), value: store.visibleFeedDay)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -22,6 +25,7 @@ struct MainHeaderView: View {
                     .animation(.default, value: subtitle)
             }
             Spacer(minLength: 0)
+            JumpToTodayButton()
             SourceHealthButton()
             RefreshButton()
             Button {
@@ -53,6 +57,27 @@ struct MainHeaderView: View {
             parts.append("Not checked yet")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Returns the feed to today from anywhere in the timeline. Always present
+/// rather than only when today is off-screen: the floating pill already covers
+/// the scrolled-away case, and a control that comes and goes is one you have to
+/// go looking for.
+private struct JumpToTodayButton: View {
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(name: .manasJumpToToday, object: nil)
+        } label: {
+            Image(systemName: "calendar.badge.clock")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.hoverIcon)
+        .accessibilityLabel("Jump to today")
+        .help("Jump to today (⌘L)")
     }
 }
 

@@ -41,6 +41,12 @@ final class AppStore {
 
     // MARK: - Transient check-in state (not persisted)
 
+    /// The day sitting at the top of the feed's viewport. The header names it,
+    /// so scrolling up into history retitles the window instead of leaving a
+    /// static "Manas" over somebody else's Tuesday. Transient: it describes
+    /// where the scroll is, which is not worth persisting.
+    var visibleFeedDay: Date = Calendar.current.startOfDay(for: Date())
+
     /// True while a check-in is running — spins the header refresh button
     /// and blocks overlapping checks.
     var isCheckingIn = false
@@ -500,13 +506,18 @@ final class AppStore {
         else { return nil }
         discoveredActivities[index].resolution = .added
         let activity = discoveredActivities[index]
-        // Discoveries are work observed today, so the todo lands on today and
-        // inherits the judge's group so it clusters with its related work.
+        // Observed work lands checked off, carrying its evidence as an accepted
+        // verdict. A commitment lands open with no verdict — it is work the
+        // user still owes, and filing it as done would tick off the very thing
+        // it was surfaced to remind them about.
+        let isDone = activity.kind == .done
         let todo = Todo(
             text: activity.title,
             group: activity.group,
-            isDone: true,
-            verdict: Verdict(status: .done, evidence: activity.evidence, accepted: true)
+            isDone: isDone,
+            verdict: isDone
+                ? Verdict(status: .done, evidence: activity.evidence, accepted: true)
+                : nil
         )
         insert(todo)
         UsageAnalytics.shared.capture(.discoveredTodoAdded)

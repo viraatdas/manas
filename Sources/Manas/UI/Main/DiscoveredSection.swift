@@ -1,8 +1,12 @@
 import SwiftUI
 
-/// "You might have also done this" — work the sources saw that wasn't on the
-/// list. Visually quieter than the todo card: surface-1 background, no
-/// border, slightly smaller text. Hidden entirely when nothing is pending.
+/// The two things the sources turned up that aren't on the list: work the user
+/// appears to have done, and things they said they'd do. They are kept apart
+/// because adding one files a checked-off todo and adding the other files a
+/// live one — reading them under a single "you might have also done this"
+/// heading would make an outstanding commitment look like finished work.
+/// Visually quieter than the todo card: surface-1 background, no border,
+/// slightly smaller text. Hidden entirely when nothing is pending.
 struct DiscoveredSection: View {
     @Environment(AppStore.self) private var store
 
@@ -10,7 +14,17 @@ struct DiscoveredSection: View {
         store.discoveredActivities.filter { $0.resolution == .pending }
     }
 
+    private var owed: [DiscoveredActivity] { pending.filter { $0.kind == .owed } }
+    private var done: [DiscoveredActivity] { pending.filter { $0.kind == .done } }
+
     private var isCollapsed: Bool { store.isCollapsed(SectionKey.discovered) }
+
+    /// Commitments lead: they are the only half that still needs acting on.
+    private var heading: String {
+        if owed.isEmpty { return "You might have also done this" }
+        if done.isEmpty { return "You said you'd do this" }
+        return "Picked up from your day"
+    }
 
     var body: some View {
         if !pending.isEmpty {
@@ -25,7 +39,7 @@ struct DiscoveredSection: View {
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.tertiary)
                             .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        Text("You might have also done this")
+                        Text(heading)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                         // Folded, the count is the only thing left saying
@@ -47,9 +61,14 @@ struct DiscoveredSection: View {
                 // independent rows each fading on its own.
                 if !isCollapsed {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(pending) { activity in
-                            DiscoveredRow(activity: activity)
+                        if !owed.isEmpty, !done.isEmpty {
+                            subheading("You said you'd do this")
                         }
+                        ForEach(owed) { DiscoveredRow(activity: $0) }
+                        if !owed.isEmpty, !done.isEmpty {
+                            subheading("You might have also done this")
+                        }
+                        ForEach(done) { DiscoveredRow(activity: $0) }
                     }
                     .transition(.opacity)
                 }
@@ -58,6 +77,14 @@ struct DiscoveredSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.surface1, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
+    }
+
+    /// Only rendered when both halves are present; with one kind on screen the
+    /// section heading already says which it is.
+    private func subheading(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.tertiary)
     }
 }
 

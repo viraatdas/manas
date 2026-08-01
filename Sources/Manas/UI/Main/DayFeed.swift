@@ -86,6 +86,7 @@ struct DayFeed: View {
                                 .padding(.bottom, 26)
                                 .opacity(feedDay.kind == .past ? 0.68 : 1)
                                 .background(todayFrameReporter(for: feedDay))
+                                .background(dayFrameReporter(for: feedDay))
                                 // ScrollViewReader needs one concrete target.
                                 // Keep the ID on the section body; putting it
                                 // on Section propagates the same ID to both its
@@ -106,6 +107,9 @@ struct DayFeed: View {
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
                     isTodayVisible = visible
                 }
+            }
+            .onPreferenceChange(DayFramePreferenceKey.self) { frames in
+                updateVisibleDay(from: frames)
             }
             .overlay(alignment: .bottom) { todayPill(proxy) }
             .onAppear { anchorToday(using: proxy) }
@@ -182,6 +186,29 @@ struct DayFeed: View {
         }
     }
 
+    /// Publishes every realized day's frame so the header can name the one at
+    /// the top of the viewport.
+    private func dayFrameReporter(for feedDay: FeedDay) -> some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: DayFramePreferenceKey.self,
+                value: [feedDay.date: geometry.frame(in: .global)]
+            )
+        }
+    }
+
+    /// The day at the top of the viewport is whichever section straddles the
+    /// top edge; when a gap does, the next one down. Only realized sections
+    /// report, which is fine — LazyVStack always has the visible ones built.
+    private func updateVisibleDay(from frames: [Date: CGRect]) {
+        guard viewportFrame.height > 0, !frames.isEmpty else { return }
+        let top = viewportFrame.minY
+        let straddling = frames.first { $0.value.minY <= top && $0.value.maxY > top }?.key
+        let nextDown = frames.filter { $0.value.minY > top }.min { $0.value.minY < $1.value.minY }?.key
+        guard let day = straddling ?? nextDown, day != store.visibleFeedDay else { return }
+        store.visibleFeedDay = day
+    }
+
     /// Tracks the scroll viewport's own rect so intersection with Today's
     /// frame is a plain geometry test that works on macOS 14.
     private var viewportReporter: some View {
@@ -201,6 +228,13 @@ struct FeedDay: Identifiable, Hashable {
     let date: Date
     let kind: Kind
     var id: Date { date }
+}
+
+private struct DayFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [Date: CGRect] = [:]
+    static func reduce(value: inout [Date: CGRect], nextValue: () -> [Date: CGRect]) {
+        value.merge(nextValue()) { _, incoming in incoming }
+    }
 }
 
 private struct TodayFramePreferenceKey: PreferenceKey {

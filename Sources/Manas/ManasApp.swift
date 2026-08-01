@@ -9,6 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quickCaptureShortcut = QuickCaptureShortcutController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Manas is a light-only app. Pinning the NSApplication appearance
+        // rather than setting preferredColorScheme means the AppKit semantic
+        // colors behind Theme.swift resolve light as well, instead of the
+        // SwiftUI layer going light over dark system surfaces.
+        NSApp.appearance = NSAppearance(named: .aqua)
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         quickCaptureShortcut.start()

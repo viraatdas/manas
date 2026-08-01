@@ -13,6 +13,7 @@ struct ModelJudgeOutput: Hashable, Sendable {
         var title: String
         var evidence: String
         var source: WorkSource
+        var kind: DiscoveredActivity.Kind
         var group: String?
     }
 
@@ -125,6 +126,10 @@ enum JudgeOutputParser {
                 title: title,
                 evidence: item.evidence ?? "",
                 source: item.source.flatMap { WorkSource(rawValue: $0.lowercased()) } ?? .claude,
+                // Anything the model doesn't explicitly mark as owed is
+                // observed work, which is how every discovery behaved before
+                // commitments existed.
+                kind: item.kind?.lowercased() == "owed" ? .owed : .done,
                 group: item.group
             )
         }
@@ -195,6 +200,7 @@ enum JudgeOutputParser {
         var title: String?
         var evidence: String?
         var source: String?
+        var kind: String?
         var group: String?
     }
 }

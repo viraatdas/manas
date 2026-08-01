@@ -20,7 +20,9 @@ struct RootView: View {
         .tint(Color.manasAccent)
         // The sign-in screen is the brand moment — always the light look;
         // the feed follows the system appearance once signed in.
-        .preferredColorScheme(isPreviewSignedIn || sync.isSignedIn ? nil : .light)
+        // Light-only, matching the desktop: the phone no longer follows the
+        // system appearance once signed in.
+        .preferredColorScheme(.light)
         .task(id: sync.isSignedIn) {
             // The widget snapshot mirrors the store whether or not sync runs.
             WidgetSnapshotWriter.shared.start(store: store)
