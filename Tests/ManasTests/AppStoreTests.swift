@@ -596,16 +596,43 @@ final class AppStoreTests: XCTestCase {
         let looseID = store.todosToday.first { $0.text == "Wire the judge" }!.id
         let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
 
-        // Even if a JudgeResult carries group suggestions, they are not applied:
-        // grouping is manual (Work / Personal, dragged by the user).
+        // The judge files loose todos, but never overrules one the user has
+        // already sorted — a check-in that reshuffled hand-dragged todos every
+        // hour would be worse than no grouping at all.
         store.applyJudgeResult(JudgeResult(
             groups: [manualID: "Vancouver", looseID: "Manas"], usage: usage
         ))
 
-        XCTAssertEqual(store.todosToday.first { $0.id == manualID }?.group, "Personal")
+        XCTAssertEqual(
+            store.todosToday.first { $0.id == manualID }?.group, "Personal",
+            "a todo the user filed by hand keeps its group"
+        )
+        XCTAssertEqual(
+            store.todosToday.first { $0.id == looseID }?.group, "Manas",
+            "a loose todo gets the judge's group"
+        )
+    }
+
+    func testAutoGroupReusesAnExistingSpellingAndRefusesWasteOfTime() {
+        let store = AppStore(fileURL: tempStateURL())
+        store.addTodo("Ship the sparkline", group: "Manas")
+        store.addTodo("Fix the parser")
+        store.addTodo("Scroll X for an hour")
+        let forked = store.todosToday.first { $0.text == "Fix the parser" }!.id
+        let sink = store.todosToday.first { $0.text == "Scroll X for an hour" }!.id
+        let usage = UsageRecord(model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(
+            groups: [forked: "manas", sink: TodoGroupName.wasteOfTime], usage: usage
+        ))
+
+        XCTAssertEqual(
+            store.todosToday.first { $0.id == forked }?.group, "Manas",
+            "a differently-cased label folds into the existing group instead of forking it"
+        )
         XCTAssertNil(
-            store.todosToday.first { $0.id == looseID }?.group,
-            "the judge never auto-groups a loose todo"
+            store.todosToday.first { $0.id == sink }?.group,
+            "Waste of time is the discovered-time-sink label; a todo never lands there automatically"
         )
     }
 

@@ -545,8 +545,17 @@ final class AppStore {
                 }
                 todos[index].verdict = verdict
             }
-            // Grouping is manual for now (Work / Personal, dragged by the
-            // user), so judge-suggested groups are intentionally not applied.
+            // Auto-categorization fills in blanks only. A todo the user has
+            // already filed — by dragging it, or by picking a group as they
+            // typed it — keeps that group forever, because a check-in that
+            // reshuffled hand-sorted todos every hour would be worse than no
+            // grouping at all. Canonicalizing reuses an existing spelling so a
+            // re-check can't fork "Manas" and "manas" into two piles.
+            if todos[index].group == nil,
+               let suggested = canonicalTodoGroup(result.groups[todos[index].id]),
+               suggested != TodoGroupName.wasteOfTime {
+                todos[index].group = suggested
+            }
         }
         // Every pass re-observes the whole day, so its discoveries supersede
         // the previous pass's pending ones — keeping them would pile up a

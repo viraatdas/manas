@@ -16,17 +16,41 @@ final class JudgePromptBuilderTests: XCTestCase {
         }
     }
 
-    func testPromptDoesNotGroupTodosButFlagsTimeSinks() {
+    func testPromptAsksForGroupsAndOffersTheOnesInUse() {
         let prompt = JudgePromptBuilder.build(
-            todos: [Todo(text: "A", createdAt: date, group: "Manas")], activities: []
+            todos: [
+                Todo(text: "Ship the sparkline", createdAt: date, group: "Manas"),
+                Todo(text: "Fix the parser", createdAt: date),
+            ],
+            activities: []
         )
-        // Todos are grouped by hand (dragging), so the prompt never echoes or
-        // asks for a todo's group.
-        XCTAssertFalse(prompt.contains("Groups already in use"))
-        XCTAssertFalse(prompt.contains("current group"))
+        // Existing labels are offered verbatim so a re-check clusters into them
+        // rather than coining a synonym that splits the theme in two.
+        XCTAssertTrue(prompt.contains("Groups already in use"))
+        XCTAssertTrue(prompt.contains("- Manas"))
+        XCTAssertTrue(prompt.contains("  group: Manas"), "a todo's current group is echoed back")
+        XCTAssertTrue(prompt.contains("\"group\": \"<short label>\" | null"))
+        // The standing buckets are always on offer, even when nothing uses them.
+        XCTAssertTrue(prompt.contains("- Work"))
+        XCTAssertTrue(prompt.contains("- Personal"))
         // Discoveries can still be tagged as a time sink for the built-in section.
         XCTAssertTrue(prompt.contains("Waste of time"))
         XCTAssertTrue(prompt.contains("time sink"))
+    }
+
+    func testWasteOfTimeIsNotOfferedAsATodoGroup() {
+        let prompt = JudgePromptBuilder.build(
+            todos: [Todo(text: "Scrolled X", createdAt: date, group: TodoGroupName.wasteOfTime)],
+            activities: []
+        )
+        let offered = prompt
+            .components(separatedBy: "## Groups already in use")[1]
+            .components(separatedBy: "##")[0]
+        XCTAssertFalse(
+            offered.contains(TodoGroupName.wasteOfTime),
+            "the time-sink label is never offered as somewhere a todo could be filed"
+        )
+        XCTAssertTrue(prompt.contains("Never put a todo in \"Waste of time\""))
     }
 
     func testPromptAsksForCommitmentsFoundInConversations() {

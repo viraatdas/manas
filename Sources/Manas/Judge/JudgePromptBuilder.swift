@@ -7,6 +7,7 @@ enum JudgePromptBuilder {
         lines.append(
             "You are the daily check-in judge for Manas, a personal \"control panel of the day\" macOS app. "
                 + "Given the user's todos and the day's observed activity, judge how each todo is going, "
+                + "cluster the todos into short project or theme groups, "
                 + "spot extra work the user did that is not on the list, pull out commitments the user made "
                 + "and requests aimed at them in their conversations, and flag clear time sinks "
                 + "(long stretches of social media, YouTube, or other entertainment scrolling)."
@@ -23,6 +24,19 @@ enum JudgePromptBuilder {
             for todo in todos {
                 lines.append("- id: \(todo.id.uuidString)")
                 lines.append("  text: \(todo.text)")
+                if let group = todo.group {
+                    lines.append("  group: \(group)")
+                }
+            }
+        }
+        lines.append("")
+        lines.append("## Groups already in use")
+        let existing = existingGroups(in: todos)
+        if existing.isEmpty {
+            lines.append("(none yet)")
+        } else {
+            for group in existing {
+                lines.append("- \(group)")
             }
         }
         lines.append("")
@@ -37,6 +51,20 @@ enum JudgePromptBuilder {
         lines.append("")
         lines.append(replyInstructions)
         return lines.joined(separator: "\n")
+    }
+
+    /// The labels the judge should prefer: whatever today already uses, plus
+    /// the two standing buckets. "Waste of time" is deliberately absent — it is
+    /// the discovered-time-sink label, not somewhere a todo belongs.
+    private static func existingGroups(in todos: [Todo]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for label in todos.compactMap(\.group) + ["Work", "Personal"]
+        where label != TodoGroupName.wasteOfTime
+            && seen.insert(TodoGroupName.key(for: label)).inserted {
+            result.append(label)
+        }
+        return result
     }
 
     private static func describe(_ activity: WorkActivity) -> String {
@@ -67,7 +95,7 @@ enum JudgePromptBuilder {
 
     {
       "verdicts": [
-        { "todoID": "<todo id copied verbatim>", "status": "done" | "in_progress" | "not_started" | "unknown", "evidence": "<one short line>" }
+        { "todoID": "<todo id copied verbatim>", "status": "done" | "in_progress" | "not_started" | "unknown", "evidence": "<one short line>", "group": "<short label>" | null }
       ],
       "discovered": [
         { "title": "<short title>", "evidence": "<one short line>", "source": "claude" | "codex" | "granola" | "arc" | "screen_time" | "messages", "kind": "done" | "owed", "group": "Waste of time" | null }
@@ -76,6 +104,9 @@ enum JudgePromptBuilder {
 
     Rules:
     - Give exactly one verdict per todo, copying its id verbatim into todoID.
+    - Give every todo a "group": the short project or theme it belongs to. Copy a label from "Groups already in use" verbatim whenever the todo belongs with it — matching an existing group matters more than coining a better name, because two labels for one theme split it into two piles. Only invent a label when nothing fits, and keep it to one to three words in sentence case, naming the project or area ("Manas", "Car", "Apartment hunt") rather than the single task.
+    - A todo that already has a group keeps it: echo that same label back. Use null only for a one-off that genuinely belongs with nothing else.
+    - Never put a todo in "Waste of time". That label is only for discovered time sinks.
     - Use "done" only if the activity clearly shows the todo was finished, "in_progress" if work on it clearly started, "not_started" if the activity shows no related work, and "unknown" if you cannot tell.
     - Write every evidence line as one concise sentence in sentence case, naming the session or project that supports it (for example "The 9:04 AM claude session in manas built the usage strip"). For a message commitment, give the approximate time and whether the user promised it or was asked (for example "Around 8 AM a conversation asked the user to book the table, and they agreed") — never name or describe the other person.
     - List under "discovered" three kinds of thing: real work not on the list, commitments and requests from conversations, AND clear time sinks. For a time sink (a long stretch on social media, YouTube, or entertainment, seen in Screen Time app usage or browsing) set "group" to exactly "Waste of time"; for anything else set "group" to null. Each discovery gets a short sentence-case title. Use an empty array if there is nothing new.
