@@ -467,33 +467,89 @@ final class AppStoreTests: XCTestCase {
     func testCollapsedSectionsToggleAndSurviveAReload() {
         let url = tempStateURL()
         let store = AppStore(fileURL: url, saveDebounce: .zero)
-        XCTAssertFalse(store.isCollapsed(SectionKey.group("Work")), "sections start expanded")
+        let today = Calendar.current.startOfDay(for: Date())
+        store.addTodo("Ship it", on: today, group: "Work")
+        XCTAssertFalse(store.isCollapsed(SectionKey.group("Work", on: today)), "sections start expanded")
 
-        store.toggleCollapsed(SectionKey.group("Work"))
+        store.toggleCollapsed(SectionKey.group("Work", on: today))
         store.toggleCollapsed(SectionKey.discovered)
-        XCTAssertTrue(store.isCollapsed(SectionKey.group("Work")))
+        XCTAssertTrue(store.isCollapsed(SectionKey.group("Work", on: today)))
         XCTAssertTrue(store.isCollapsed(SectionKey.discovered))
-        XCTAssertFalse(store.isCollapsed(SectionKey.group("Personal")), "folding one group leaves the others open")
+        XCTAssertFalse(
+            store.isCollapsed(SectionKey.group("Personal", on: today)),
+            "folding one group leaves the others open"
+        )
         store.saveNow()
 
         let reloaded = AppStore(fileURL: url)
-        XCTAssertTrue(reloaded.isCollapsed(SectionKey.group("Work")), "a folded group stays folded across launches")
+        XCTAssertTrue(
+            reloaded.isCollapsed(SectionKey.group("Work", on: today)),
+            "a folded group stays folded across launches"
+        )
         XCTAssertTrue(reloaded.isCollapsed(SectionKey.discovered))
 
-        reloaded.toggleCollapsed(SectionKey.group("Work"))
-        XCTAssertFalse(reloaded.isCollapsed(SectionKey.group("Work")))
+        reloaded.toggleCollapsed(SectionKey.group("Work", on: today))
+        XCTAssertFalse(reloaded.isCollapsed(SectionKey.group("Work", on: today)))
+    }
+
+    /// The scroll-jump regression: the feed stacks many days at once and most
+    /// of them own a "Work" group, so a key shared across days folded every
+    /// one of them from a single click, resizing the history above the
+    /// viewport and throwing the scroll position.
+    func testFoldingAGroupOnOneDayLeavesTheSameGroupOnOtherDaysAlone() {
+        let store = AppStore(fileURL: tempStateURL())
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        store.toggleCollapsed(SectionKey.group("Work", on: today))
+
+        XCTAssertTrue(store.isCollapsed(SectionKey.group("Work", on: today)))
+        XCTAssertFalse(
+            store.isCollapsed(SectionKey.group("Work", on: yesterday)),
+            "yesterday's Work group is a different section and stays open"
+        )
+        XCTAssertFalse(
+            store.isCollapsed(SectionKey.group("Work", on: tomorrow)),
+            "tomorrow's Work group is a different section and stays open"
+        )
     }
 
     func testSectionKeysAreCaseFoldedAndNamespaced() {
         let store = AppStore(fileURL: tempStateURL())
-        store.toggleCollapsed(SectionKey.group("Waste of time"))
+        let today = Calendar.current.startOfDay(for: Date())
+        store.toggleCollapsed(SectionKey.group("Waste of time", on: today))
         XCTAssertTrue(
-            store.isCollapsed(SectionKey.group("waste of TIME")),
+            store.isCollapsed(SectionKey.group("waste of TIME", on: today)),
             "a group's key folds case, so re-capitalizing it doesn't silently unfold the section"
         )
         XCTAssertNotEqual(
-            SectionKey.group("discovered"), SectionKey.discovered,
+            SectionKey.group("discovered", on: today), SectionKey.discovered,
             "a group named 'discovered' must not collide with the discovered-activities section"
+        )
+    }
+
+    /// Per-day keys would otherwise pile up one entry per group per day for
+    /// the life of the install, and dayless keys from older builds are the
+    /// very thing that folded every day at once.
+    func testCollapsedKeysAreDroppedForDaysWithNoTodosAndForLegacyKeys() {
+        let url = tempStateURL()
+        let store = AppStore(fileURL: url, saveDebounce: .zero)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let longGone = calendar.date(byAdding: .day, value: -400, to: today)!
+
+        store.addTodo("Ship it", on: today, group: "Work")
+        store.toggleCollapsed(SectionKey.group("Work", on: today))
+        store.toggleCollapsed(SectionKey.group("Work", on: longGone))
+        store.collapsedSections.insert("group:work") // written by an older build
+        store.saveNow()
+
+        let reloaded = AppStore(fileURL: url)
+        XCTAssertEqual(
+            reloaded.collapsedSections, [SectionKey.group("Work", on: today)],
+            "only keys for days that still have todos survive; dayless keys are dropped"
         )
     }
 

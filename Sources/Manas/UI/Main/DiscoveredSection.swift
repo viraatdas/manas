@@ -9,6 +9,7 @@ import SwiftUI
 /// slightly smaller text. Hidden entirely when nothing is pending.
 struct DiscoveredSection: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var pending: [DiscoveredActivity] {
         store.discoveredActivities.filter { $0.resolution == .pending }
@@ -30,7 +31,7 @@ struct DiscoveredSection: View {
         if !pending.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
                         store.toggleCollapsed(SectionKey.discovered)
                     }
                 } label: {

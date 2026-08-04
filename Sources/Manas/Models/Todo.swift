@@ -51,12 +51,45 @@ enum TodoGroupName {
 /// group that happens to be called "discovered" can't collide with the
 /// discovered-activities section, and built on the case-folded group key so
 /// re-capitalizing a group does not silently unfold it.
+///
+/// Group keys carry the day they belong to. The feed stacks many days in one
+/// scroll view, and most of them own a "Work" and a "Personal" group; a key
+/// shared across days folded every one of them at once, so clicking today's
+/// header resized the history sitting above the viewport and threw the scroll
+/// position somewhere else entirely.
 enum SectionKey {
-    static func group(_ label: String) -> String {
-        "group:\(TodoGroupName.key(for: label))"
+    static func group(_ label: String, on day: Date) -> String {
+        "group:\(dayKey(day)):\(TodoGroupName.key(for: label))"
     }
 
     static let discovered = "section:discovered"
+
+    /// `yyyy-MM-dd` in the current calendar. Built from date components rather
+    /// than a formatter so it never picks up a locale's numbering system.
+    static func dayKey(_ day: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: day)
+        return String(
+            format: "%04d-%02d-%02d",
+            parts.year ?? 0, parts.month ?? 0, parts.day ?? 0
+        )
+    }
+
+    /// The day a group key belongs to, or nil for any other key (the
+    /// discovered section, or a `group:work` key written before groups folded
+    /// per day). Used to drop keys whose day no longer has any todos.
+    static func dayComponent(of key: String) -> String? {
+        let parts = key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "group" else { return nil }
+        return String(parts[1])
+    }
+
+    /// True for a key this build no longer understands: a `group:` key without
+    /// a day, left behind by an older state.json. Folding is a view
+    /// preference, so these are simply dropped rather than migrated onto a day
+    /// they were never scoped to.
+    static func isStaleGroupKey(_ key: String) -> Bool {
+        key.hasPrefix("group:") && dayComponent(of: key) == nil
+    }
 }
 
 /// A user todo, optionally annotated with the judge's latest verdict and the

@@ -22,6 +22,25 @@ protocol SyncAuth: AnyObject {
     func signOut()
 }
 
+/// A backend that is permanently signed out and never reaches the keychain or
+/// the network. Stands in for the real one when `MANAS_DISABLE_SYNC` is set —
+/// see `SyncController.isDisabledByEnvironment`.
+@MainActor
+final class SignedOutSyncAuth: SyncAuth {
+    struct Disabled: LocalizedError {
+        var errorDescription: String? { "Sync is disabled in this build." }
+    }
+
+    var isSignedIn: Bool { false }
+    var phone: String? { nil }
+
+    func requestCode(phone: String) async throws { throw Disabled() }
+    func verifyCode(phone: String, code: String) async throws { throw Disabled() }
+    func bearerToken() async throws -> String { throw Disabled() }
+    func deleteAccount() async throws { throw Disabled() }
+    func signOut() {}
+}
+
 /// Calls the authenticated account-deletion branch of the sync edge function.
 /// The server derives identity from the bearer token; no user identifier from
 /// the client is trusted.

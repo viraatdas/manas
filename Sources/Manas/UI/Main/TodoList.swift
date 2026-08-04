@@ -312,6 +312,7 @@ struct TodoListSection: View {
                     ForEach(displayGroups) { group in
                         TodoGroupBlock(
                             group: group,
+                            day: day,
                             mode: mode,
                             showsHeader: group.group != nil,
                             dragController: mode == .today ? dragController : nil,
@@ -414,7 +415,11 @@ struct TodoListSection: View {
 
 private struct TodoGroupBlock: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var group: TodoGroup
+    /// The day this block belongs to. Folding is scoped to it, so folding
+    /// today's Work leaves every other day in the feed exactly as it was.
+    var day: Date
     var mode: TodoRow.Mode
     var showsHeader: Bool
     var dragController: TodoDragController?
@@ -438,8 +443,8 @@ private struct TodoGroupBlock: View {
                 // here. The tally stays visible while folded so a collapsed
                 // group still says how much is left in it.
                 Button {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        store.toggleCollapsed(SectionKey.group(label))
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                        store.toggleCollapsed(SectionKey.group(label, on: day))
                     }
                 } label: {
                     HStack(spacing: 7) {
@@ -496,7 +501,7 @@ private struct TodoGroupBlock: View {
     /// no header to fold it from.
     private var isCollapsed: Bool {
         guard showsHeader, let label = group.group else { return false }
-        return store.isCollapsed(SectionKey.group(label))
+        return store.isCollapsed(SectionKey.group(label, on: day))
     }
 
     /// The order to render: normally the group's todos, but while a card is

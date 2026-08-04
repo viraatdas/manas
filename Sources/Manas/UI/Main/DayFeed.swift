@@ -25,6 +25,10 @@ struct DayFeed: View {
     private static let futureHorizon = 120
     @State private var isTodayVisible = true
     @State private var viewportFrame: CGRect = .zero
+    /// Today's measured frame, kept so the launch anchor can tell whether the
+    /// scroll actually landed instead of assuming it did.
+    @State private var todayFrame: CGRect?
+    @State private var hasAnchoredToday = false
     /// A future day gets a real NSTextField only while the user is composing
     /// for it. Keeping this selection at feed scope guarantees that scrolling
     /// through the horizon never leaves dozens of live text editors behind.
@@ -102,6 +106,7 @@ struct DayFeed: View {
             }
             .background(viewportReporter)
             .onPreferenceChange(TodayFramePreferenceKey.self) { frame in
+                todayFrame = frame
                 let visible = frame.map { $0.intersects(viewportFrame) } ?? true
                 guard visible != isTodayVisible else { return }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
@@ -111,7 +116,7 @@ struct DayFeed: View {
             .onPreferenceChange(DayFramePreferenceKey.self) { frames in
                 updateVisibleDay(from: frames)
             }
-            .overlay(alignment: .bottom) { todayPill(proxy) }
+            .overlay(alignment: .bottom) { todayPill }
             .onAppear { anchorToday(using: proxy) }
             .onReceive(NotificationCenter.default.publisher(for: .manasJumpToToday)) { _ in
                 jumpToTodayAndCompose(using: proxy)
@@ -124,38 +129,76 @@ struct DayFeed: View {
     /// Brings Today to the top of the viewport after first layout, without a
     /// visible jump: the feed starts scrolled to Today rather than the oldest
     /// past day.
+    ///
+    /// One `scrollTo` was not enough. The feed is a LazyVStack, so on the first
+    /// pass only a handful of sections exist and the rest are height estimates;
+    /// a scroll aimed at a day it has not built yet lands short, and the app
+    /// could open a week deep in history. So nudge, measure where Today
+    /// actually ended up, and nudge again until it arrives — each pass realizes
+    /// more of the feed, so the estimates converge on the truth within a few
+    /// frames and the loop then stops for good.
     private func anchorToday(using proxy: ScrollViewProxy) {
+        guard !hasAnchoredToday else { return }
         Task { @MainActor in
-            await Task.yield()
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                proxy.scrollTo(today, anchor: .top)
+            for _ in 0..<12 {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(today, anchor: .top)
+                }
+                try? await Task.sleep(for: .milliseconds(32))
+                if isTodayAnchored { break }
             }
+            hasAnchoredToday = true
         }
     }
 
-    /// ⌘L: bring Today to the top, then (once its section is materialized and
-    /// the scroll has settled) hand focus to the compose bar. The focus hop is
-    /// a second notification because a LazyVStack may not have built today's
-    /// field yet when the command fires from far away in the feed.
+    /// Whether Today's section has actually come to rest at the top of the
+    /// viewport. The tolerance covers the pinned day header sitting over the
+    /// section's first rows; anything beyond it means the scroll landed on a
+    /// different day.
+    private var isTodayAnchored: Bool {
+        guard viewportFrame.height > 0, let todayFrame else { return false }
+        return abs(todayFrame.minY - viewportFrame.minY) < 80
+    }
+
+    /// ⌘L (also the header button and the floating pill): bring Today to the
+    /// top, then (once its section is materialized and the scroll has settled)
+    /// hand focus to the compose bar. The focus hop is a second notification
+    /// because a LazyVStack may not have built today's field yet when the
+    /// command fires from far away in the feed.
     private func jumpToTodayAndCompose(using proxy: ScrollViewProxy) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
-            proxy.scrollTo(today, anchor: .top)
-        }
         Task { @MainActor in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+                proxy.scrollTo(today, anchor: .top)
+            }
             try? await Task.sleep(for: .milliseconds(280))
+            // Coming from far down the feed, that first hop crosses days the
+            // LazyVStack has not built and can land short — the same reason
+            // the launch anchor has to re-check. Correct silently rather than
+            // animating a second time, so a good jump stays a single motion.
+            for _ in 0..<8 where !isTodayAnchored {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(today, anchor: .top)
+                }
+                try? await Task.sleep(for: .milliseconds(32))
+            }
             NotificationCenter.default.post(name: .manasFocusTodayField, object: nil)
         }
     }
 
     @ViewBuilder
-    private func todayPill(_ proxy: ScrollViewProxy) -> some View {
+    private var todayPill: some View {
         if !isTodayVisible {
+            // Routed through the same notification as the Go ▸ Today menu item
+            // and the header button, so all three land identically. It used to
+            // scroll without focusing and carried its own ⌘T, which meant the
+            // app answered to two different shortcuts for one action — and the
+            // pill's only worked while the pill happened to be on screen.
             Button {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.28)) {
-                    proxy.scrollTo(today, anchor: .top)
-                }
+                NotificationCenter.default.post(name: .manasJumpToToday, object: nil)
             } label: {
                 Label("Today", systemImage: "location.fill")
                     .font(.subheadline.weight(.medium))
@@ -163,8 +206,7 @@ struct DayFeed: View {
             .buttonStyle(.borderedProminent)
             .tint(.manasAccent)
             .controlSize(.regular)
-            .keyboardShortcut("t", modifiers: [.command])
-            .help("Jump to today (⌘T)")
+            .help("Jump to today (⌘L)")
             .padding(.bottom, 14)
             .transition(.opacity.combined(with: .scale(scale: 0.94)))
         }

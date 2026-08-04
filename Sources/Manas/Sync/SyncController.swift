@@ -49,7 +49,11 @@ final class SyncController {
     ///   - stateURL: where to persist the watermark + snapshot; defaults to
     ///     `sync-state.json` beside the app's state file.
     init(auth: (any SyncAuth)? = nil, stateURL: URL? = nil) {
-        self.auth = auth ?? StytchSyncAuth()
+        // Constructed before anything else touches auth: the real backend
+        // reads the keychain from its initializer, on the main thread, before
+        // the window exists — so the seam has to stand in for the backend
+        // rather than merely ignore it.
+        self.auth = auth ?? (Self.isDisabledByEnvironment ? SignedOutSyncAuth() : StytchSyncAuth())
         self.stateURL = stateURL
             ?? AppStore.defaultStateURL.deletingLastPathComponent().appendingPathComponent("sync-state.json")
         isSignedIn = self.auth.isSignedIn
@@ -62,10 +66,22 @@ final class SyncController {
         }
     }
 
+    /// Dev/verification seam, alongside `MANAS_STATE_FILE` and
+    /// `MANAS_DISABLE_AUTO_CHECKS`: a locally built copy of the app reads the
+    /// same login keychain as the installed one (the keychain service name is
+    /// fixed, not scoped by bundle id), so launching one to check a UI change
+    /// otherwise signs in as the real user and pushes scratch todos to their
+    /// live account. Setting this keeps the build permanently signed out.
+    static var isDisabledByEnvironment: Bool {
+        let value = ProcessInfo.processInfo.environment["MANAS_DISABLE_SYNC"] ?? ""
+        return !value.isEmpty && value != "0"
+    }
+
     // MARK: - Sign in / out
 
     /// Re-reads a session restored from the shared keychain after the UI is up.
     func refreshAuthState() {
+        guard !Self.isDisabledByEnvironment else { return }
         isSignedIn = auth.isSignedIn
         phoneNumber = auth.phone
         if isSignedIn, phase == .signedOut { phase = .idle }
@@ -125,12 +141,13 @@ final class SyncController {
     /// Binds to the store and starts the cadence: an immediate pass, a pass
     /// ~2s after any local change, and a steady pull every minute.
     func start(store: AppStore) {
+        guard !Self.isDisabledByEnvironment else { return }
         self.store = store
         startLoopIfPossible()
     }
 
     private func startLoopIfPossible() {
-        guard loopTask == nil else { return }
+        guard loopTask == nil, !Self.isDisabledByEnvironment else { return }
         observeStore()
         loopTask = Task { [weak self] in
             while !Task.isCancelled {

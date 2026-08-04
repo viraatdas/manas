@@ -104,7 +104,10 @@ final class AppStore {
             dailyTokenBudget = state.dailyTokenBudget
             groupEmojis = state.groupEmojis ?? [:]
             customGroups = state.customGroups ?? []
-            collapsedSections = Set(state.collapsedSections ?? [])
+            collapsedSections = Self.pruningCollapsedSections(
+                state.collapsedSections ?? [],
+                toDaysWithTodos: state.todos
+            )
             lastCheckedAt = state.lastCheckedAt
             lastAutomaticCheckAt = state.lastAutomaticCheckAt
             syncedSourceCount = state.syncedSourceCount
@@ -489,6 +492,23 @@ final class AppStore {
         }
     }
 
+    /// Folded-section keys worth keeping. Group keys are scoped to a day, so
+    /// without this they would accumulate one entry per group per day forever;
+    /// a day with no todos left has no headers to unfold either way. Also
+    /// drops the dayless `group:` keys written by builds that folded a label
+    /// across every day at once.
+    static func pruningCollapsedSections(
+        _ keys: some Sequence<String>,
+        toDaysWithTodos todos: [Todo]
+    ) -> Set<String> {
+        let liveDays = Set(todos.map { SectionKey.dayKey($0.day) })
+        return Set(keys.filter { key in
+            guard !SectionKey.isStaleGroupKey(key) else { return false }
+            guard let day = SectionKey.dayComponent(of: key) else { return true }
+            return liveDays.contains(day)
+        })
+    }
+
     // MARK: - Discovered activities
 
     func dismissDiscovered(_ id: DiscoveredActivity.ID) {
@@ -659,7 +679,10 @@ final class AppStore {
             dailyTokenBudget: dailyTokenBudget,
             groupEmojis: groupEmojis,
             customGroups: customGroups,
-            collapsedSections: collapsedSections.sorted(),
+            collapsedSections: Self.pruningCollapsedSections(
+                collapsedSections,
+                toDaysWithTodos: todos
+            ).sorted(),
             lastCheckedAt: lastCheckedAt,
             lastAutomaticCheckAt: lastAutomaticCheckAt,
             syncedSourceCount: syncedSourceCount
