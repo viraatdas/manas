@@ -9,9 +9,9 @@ struct SharedGroupTarget: Identifiable, Hashable {
     var id: String { shareID?.uuidString ?? TodoGroupName.key(for: label) }
 }
 
-/// Sharing a group from the phone — which is where the numbers you want to
-/// share with actually live. Type a number, and that person sees this group in
-/// their own Manas and can add to it.
+/// Sharing a group from the phone — which is where the people you want to
+/// share with actually live. Pick someone from your contacts and they see this
+/// group in their own Manas and can add to it.
 struct MobileShareGroupSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(SyncController.self) private var sync
@@ -21,7 +21,6 @@ struct MobileShareGroupSheet: View {
 
     @State private var phone = ""
     @State private var inviteeName = ""
-    @State private var myName = ""
     @State private var errorText: String?
     @State private var showingContactPicker = false
 
@@ -59,7 +58,6 @@ struct MobileShareGroupSheet: View {
                     Button("Done") { dismiss() }.tint(.manasAccent)
                 }
             }
-            .onAppear { myName = store.myDisplayName ?? "" }
             .sheet(isPresented: $showingContactPicker) {
                 ContactPicker(
                     onPick: { number, name in
@@ -73,47 +71,36 @@ struct MobileShareGroupSheet: View {
         }
     }
 
-    /// A picked contact fills the form rather than sharing outright: the number
-    /// stays visible and correctable, and the name only fills in if they don't
-    /// already have one, so a name you typed for them is never overwritten.
+    /// Picking somebody shares with them. There is no second step and nothing
+    /// to fill in: their name rides along from the contact card, which is where
+    /// it should come from anyway.
     private func adopt(number: String, name: String?) {
         phone = number
-        if inviteeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let name, !name.isEmpty {
-            inviteeName = name
-        }
-        errorText = PhoneIdentity.normalized(number) == nil
-            ? "That contact's number doesn't look like one we can share to."
-            : nil
+        inviteeName = name ?? ""
+        invite()
     }
 
     private var inviteSection: some View {
         Section {
-            // Sharing is keyed on a phone number, but nobody knows anyone's
-            // number by heart any more — so the contact list leads and typing
-            // one in is the fallback for a person who isn't in it.
+            // Pick a person, done. Nobody knows anyone's number by heart, and
+            // typing one in is the fallback for someone not in your contacts.
             Button {
                 showingContactPicker = true
             } label: {
-                Label("Choose from Contacts", systemImage: "person.crop.circle.badge.plus")
+                Label("Share with someone", systemImage: "person.crop.circle.badge.plus")
             }
             .tint(.manasAccent)
 
-            TextField("+1 415 555 0137", text: $phone)
+            TextField("Or type a number", text: $phone)
                 .keyboardType(.phonePad)
                 .textContentType(.telephoneNumber)
-            TextField("Their name (optional)", text: $inviteeName)
-                .textContentType(.name)
-            Button("Share this group", action: invite)
-                .tint(.manasAccent)
-                .disabled(PhoneIdentity.normalized(phone) == nil)
-            // Avatars are drawn from names, so without one of their own the
-            // other side sees a phone number where a person should be.
-            TextField("The name you appear as", text: $myName)
-                .textContentType(.givenName)
-                .onChange(of: myName) { _, name in store.setMyDisplayName(name) }
+                .onSubmit(invite)
+            if PhoneIdentity.normalized(phone) != nil {
+                Button("Share this group", action: invite)
+                    .tint(.manasAccent)
+            }
         } header: {
-            Text("Share with a number")
+            Text("Share this group")
         } footer: {
             if let errorText {
                 Text(errorText).foregroundStyle(.red)
@@ -182,7 +169,6 @@ struct MobileShareGroupSheet: View {
             errorText = "That's your own number."
             return
         }
-        store.setMyDisplayName(myName)
         let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
         let added: Bool
         if let shareID = target.shareID, let share = share, store.isOwner(of: share) {

@@ -352,3 +352,8 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Follow-ups:**
   - The wait is a poll, not a signal [out of lane] — `SyncController` has no "converged" notification, so this polls `lastSyncedAt` every 100ms up to the timeout. A continuation resumed by the sync loop would be tidier.
 - **By:** release gate · 2026-08-06T20:45:00.000Z
+
+## release gate: sharing is one step
+- **Did:** The contact picker landed as an autofill for a form — pick a person, then still fill in their name, your name, and press Share. That is four decisions to share a list with someone, and the user reported it as "not working properly", which it effectively wasn't. Picking someone now shares immediately on both platforms: their name rides along from the contact card, and the invitee-name field is gone because the contact card already answers it. "You appear as" moved out of the share surface entirely to the sync settings block, where it is set once — it describes you, not the group you happen to be sharing. Typing a number stays as the fallback for someone not in contacts, and on iOS its Share button only appears once the number is usable, so the panel is one row until it needs to be two.
+- **Interfaces:** MobileShareGroupSheet drops `myName` and the invitee-name field; `adopt(number:name:)` now shares rather than filling the form. ShareGroupPopover drops `identityField` and `myName`. SyncSettingsSection gains `@Environment(AppStore.self)` and the "You appear as" field, seeded on appear.
+- **By:** release gate · 2026-08-06T21:30:00.000Z

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The sharing sheet behind a group header's person button: type a phone
-/// number, and that number sees this group in their own Manas and can add to
-/// it. Sharing is per group, never the whole list, so the popover is also
-/// where the current members are shown and removed.
+/// The sharing sheet behind a group header's person button: pick someone from
+/// your contacts and they see this group in their own Manas and can add to it.
+/// Sharing is per group, never the whole list, so the popover is also where the
+/// current members are shown and removed.
 struct ShareGroupPopover: View {
     @Environment(AppStore.self) private var store
     @Environment(SyncController.self) private var sync
@@ -16,7 +16,6 @@ struct ShareGroupPopover: View {
 
     @State private var phone = ""
     @State private var inviteeName = ""
-    @State private var myName = ""
     @State private var errorText: String?
     @FocusState private var isPhoneFocused: Bool
 
@@ -31,7 +30,6 @@ struct ShareGroupPopover: View {
                 signedOutNotice
             } else {
                 if isOwner { inviteField }
-                identityField
                 if let share, !share.members.isEmpty { memberList(share) }
                 if let share { footer(share) }
             }
@@ -46,7 +44,6 @@ struct ShareGroupPopover: View {
         .padding(16)
         .frame(width: 300)
         .onAppear {
-            myName = store.myDisplayName ?? ""
             guard sync.isSignedIn, isOwner else { return }
             DispatchQueue.main.async { isPhoneFocused = true }
         }
@@ -97,51 +94,26 @@ struct ShareGroupPopover: View {
 
     private var inviteField: some View {
         VStack(alignment: .leading, spacing: 7) {
-            // Sharing is keyed on a phone number, but nobody knows anyone's
-            // number by heart any more — so the contact list leads and typing
-            // one in is the fallback for a person who isn't in it.
+            // Pick a person, done. Nobody knows anyone's number by heart, and
+            // typing one in is the fallback for someone not in your contacts.
             ContactPickerButton { number, name in
                 phone = number
-                if inviteeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   let name, !name.isEmpty {
-                    inviteeName = name
-                }
-                errorText = nil
+                inviteeName = name ?? ""
+                invite()
             }
-            TextField("+1 415 555 0137", text: $phone)
-                .textFieldStyle(.roundedBorder)
-                .focused($isPhoneFocused)
-                .onSubmit(invite)
-                .accessibilityLabel("Phone number to share with")
             HStack(spacing: 6) {
-                TextField("Their name (optional)", text: $inviteeName)
+                TextField("Or type a number", text: $phone)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
+                    .focused($isPhoneFocused)
                     .onSubmit(invite)
-                    .accessibilityLabel("Name for this person")
+                    .accessibilityLabel("Phone number to share with")
                 Button("Share", action: invite)
                     .buttonStyle(.borderedProminent)
                     .tint(.manasAccent)
                     .controlSize(.small)
                     .disabled(PhoneIdentity.normalized(phone) == nil)
             }
-        }
-    }
-
-    /// Avatars are drawn from names, so without one of their own the other
-    /// side sees a phone number where a person should be. Everyone in a group
-    /// can set this, not just whoever created it.
-    private var identityField: some View {
-        HStack(spacing: 6) {
-            Text("You appear as")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextField("Your name", text: $myName)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .onSubmit { store.setMyDisplayName(myName) }
-                .onChange(of: myName) { _, name in store.setMyDisplayName(name) }
-                .accessibilityLabel("The name you appear as")
         }
     }
 
@@ -159,7 +131,6 @@ struct ShareGroupPopover: View {
             errorText = "That's your own number."
             return
         }
-        store.setMyDisplayName(myName)
         let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
         let result: SharedGroup?
         if let shareID, let share = store.sharedGroup(id: shareID), store.isOwner(of: share) {

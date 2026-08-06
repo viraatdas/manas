@@ -5,6 +5,7 @@ import SwiftUI
 /// out. Kept popover-compact — two fields at most, errors inline.
 struct SyncSettingsSection: View {
     @Environment(SyncController.self) private var sync
+    @Environment(AppStore.self) private var store
 
     private enum Step: Equatable {
         case idle
@@ -17,6 +18,7 @@ struct SyncSettingsSection: View {
     @State private var code = ""
     @State private var step: Step = .idle
     @State private var errorText: String?
+    @State private var displayName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -55,6 +57,21 @@ struct SyncSettingsSection: View {
             }
             .font(.caption)
             .foregroundStyle(statusLineTint)
+            // Lives here rather than in the share popover: it is set once and
+            // is about you, not about the group you happen to be sharing.
+            // Without it, the people you share with see a phone number where a
+            // person should be, because avatars are drawn from names.
+            HStack(spacing: 6) {
+                Text("You appear as")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Your name", text: $displayName)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .onSubmit { store.setMyDisplayName(displayName) }
+                    .onChange(of: displayName) { _, name in store.setMyDisplayName(name) }
+                    .accessibilityLabel("The name you appear as when sharing")
+            }
             Button("Sign out") {
                 sync.signOut()
                 step = .idle
@@ -63,6 +80,7 @@ struct SyncSettingsSection: View {
             }
             .buttonStyle(.ghost)
         }
+        .onAppear { displayName = store.myDisplayName ?? "" }
     }
 
     private var statusSymbol: String {
