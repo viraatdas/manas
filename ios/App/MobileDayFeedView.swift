@@ -15,6 +15,7 @@ struct MobileDayFeedView: View {
     @State private var editingTodo: Todo?
     @State private var editText = ""
     @State private var reschedulingTodo: Todo?
+    @State private var sharingGroup: SharedGroupTarget?
 
     private let calendar = Calendar.current
     private var today: Date { calendar.startOfDay(for: Date()) }
@@ -50,6 +51,9 @@ struct MobileDayFeedView: View {
             RescheduleSheet(todo: todo)
                 .presentationDetents([.medium])
         }
+        .sheet(item: $sharingGroup) { target in
+            MobileShareGroupSheet(target: target)
+        }
     }
 
     // MARK: - Feed
@@ -59,7 +63,12 @@ struct MobileDayFeedView: View {
             List {
                 ForEach(feedDays) { feedDay in
                     Section {
-                        DaySectionBody(feedDay: feedDay, onEdit: beginEdit, onReschedule: { reschedulingTodo = $0 })
+                        DaySectionBody(
+                            feedDay: feedDay,
+                            onEdit: beginEdit,
+                            onReschedule: { reschedulingTodo = $0 },
+                            onShare: { sharingGroup = $0 }
+                        )
                     } header: {
                         DayHeaderLabel(date: feedDay.date, kind: feedDay.kind)
                     }
@@ -118,6 +127,7 @@ private struct DaySectionBody: View {
     let feedDay: FeedDay
     var onEdit: (Todo) -> Void
     var onReschedule: (Todo) -> Void
+    var onShare: (SharedGroupTarget) -> Void
 
     private var mode: MobileTodoRow.Mode {
         switch feedDay.kind {
@@ -133,13 +143,32 @@ private struct DaySectionBody: View {
             EmptyDayRow(kind: feedDay.kind)
         } else {
             ForEach(groups) { group in
-                let collapsed = group.group.map { store.isCollapsed(SectionKey.group($0)) } ?? false
+                // Folding is per group *per day* — the feed stacks every day
+                // in one scroll view and most of them own a Work and a
+                // Personal — and a shared group folds on its share, not its
+                // label, since two buckets may carry the same name.
+                let key = SectionKey.group(group.destination, on: feedDay.date)
+                let collapsed = group.group != nil && store.isCollapsed(key)
                 if let label = group.group {
-                    GroupHeaderRow(label: label, emoji: store.emoji(forGroup: label),
+                    GroupHeaderRow(label: label, emoji: store.emoji(for: group.destination),
                                    done: group.todos.filter(\.isDone).count, total: group.todos.count,
+                                   members: group.shareID.flatMap {
+                                       store.sharedGroup(id: $0)?.members(excluding: store.currentPhone)
+                                   } ?? [],
                                    isCollapsed: collapsed) {
                         withAnimation(.easeOut(duration: 0.18)) {
-                            store.toggleCollapsed(SectionKey.group(label))
+                            store.toggleCollapsed(key)
+                        }
+                    }
+                    .contextMenu {
+                        Button {
+                            Haptics.tap()
+                            onShare(SharedGroupTarget(label: label, shareID: group.shareID))
+                        } label: {
+                            Label(
+                                group.shareID == nil ? "Share group…" : "Sharing…",
+                                systemImage: "person.badge.plus"
+                            )
                         }
                     }
                 }
@@ -155,12 +184,15 @@ private struct DaySectionBody: View {
 
 /// A group's badge, label, and done/total tally, set apart from its todos.
 /// Tapping anywhere along the row folds the group away — the whole row rather
-/// than the chevron alone, which is a hard target for a thumb.
+/// than the chevron alone, which is a hard target for a thumb. A shared group
+/// also wears the people in it, which is what tells it apart from a private
+/// bucket at a glance.
 private struct GroupHeaderRow: View {
     let label: String
     let emoji: String
     let done: Int
     let total: Int
+    var members: [SharedGroupMember] = []
     let isCollapsed: Bool
     let toggle: () -> Void
 
@@ -177,6 +209,9 @@ private struct GroupHeaderRow: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                if !members.isEmpty {
+                    MemberAvatarStack(members: members, size: 17)
+                }
             }
             .contentShape(Rectangle())
         }
@@ -184,7 +219,11 @@ private struct GroupHeaderRow: View {
         .padding(.top, 4)
         .listRowSeparator(.hidden)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label), \(done) of \(total) done")
+        .accessibilityLabel(
+            members.isEmpty
+                ? "\(label), \(done) of \(total) done"
+                : "\(label), shared with \(members.count), \(done) of \(total) done"
+        )
         .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
     }
 }

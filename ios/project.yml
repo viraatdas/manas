@@ -29,6 +29,7 @@ targets:
       - path: Shared
       - path: ../Sources/Manas/Models
       - path: ../Sources/Manas/Store/AppStore.swift
+      - path: ../Sources/Manas/Store/AppStore+Sharing.swift
       - path: ../Sources/Manas/Analytics
       - path: ../Sources/Manas/Design
       - path: ../Sources/Manas/Sync

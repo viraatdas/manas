@@ -26,6 +26,11 @@ final class UsageAnalytics {
         case todoGroupChanged(hasGroup: Bool)
         case todoRescheduled(day: DayRelation)
         case groupCreated
+        /// A group was opened up to another phone number. The number itself is
+        /// never sent — only how many people the group now holds.
+        case groupShared(memberCount: Int)
+        case groupUnshared
+        case sharedTodoAdded
         case discoveredTodoAdded
         case quickCaptureOpened
         case checkInStarted(automatic: Bool)
@@ -42,6 +47,9 @@ final class UsageAnalytics {
             case .todoGroupChanged: "manas_todo_group_changed"
             case .todoRescheduled: "manas_todo_rescheduled"
             case .groupCreated: "manas_group_created"
+            case .groupShared: "manas_group_shared"
+            case .groupUnshared: "manas_group_unshared"
+            case .sharedTodoAdded: "manas_shared_todo_added"
             case .discoveredTodoAdded: "manas_discovered_todo_added"
             case .quickCaptureOpened: "manas_quick_capture_opened"
             case .checkInStarted: "manas_check_in_started"
@@ -52,9 +60,11 @@ final class UsageAnalytics {
 
         fileprivate var properties: [String: AnalyticsValue] {
             switch self {
-            case .analyticsEnabled, .appOpened, .groupCreated,
-                 .discoveredTodoAdded, .quickCaptureOpened:
+            case .analyticsEnabled, .appOpened, .groupCreated, .groupUnshared,
+                 .sharedTodoAdded, .discoveredTodoAdded, .quickCaptureOpened:
                 [:]
+            case .groupShared(let memberCount):
+                ["member_count": .integer(max(0, memberCount))]
             case .todoCreated(let day, let hasGroup),
                  .todoCompleted(let day, let hasGroup),
                  .todoReopened(let day, let hasGroup):

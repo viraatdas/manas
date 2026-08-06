@@ -395,6 +395,8 @@ struct DayFeedSection: View {
 #Preview("Day feed") {
     DayFeed()
         .environment(AppStore.previewTimeline)
+        // Group headers reach for the sync session to offer sharing.
+        .environment(SyncController())
         .frame(width: 560, height: 640)
         .background(Color.manasBackground)
 }
@@ -402,6 +404,7 @@ struct DayFeedSection: View {
 #Preview("Day feed · empty") {
     DayFeed()
         .environment(AppStore.previewEmpty)
+        .environment(SyncController())
         .frame(width: 560, height: 640)
         .background(Color.manasBackground)
 }

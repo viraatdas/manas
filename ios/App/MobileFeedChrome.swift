@@ -196,7 +196,7 @@ struct MobileAddBar: View {
     var day: Date
 
     @State private var draft = ""
-    @State private var selectedGroup: String?
+    @State private var selection: TodoDestination = .ungrouped
     @State private var showingNewGroup = false
     @State private var newGroupName = ""
     @FocusState private var focused: Bool
@@ -233,7 +233,9 @@ struct MobileAddBar: View {
             TextField("Name", text: $newGroupName)
             Button("Cancel", role: .cancel) { newGroupName = "" }
             Button("Create") {
-                if let group = store.createGroup(newGroupName) { selectedGroup = group }
+                if let group = store.createGroup(newGroupName) {
+                    selection = TodoDestination(group: group)
+                }
                 newGroupName = ""
             }
         }
@@ -243,17 +245,22 @@ struct MobileAddBar: View {
         Menu {
             Button {
                 Haptics.tap()
-                selectedGroup = nil
+                selection = .ungrouped
             } label: {
-                Label("No group", systemImage: selectedGroup == nil ? "checkmark" : "tray")
+                Label("No group", systemImage: selection.group == nil ? "checkmark" : "tray")
             }
-            ForEach(store.availableTodoGroups, id: \.self) { group in
+            ForEach(store.availableDestinations, id: \.key) { destination in
                 Button {
                     Haptics.tap()
-                    selectedGroup = group
+                    selection = destination
                 } label: {
-                    let isCurrent = selectedGroup.map { TodoGroupName.key(for: $0) } == TodoGroupName.key(for: group)
-                    Label("\(store.emoji(forGroup: group)) \(group)", systemImage: isCurrent ? "checkmark" : "")
+                    // Shared buckets say so: two entries can carry the same
+                    // name, and only one of them is visible to someone else.
+                    let name = destination.group ?? ""
+                    let title = destination.isShared
+                        ? "\(store.emoji(for: destination)) \(name) · shared"
+                        : "\(store.emoji(for: destination)) \(name)"
+                    Label(title, systemImage: selection.key == destination.key ? "checkmark" : "")
                 }
             }
             Divider()
@@ -264,12 +271,17 @@ struct MobileAddBar: View {
             }
         } label: {
             HStack(spacing: 5) {
-                if let selectedGroup {
-                    Text(store.emoji(forGroup: selectedGroup))
-                    Text(selectedGroup)
+                if let label = selection.group {
+                    Text(store.emoji(for: selection))
+                    Text(label)
                         .lineLimit(1)
                         .frame(maxWidth: 92, alignment: .leading)
                         .foregroundStyle(.primary)
+                    if selection.isShared {
+                        Image(systemName: "person.2.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Image(systemName: "folder").foregroundStyle(.secondary)
                     Text("Group").foregroundStyle(.secondary)
@@ -283,11 +295,11 @@ struct MobileAddBar: View {
             .padding(.vertical, 6)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .accessibilityLabel(selectedGroup.map { "Group: \($0)" } ?? "Choose a group")
+        .accessibilityLabel(selection.group.map { "Group: \($0)" } ?? "Choose a group")
     }
 
     private func submit() {
-        guard store.addTodo(draft, on: day, group: selectedGroup) != nil else { return }
+        guard store.addTodo(draft, on: day, destination: selection) != nil else { return }
         Haptics.tap()
         draft = ""
         focused = true

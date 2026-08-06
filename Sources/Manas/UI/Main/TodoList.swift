@@ -15,8 +15,6 @@ enum TodoKeyboardSelection {
     }
 }
 
-/// Sentinel key for the leading unlabeled cluster in the drag machinery.
-private let ungroupedDragKey = "__ungrouped__"
 private let todoDragSpace = "today-todos"
 
 /// Drives the custom press-to-lift drag: which todo is lifted, how far it has
@@ -31,10 +29,12 @@ final class TodoDragController {
     var translation: CGSize = .zero
     /// Where the row sat when lifted, in the list's coordinate space.
     var startFrame: CGRect = .zero
-    /// The bucket key currently under the cursor (nil-cluster uses the sentinel).
-    var targetKey: String?
+    /// The bucket currently under the cursor. A destination rather than a bare
+    /// label, because a shared group and a private one can carry the same name
+    /// and dropping onto the wrong one would publish private work.
+    var target: TodoDestination?
     /// The row's own bucket, so a drop back onto it is a no-op.
-    var sourceKey: String?
+    var source: TodoDestination?
     /// While the card hovers over its own bucket, the real row it will land
     /// next to and whether it drops into that row's bottom half. Observed so
     /// the list reflows a preview as the card moves. Held sticky (only updated
@@ -42,7 +42,7 @@ final class TodoDragController {
     /// gap doesn't snap the preview back to the origin.
     var reorderAnchorID: Todo.ID?
     var reorderAfter = false
-    @ObservationIgnored private var bucketFrames: [String: CGRect] = [:]
+    @ObservationIgnored private var bucketFrames: [TodoDestination: CGRect] = [:]
     @ObservationIgnored private var rowFrames: [String: CGRect] = [:]
     /// The row the cursor is currently over, so a haptic fires once per row
     /// the dragged card passes, not continuously.
@@ -51,20 +51,22 @@ final class TodoDragController {
     var isActive: Bool { dragging != nil }
     var draggingID: Todo.ID? { dragging?.id }
     func isDragging(_ id: Todo.ID) -> Bool { dragging?.id == id }
-    func isTargeted(_ key: String) -> Bool { isActive && targetKey == key && targetKey != sourceKey }
+    func isTargeted(_ destination: TodoDestination) -> Bool {
+        isActive && target == destination && target != source
+    }
 
     /// The floating card's center, in list space, as it tracks the cursor.
     var floatingCenter: CGPoint {
         CGPoint(x: startFrame.midX + translation.width, y: startFrame.midY + translation.height)
     }
 
-    func setBucketFrames(_ frames: [String: CGRect]) { bucketFrames = frames }
+    func setBucketFrames(_ frames: [TodoDestination: CGRect]) { bucketFrames = frames }
     func setRowFrames(_ frames: [String: CGRect]) { rowFrames = frames }
 
-    func lift(_ todo: Todo, sourceKey: String) {
+    func lift(_ todo: Todo, from source: TodoDestination) {
         dragging = todo
-        self.sourceKey = sourceKey
-        targetKey = sourceKey
+        self.source = source
+        target = source
         translation = .zero
         startFrame = rowFrames[todo.id.uuidString] ?? .zero
         hoveredRowKey = todo.id.uuidString
@@ -76,18 +78,18 @@ final class TodoDragController {
 
     func move(translation: CGSize, location: CGPoint) {
         self.translation = translation
-        let newTarget = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
+        let newTarget = bucketFrames.first { $0.value.contains(location) }?.key ?? source
         let rowUnder = rowFrames.first { $0.value.contains(location) }?.key
         // A firm tap each time the card passes over a new row or crosses into a
         // different bucket, so the whole drag ticks past like a physical stack.
-        if rowUnder != hoveredRowKey || newTarget != targetKey {
+        if rowUnder != hoveredRowKey || newTarget != target {
             Haptics.bump()
         }
         hoveredRowKey = rowUnder
-        targetKey = newTarget
+        target = newTarget
         // Within its own bucket, resolve the real row the card is landing next
         // to (ignoring its own gap) and which half of that row the cursor is in.
-        if newTarget == sourceKey,
+        if newTarget == source,
            let rowKey = rowUnder, rowKey != dragging?.id.uuidString,
            let frame = rowFrames[rowKey], let anchorID = UUID(uuidString: rowKey) {
             reorderAnchorID = anchorID
@@ -99,8 +101,8 @@ final class TodoDragController {
     /// reordered to preview where the card will land; otherwise the list
     /// unchanged. Mirrors the commit in `AppStore.moveTodo`, so what the drag
     /// shows is exactly what the drop writes.
-    func previewReorder(_ todos: [Todo], inGroup groupKey: String) -> [Todo] {
-        guard let dragging, targetKey == sourceKey, sourceKey == groupKey,
+    func previewReorder(_ todos: [Todo], in destination: TodoDestination) -> [Todo] {
+        guard let dragging, target == source, source == destination,
               let anchorID = reorderAnchorID, anchorID != dragging.id
         else { return todos }
         var rest = todos.filter { $0.id != dragging.id }
@@ -111,20 +113,19 @@ final class TodoDragController {
         return rest
     }
 
-    /// The group to drop into; `changed == false` means it landed on its own
-    /// bucket, and a nil label means the ungrouped cluster.
-    func resolveDrop(at location: CGPoint) -> (changed: Bool, label: String?) {
-        let key = bucketFrames.first { $0.value.contains(location) }?.key ?? sourceKey
-        guard let key, key != sourceKey else { return (false, nil) }
-        return (true, key == ungroupedDragKey ? nil : key)
+    /// The bucket to drop into, or nil when the card landed back on its own.
+    func resolveDrop(at location: CGPoint) -> TodoDestination? {
+        let destination = bucketFrames.first { $0.value.contains(location) }?.key ?? source
+        guard let destination, destination != source else { return nil }
+        return destination
     }
 
     func reset() {
         dragging = nil
         translation = .zero
         startFrame = .zero
-        targetKey = nil
-        sourceKey = nil
+        target = nil
+        source = nil
         hoveredRowKey = nil
         reorderAnchorID = nil
         reorderAfter = false
@@ -132,8 +133,11 @@ final class TodoDragController {
 }
 
 private struct GroupFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+    static let defaultValue: [TodoDestination: CGRect] = [:]
+    static func reduce(
+        value: inout [TodoDestination: CGRect],
+        nextValue: () -> [TodoDestination: CGRect]
+    ) {
         value.merge(nextValue()) { _, new in new }
     }
 }
@@ -156,7 +160,7 @@ struct AddTodoField: View {
     @Environment(AppStore.self) private var store
     var day: Date
     @State private var draft = ""
-    @State private var selectedGroup: String?
+    @State private var selection: TodoDestination = .ungrouped
     @FocusState private var focusedField: FocusedField?
     private let focusOnAppear: Bool
     private let onCancel: (() -> Void)?
@@ -190,7 +194,7 @@ struct AddTodoField: View {
             Divider()
                 .frame(height: 19)
 
-            TodoGroupPickerButton(selection: $selectedGroup) {
+            TodoGroupPickerButton(selection: $selection) {
                 focusedField = .todo
             }
         }
@@ -252,7 +256,7 @@ struct AddTodoField: View {
     /// The picked group sticks across adds so several todos can go into the
     /// same group in a row.
     private func submit() {
-        guard store.addTodo(draft, on: day, group: selectedGroup) != nil else { return }
+        guard store.addTodo(draft, on: day, destination: selection) != nil else { return }
         draft = ""
         focusedField = .todo
     }
@@ -264,8 +268,10 @@ struct AddTodoField: View {
     }
 
     private var accessibilityLabel: String {
-        guard let selectedGroup else { return placeholder }
-        return "\(placeholder), in \(selectedGroup)"
+        guard let group = selection.group else { return placeholder }
+        return selection.isShared
+            ? "\(placeholder), in the shared group \(group)"
+            : "\(placeholder), in \(group)"
     }
 }
 
@@ -397,17 +403,17 @@ struct TodoListSection: View {
     }
 
     /// Today always shows Work and Personal as standing buckets so any todo can
-    /// be dragged into a category even before one exists. Past and future days
-    /// just render whatever groups they already have.
+    /// be dragged into a category even before one exists — and every shared
+    /// group too, since a group somebody just shared has to be visible before
+    /// there is anything in it. Past and future days just render whatever
+    /// groups they already have.
     private var displayGroups: [TodoGroup] {
         var groups = store.todoGroups(on: day)
         guard mode == .today else { return groups }
-        for bucket in store.standingGroups {
-            let key = TodoGroupName.key(for: bucket)
-            let exists = groups.contains { $0.group.map { TodoGroupName.key(for: $0) } == key }
-            if !exists {
-                groups.append(TodoGroup(group: bucket, todos: []))
-            }
+        for bucket in store.standingDestinations where !groups.contains(where: {
+            $0.destination.key == bucket.key
+        }) {
+            groups.append(TodoGroup(group: bucket.group, shareID: bucket.shareID, todos: []))
         }
         return groups
     }
@@ -425,12 +431,18 @@ private struct TodoGroupBlock: View {
     var dragController: TodoDragController?
     var selectedTodoID: Todo.ID?
 
-    private var doneCount: Int { group.todos.filter(\.isDone).count }
-    private var frameKey: String { group.group ?? ungroupedDragKey }
-    private var isTargeted: Bool { dragController?.isTargeted(frameKey) ?? false }
+    @State private var isSharing = false
+    @State private var isHeaderHovered = false
 
-    /// Built-in Work and Personal always stand; only custom groups delete.
+    private var doneCount: Int { group.todos.filter(\.isDone).count }
+    private var destination: TodoDestination { group.destination }
+    private var isTargeted: Bool { dragController?.isTargeted(destination) ?? false }
+    private var share: SharedGroup? { group.shareID.flatMap { store.sharedGroup(id: $0) } }
+
+    /// Built-in Work and Personal always stand; only custom groups delete. A
+    /// shared group isn't deletable either — stopping the share is how it ends.
     private func isDeletable(_ label: String) -> Bool {
+        guard group.shareID == nil else { return false }
         let key = TodoGroupName.key(for: label)
         return !AppStore.suggestedTodoGroups.contains { TodoGroupName.key(for: $0) == key }
     }
@@ -438,42 +450,54 @@ private struct TodoGroupBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if showsHeader, let label = group.group {
-                // The whole header is the hit target — a lone chevron is a
-                // small thing to aim at, and there's nothing else to click
-                // here. The tally stays visible while folded so a collapsed
-                // group still says how much is left in it.
-                Button {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                        store.toggleCollapsed(SectionKey.group(label, on: day))
+                HStack(spacing: 7) {
+                    // The whole title is the fold target — a lone chevron is a
+                    // small thing to aim at. The tally stays visible while
+                    // folded so a collapsed group still says how much is left
+                    // in it.
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+                            store.toggleCollapsed(SectionKey.group(destination, on: day))
+                        }
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            Text(store.emoji(for: destination))
+                                .font(.subheadline)
+                            Text(label)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text("\(doneCount)/\(group.todos.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
                     }
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        Text(store.emoji(forGroup: label))
-                            .font(.subheadline)
-                        Text(label)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text("\(doneCount)/\(group.todos.count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(label), \(doneCount) of \(group.todos.count) done")
+                    .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
+
+                    shareControl(label)
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 14)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(label), \(doneCount) of \(group.todos.count) done")
-                .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
+                .onHover { isHeaderHovered = $0 }
                 .contextMenu {
+                    Button(share == nil ? "Share group…" : "Sharing…") { isSharing = true }
                     if isDeletable(label) {
+                        Divider()
                         Button("Delete group", role: .destructive) {
                             store.deleteGroup(label)
                         }
+                    }
+                }
+                .popover(isPresented: $isSharing, arrowEdge: .bottom) {
+                    ShareGroupPopover(label: label, shareID: group.shareID) {
+                        isSharing = false
                     }
                 }
             }
@@ -497,18 +521,55 @@ private struct TodoGroupBlock: View {
         .background(frameReporter)
     }
 
+    /// The trailing end of a group header: who it is shared with, and the way
+    /// in to sharing it. A shared group wears its members permanently — that
+    /// stack is the difference between a private bucket and one somebody else
+    /// is reading. An unshared one keeps a quiet button that firms up on hover.
+    @ViewBuilder
+    private func shareControl(_ label: String) -> some View {
+        Button {
+            isSharing = true
+        } label: {
+            Group {
+                if let share {
+                    MemberAvatarStack(members: share.members(excluding: store.currentPhone))
+                } else {
+                    Image(systemName: "person.badge.plus")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(share != nil || isHeaderHovered ? 1 : 0.35)
+        .animation(.easeOut(duration: 0.12), value: isHeaderHovered)
+        .help(shareHelp)
+        .accessibilityLabel(shareHelp)
+    }
+
+    private var shareHelp: String {
+        guard let share else { return "Share this group with a phone number" }
+        let others = share.members(excluding: store.currentPhone)
+        guard let first = others.first else { return "Shared group" }
+        return others.count == 1
+            ? "Shared with \(store.memberLabel(first))"
+            : "Shared with \(others.count) people"
+    }
+
     /// Only labelled groups fold; the ungrouped cluster that leads the day has
     /// no header to fold it from.
     private var isCollapsed: Bool {
-        guard showsHeader, let label = group.group else { return false }
-        return store.isCollapsed(SectionKey.group(label, on: day))
+        guard showsHeader, group.group != nil else { return false }
+        return store.isCollapsed(SectionKey.group(destination, on: day))
     }
 
     /// The order to render: normally the group's todos, but while a card is
     /// being dragged within this bucket, a live preview with the card slotted
     /// into its prospective landing spot so the other rows reflow to make room.
     private var displayTodos: [Todo] {
-        dragController?.previewReorder(group.todos, inGroup: frameKey) ?? group.todos
+        dragController?.previewReorder(group.todos, in: destination) ?? group.todos
     }
 
     /// Whether the row after `todo` is the first completed one, i.e. `todo`
@@ -587,7 +648,7 @@ private struct TodoGroupBlock: View {
         GeometryReader { geometry in
             Color.clear.preference(
                 key: GroupFramePreferenceKey.self,
-                value: [frameKey: geometry.frame(in: .named(todoDragSpace))]
+                value: [destination: geometry.frame(in: .named(todoDragSpace))]
             )
         }
     }
@@ -677,7 +738,12 @@ struct TodoRow: View {
     @FocusState private var isEditFocused: Bool
 
     private var isDragging: Bool { dragController?.isDragging(todo.id) ?? false }
-    private var canMove: Bool { dragController != nil && mode == .today && !isFloating }
+    /// Somebody else's line in a shared group can be ticked off or deleted but
+    /// not re-filed — it isn't yours to move out of the group you both share.
+    private var canRefile: Bool { store.isAuthoredByCurrentUser(todo) }
+    private var canMove: Bool {
+        dragController != nil && mode == .today && !isFloating && canRefile
+    }
     private var canSwipe: Bool { !isFloating && mode != .history && !isEditing }
     /// Past days are frozen history; today and future todos can be renamed.
     private var canEdit: Bool { !isFloating && mode != .history }
@@ -815,7 +881,7 @@ struct TodoRow: View {
             .onChanged { value in
                 guard let controller = dragController else { return }
                 if !controller.isDragging(todo.id) {
-                    controller.lift(todo, sourceKey: todo.group ?? ungroupedDragKey)
+                    controller.lift(todo, from: todo.destination)
                 }
                 controller.move(translation: value.translation, location: value.location)
             }
@@ -823,15 +889,15 @@ struct TodoRow: View {
                 guard let controller = dragController else { return }
                 let drop = controller.resolveDrop(at: value.location)
                 let reorderAnchor = controller.reorderAnchorID
-                let didReorder = !drop.changed && reorderAnchor != nil && reorderAnchor != todo.id
-                if drop.changed || didReorder {
+                let didReorder = drop == nil && reorderAnchor != nil && reorderAnchor != todo.id
+                if drop != nil || didReorder {
                     // A firm confirm tap when the card actually lands somewhere
                     // new — a different group, or a new slot in this one.
                     Haptics.bump()
                 }
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-                    if drop.changed {
-                        store.setTodoGroup(todo.id, group: drop.label)
+                    if let drop {
+                        store.setTodoGroup(todo.id, to: drop)
                     } else if let reorderAnchor, didReorder {
                         store.moveTodo(todo.id, relativeTo: reorderAnchor, after: controller.reorderAfter)
                     }
@@ -896,6 +962,7 @@ struct TodoRow: View {
                 }
                 .buttonStyle(.ghost)
             }
+            authorAvatar
             if !isEditing {
                 HStack(spacing: 2) {
                     if canMove || isFloating {
@@ -911,6 +978,18 @@ struct TodoRow: View {
         .background(Color.primary.opacity(isHovered ? 0.035 : 0))
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+
+    /// Who added this, on the trailing edge — only in a shared group, where it
+    /// is the one thing a row can't otherwise say. In a private group there is
+    /// only ever one author, so a badge there would be noise.
+    @ViewBuilder
+    private var authorAvatar: some View {
+        if let member = store.author(of: todo) {
+            MemberAvatar(member: member)
+                .help("Added by \(store.memberLabel(member))")
+                .accessibilityLabel("Added by \(store.memberLabel(member))")
+        }
     }
 
     // MARK: - Inline edit
@@ -976,7 +1055,9 @@ struct TodoRow: View {
             Button(action: beginEditing) {
                 Label("Edit", systemImage: "pencil")
             }
-            moveToGroupMenu
+            if canRefile {
+                moveToGroupMenu
+            }
         }
         if !todo.isDone {
             scheduleMenu
@@ -994,22 +1075,28 @@ struct TodoRow: View {
     /// checkmark keeps the current location unambiguous.
     private var moveToGroupMenu: some View {
         Menu {
-            ForEach(store.availableTodoGroups, id: \.self) { group in
+            ForEach(store.availableDestinations, id: \.key) { destination in
                 Button {
-                    moveToGroup(group)
+                    move(to: destination)
                 } label: {
-                    if isCurrentGroup(group) {
-                        Label("\(store.emoji(forGroup: group)) \(group)", systemImage: "checkmark")
+                    // A shared destination says so: two entries can carry the
+                    // same name, and the only difference that matters is
+                    // whether the move publishes the todo to somebody else.
+                    let title = destination.isShared
+                        ? "\(store.emoji(for: destination)) \(destination.group ?? "") · shared"
+                        : "\(store.emoji(for: destination)) \(destination.group ?? "")"
+                    if destination == todo.destination {
+                        Label(title, systemImage: "checkmark")
                     } else {
-                        Text("\(store.emoji(forGroup: group)) \(group)")
+                        Text(title)
                     }
                 }
             }
             Divider()
             Button {
-                moveToGroup(nil)
+                move(to: .ungrouped)
             } label: {
-                if todo.group == nil {
+                if todo.destination == .ungrouped {
                     Label("No group", systemImage: "checkmark")
                 } else {
                     Label("No group", systemImage: "tray")
@@ -1024,21 +1111,14 @@ struct TodoRow: View {
         }
     }
 
-    private func isCurrentGroup(_ group: String) -> Bool {
-        guard let current = todo.group else { return false }
-        return TodoGroupName.key(for: current) == TodoGroupName.key(for: group)
+    private func moveToGroup(_ group: String?) {
+        move(to: TodoDestination(group: group))
     }
 
-    private func moveToGroup(_ group: String?) {
-        let destinationMatches: Bool
-        if let group {
-            destinationMatches = isCurrentGroup(group)
-        } else {
-            destinationMatches = todo.group == nil
-        }
-        guard !destinationMatches else { return }
+    private func move(to destination: TodoDestination) {
+        guard store.resolve(destination) != todo.destination else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-            store.setTodoGroup(todo.id, group: group)
+            store.setTodoGroup(todo.id, to: destination)
         }
     }
 
@@ -1210,6 +1290,20 @@ private struct DoubleClickEdit: ViewModifier {
         TodoListSection()
     }
     .environment(AppStore.previewJudged)
+    // Group headers reach for the sync session to offer sharing.
+    .environment(SyncController())
+    .padding(24)
+    .frame(width: 520)
+    .background(Color.manasBackground)
+}
+
+#Preview("Shared group") {
+    VStack(spacing: 16) {
+        AddTodoField()
+        TodoListSection()
+    }
+    .environment(AppStore.previewShared)
+    .environment(SyncController())
     .padding(24)
     .frame(width: 520)
     .background(Color.manasBackground)

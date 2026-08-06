@@ -26,6 +26,7 @@ final class SyncController {
 
     @ObservationIgnored private let auth: any SyncAuth
     @ObservationIgnored private let api = SupabaseTodoAPI()
+    @ObservationIgnored private let shareAPI = SupabaseShareAPI()
     @ObservationIgnored private weak var store: AppStore?
     @ObservationIgnored private let stateURL: URL
     @ObservationIgnored private var loopTask: Task<Void, Never>?
@@ -84,6 +85,7 @@ final class SyncController {
         guard !Self.isDisabledByEnvironment else { return }
         isSignedIn = auth.isSignedIn
         phoneNumber = auth.phone
+        publishIdentity()
         if isSignedIn, phase == .signedOut { phase = .idle }
     }
 
@@ -95,8 +97,16 @@ final class SyncController {
         try await auth.verifyCode(phone: phone, code: code)
         isSignedIn = auth.isSignedIn
         phoneNumber = auth.phone
+        publishIdentity()
         phase = .idle
         scheduleSync(after: .zero)
+    }
+
+    /// Tells the store who is signed in. That number is the identity behind
+    /// shared groups — the author stamped onto new todos, and the member the
+    /// UI draws as "you".
+    private func publishIdentity() {
+        store?.currentPhone = isSignedIn ? PhoneIdentity.normalized(phoneNumber) : nil
     }
 
     func signOut() {
@@ -104,6 +114,7 @@ final class SyncController {
         auth.signOut()
         isSignedIn = false
         phoneNumber = nil
+        store?.currentPhone = nil
         phase = .signedOut
         watermark = nil
         snapshot = [:]
@@ -143,6 +154,7 @@ final class SyncController {
     func start(store: AppStore) {
         guard !Self.isDisabledByEnvironment else { return }
         self.store = store
+        publishIdentity()
         startLoopIfPossible()
     }
 
@@ -164,12 +176,16 @@ final class SyncController {
         pendingSync = nil
     }
 
-    /// Re-arms observation of the todos array; every change (except our own
-    /// merge application) schedules a short-debounce push.
+    /// Re-arms observation of the synced state; every change (except our own
+    /// merge application) schedules a short-debounce push. Share rows are
+    /// watched alongside the todos so inviting someone reaches them in seconds
+    /// rather than at the next minute tick.
     private func observeStore() {
         guard let store else { return }
         withObservationTracking {
             _ = store.todos
+            _ = store.sharedGroupRecords
+            _ = store.sharedMemberRecords
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -200,12 +216,18 @@ final class SyncController {
         phase = .syncing
         do {
             let token = try await auth.bearerToken()
+            // Shares go first, and their push lands before any todo does: a
+            // todo carries its share id as a foreign key, so the group has to
+            // exist on the server before a row can point at it.
+            try await syncShares(store: store, token: token)
             let remote = try await api.changes(since: watermark, accessToken: token)
             let outcome = SyncMerge.merge(
                 local: store.todos,
                 snapshot: snapshot,
                 remote: remote,
-                previousWatermark: watermark
+                previousWatermark: watermark,
+                currentPhone: PhoneIdentity.normalized(phoneNumber),
+                liveShareIDs: Set(store.sharedGroups.map(\.id))
             )
             try await api.upsert(outcome.toPush, accessToken: token)
             if outcome.todos != store.todos {
@@ -223,6 +245,21 @@ final class SyncController {
             logger.error("Sync failed: \(error.localizedDescription)")
             phase = .error(error.localizedDescription)
         }
+    }
+
+    /// One pass over the share tables. They are small enough to pull whole,
+    /// which is also what makes a revoked share disappear: the row simply
+    /// stops coming back, and `applyShareMerge` releases its todos.
+    private func syncShares(store: AppStore, token: String) async throws {
+        let remoteGroups = try await shareAPI.groups(accessToken: token)
+        let remoteMembers = try await shareAPI.members(accessToken: token)
+        let groups = ShareMerge.merge(local: store.sharedGroupRecords, remote: remoteGroups)
+        let members = ShareMerge.merge(local: store.sharedMemberRecords, remote: remoteMembers)
+        try await shareAPI.upsertGroups(groups.toPush, accessToken: token)
+        try await shareAPI.upsertMembers(members.toPush, accessToken: token)
+        isApplyingMerge = true
+        store.applyShareMerge(groups: groups.records, members: members.records)
+        isApplyingMerge = false
     }
 
     private func persistSyncState() {
