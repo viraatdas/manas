@@ -23,6 +23,7 @@ struct MobileShareGroupSheet: View {
     @State private var inviteeName = ""
     @State private var myName = ""
     @State private var errorText: String?
+    @State private var showingContactPicker = false
 
     private var share: SharedGroup? { target.shareID.flatMap { store.sharedGroup(id: $0) } }
     private var isOwner: Bool { share.map(store.isOwner(of:)) ?? true }
@@ -59,11 +60,45 @@ struct MobileShareGroupSheet: View {
                 }
             }
             .onAppear { myName = store.myDisplayName ?? "" }
+            .sheet(isPresented: $showingContactPicker) {
+                ContactPicker(
+                    onPick: { number, name in
+                        showingContactPicker = false
+                        adopt(number: number, name: name)
+                    },
+                    onCancel: { showingContactPicker = false }
+                )
+                .ignoresSafeArea()
+            }
         }
+    }
+
+    /// A picked contact fills the form rather than sharing outright: the number
+    /// stays visible and correctable, and the name only fills in if they don't
+    /// already have one, so a name you typed for them is never overwritten.
+    private func adopt(number: String, name: String?) {
+        phone = number
+        if inviteeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let name, !name.isEmpty {
+            inviteeName = name
+        }
+        errorText = PhoneIdentity.normalized(number) == nil
+            ? "That contact's number doesn't look like one we can share to."
+            : nil
     }
 
     private var inviteSection: some View {
         Section {
+            // Sharing is keyed on a phone number, but nobody knows anyone's
+            // number by heart any more — so the contact list leads and typing
+            // one in is the fallback for a person who isn't in it.
+            Button {
+                showingContactPicker = true
+            } label: {
+                Label("Choose from Contacts", systemImage: "person.crop.circle.badge.plus")
+            }
+            .tint(.manasAccent)
+
             TextField("+1 415 555 0137", text: $phone)
                 .keyboardType(.phonePad)
                 .textContentType(.telephoneNumber)

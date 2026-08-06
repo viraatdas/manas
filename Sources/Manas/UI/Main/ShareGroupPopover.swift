@@ -97,6 +97,17 @@ struct ShareGroupPopover: View {
 
     private var inviteField: some View {
         VStack(alignment: .leading, spacing: 7) {
+            // Sharing is keyed on a phone number, but nobody knows anyone's
+            // number by heart any more — so the contact list leads and typing
+            // one in is the fallback for a person who isn't in it.
+            ContactPickerButton { number, name in
+                phone = number
+                if inviteeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let name, !name.isEmpty {
+                    inviteeName = name
+                }
+                errorText = nil
+            }
             TextField("+1 415 555 0137", text: $phone)
                 .textFieldStyle(.roundedBorder)
                 .focused($isPhoneFocused)
