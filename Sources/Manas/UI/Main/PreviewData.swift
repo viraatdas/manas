@@ -41,6 +41,60 @@ extension AppStore {
         return store
     }
 
+    /// A judged day with one group shared with two other numbers, plus their
+    /// contributions — so avatars, the header's member stack, and the "you"
+    /// labelling all have something real to render.
+    static var previewShared: AppStore {
+        let store = previewJudged
+        store.currentPhone = previewMyPhone
+        store.myDisplayName = "Viraat"
+        let shareID = UUID()
+        let created = todayAt(9, 0)
+        store.sharedGroupRecords = [
+            SharedGroupRecord(
+                id: shareID, name: "Manas", emoji: "🚀", ownerID: previewMyPhone,
+                createdAt: created, updatedAt: created, deleted: false
+            )
+        ]
+        store.sharedMemberRecords = [
+            SharedGroupMemberRecord(
+                id: UUID(), shareID: shareID, phone: previewMyPhone, displayName: "Viraat",
+                createdAt: created, updatedAt: created, deleted: false
+            ),
+            SharedGroupMemberRecord(
+                id: UUID(), shareID: shareID, phone: "15555550100", displayName: "Ada Kane",
+                createdAt: created, updatedAt: created, deleted: false
+            ),
+            SharedGroupMemberRecord(
+                id: UUID(), shareID: shareID, phone: "16505550188", displayName: nil,
+                createdAt: created, updatedAt: created, deleted: false
+            ),
+        ]
+        store.todos = store.todos.map { todo in
+            guard todo.group == "Manas" else { return todo }
+            var todo = todo
+            todo.shareID = shareID
+            todo.authorPhone = previewMyPhone
+            return todo
+        }
+        store.todos.append(Todo(
+            text: "Draft the release notes",
+            group: "Manas",
+            shareID: shareID,
+            authorPhone: "15555550100"
+        ))
+        store.todos.append(Todo(
+            text: "Check the appcast signature",
+            group: "Manas",
+            shareID: shareID,
+            authorPhone: "16505550188",
+            isDone: true
+        ))
+        return store
+    }
+
+    static let previewMyPhone = "14155550137"
+
     private static func scratchStore() -> AppStore {
         AppStore(
             fileURL: FileManager.default.temporaryDirectory

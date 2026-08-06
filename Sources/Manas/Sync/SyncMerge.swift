@@ -17,12 +17,21 @@ enum SyncMerge {
         var watermark: Date?
     }
 
+    /// - Parameters:
+    ///   - currentPhone: the signed-in number, used to tell our own rows from
+    ///     a shared group's. nil means "everything here is ours", which is
+    ///     exactly right for a device with no shared groups.
+    ///   - liveShareIDs: the shared groups this device still belongs to. A row
+    ///     somebody else wrote in a group that has since ended is no longer
+    ///     ours to write, so it must not be pushed.
     static func merge(
         local: [Todo],
         snapshot: [UUID: TodoRecord],
         remote: [TodoRecord],
         previousWatermark: Date?,
-        now: Date = Date()
+        now: Date = Date(),
+        currentPhone: String? = nil,
+        liveShareIDs: Set<UUID> = []
     ) -> Outcome {
         // Page is sorted oldest-first, so keeping the last occurrence per id
         // resolves any in-page double edit.
@@ -65,6 +74,18 @@ enum SyncMerge {
             appliedRemote[record.id] = record
         }
 
+        // Whether this device may write a row at all. Our own rows always;
+        // somebody else's only while we are still in the shared group it
+        // belongs to. The server enforces exactly this, and a single rejected
+        // row fails the whole batch — so when a share ends, the copies of other
+        // people's todos it leaves behind have to fall silent rather than keep
+        // being pushed.
+        func isWritable(_ record: TodoRecord) -> Bool {
+            if record.isAuthored(by: currentPhone) { return true }
+            guard let shareID = record.shareID else { return false }
+            return liveShareIDs.contains(shareID)
+        }
+
         // Ids the server knew that are gone locally: a concurrent remote edit
         // resurrects (no data loss); otherwise the deletion propagates.
         var tombstones: [TodoRecord] = []
@@ -74,12 +95,24 @@ enum SyncMerge {
                     merged.append(record.todo)
                     appliedRemote[id] = record
                 }
-            } else if !synced.deleted {
+            } else if !synced.deleted, isWritable(synced) {
                 var tombstone = synced
                 tombstone.deleted = true
                 tombstone.updatedAt = now
                 tombstones.append(tombstone)
             }
+        }
+
+        // A row somebody else wrote in a shared group. Its position belongs to
+        // them: the same row sits in two people's days, interleaved with two
+        // different sets of private todos, so each device computes a different
+        // index for it. If both pushed, the two clients would spend forever
+        // rewriting each other's order.
+        func isForeign(_ id: UUID) -> Bool {
+            guard let record = appliedRemote[id] ?? snapshot[id], record.shareID != nil else {
+                return false
+            }
+            return !record.isAuthored(by: currentPhone)
         }
 
         // Phase 2 — settle display order: per-day position ascending, local
@@ -91,7 +124,11 @@ enum SyncMerge {
             let key = TodoRecord.dayString(from: todo.day)
             let localPosition = dayCounters[key, default: 0]
             dayCounters[key] = localPosition + 1
-            positionInDay[todo.id] = appliedRemote[todo.id]?.position ?? localPosition
+            if isForeign(todo.id), let owned = appliedRemote[todo.id] ?? snapshot[todo.id] {
+                positionInDay[todo.id] = owned.position
+            } else {
+                positionInDay[todo.id] = appliedRemote[todo.id]?.position ?? localPosition
+            }
         }
         merged.sort { a, b in
             if a.day != b.day { return a.day < b.day }
@@ -112,9 +149,14 @@ enum SyncMerge {
             finalCounters[key] = position + 1
 
             let baseline = snapshot[todo.id]
+            // Someone else's row keeps the position the server has, so an edit
+            // to its text or checkbox travels while its order does not.
+            let settledPosition = isForeign(todo.id)
+                ? (appliedRemote[todo.id] ?? baseline)?.position ?? position
+                : position
             let candidate = TodoRecord(
                 todo: todo,
-                position: position,
+                position: settledPosition,
                 updatedAt: baseline?.updatedAt ?? now
             )
             if let applied = appliedRemote[todo.id], applied.contentKey == candidate.contentKey {
@@ -122,6 +164,10 @@ enum SyncMerge {
                 nextSnapshot[todo.id] = applied
             } else if let baseline, baseline.contentKey == candidate.contentKey, !baseline.deleted {
                 nextSnapshot[todo.id] = baseline
+            } else if !isWritable(candidate) {
+                // Read-only leftover from a share that ended: keep showing it,
+                // stop trying to write it.
+                nextSnapshot[todo.id] = appliedRemote[todo.id] ?? baseline
             } else {
                 var pushed = candidate
                 pushed.updatedAt = now

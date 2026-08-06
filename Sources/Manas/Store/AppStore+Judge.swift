@@ -196,8 +196,11 @@ extension AppStore {
         codingSessionsToday = Self.codingSessions(from: aggregated)
         try Task.checkCancellation()
         // Only today is judged: past days are frozen and future days are
-        // plans, so neither belongs in the prompt.
-        let todosToday = self.todosToday
+        // plans, so neither belongs in the prompt. Todos somebody else added
+        // to a shared group are dropped too — judging their work against
+        // *this* machine's sessions would produce confident nonsense, and
+        // their text has no business in this user's prompt.
+        let todosToday = self.todosToday.filter(isAuthoredByCurrentUser)
         // A completely empty day (no todos today, nothing observed) isn't
         // worth a CLI call — and auto-checks would otherwise pile up
         // zero-token records. Mark the check and stop.

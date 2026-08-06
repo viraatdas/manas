@@ -38,12 +38,25 @@ struct MobileTodoRow: View {
                 }
             }
             Spacer(minLength: 0)
+            authorAvatar
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .swipeActions(edge: .leading, allowsFullSwipe: true) { leadingSwipe }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) { trailingSwipe }
         .contextMenu { contextMenu }
+    }
+
+    // MARK: - Author
+
+    /// Who added this, on the trailing edge — only in a shared group, where it
+    /// is the one thing the row can't otherwise say.
+    @ViewBuilder
+    private var authorAvatar: some View {
+        if let member = store.author(of: todo) {
+            MemberAvatar(member: member)
+                .accessibilityLabel("Added by \(store.memberLabel(member))")
+        }
     }
 
     // MARK: - Checkbox
@@ -162,7 +175,11 @@ struct MobileTodoRow: View {
                 onEdit(todo)
             } label: { Label("Edit", systemImage: "pencil") }
 
-            moveToGroupMenu
+            // Somebody else's line in a shared group can be ticked off or
+            // deleted, but not re-filed out of the group you both share.
+            if store.isAuthoredByCurrentUser(todo) {
+                moveToGroupMenu
+            }
 
             if !todo.isDone {
                 Button {
@@ -187,17 +204,22 @@ struct MobileTodoRow: View {
         Menu {
             Button {
                 Haptics.tap()
-                store.setTodoGroup(todo.id, group: nil)
+                store.setTodoGroup(todo.id, to: .ungrouped)
             } label: {
-                Label("None", systemImage: todo.group == nil ? "checkmark" : "tray")
+                Label("None", systemImage: todo.destination == .ungrouped ? "checkmark" : "tray")
             }
-            ForEach(store.availableTodoGroups, id: \.self) { group in
+            ForEach(store.availableDestinations, id: \.key) { destination in
                 Button {
                     Haptics.tap()
-                    store.setTodoGroup(todo.id, group: group)
+                    store.setTodoGroup(todo.id, to: destination)
                 } label: {
-                    let isCurrent = todo.group.map { TodoGroupName.key(for: $0) } == TodoGroupName.key(for: group)
-                    Label("\(store.emoji(forGroup: group)) \(group)", systemImage: isCurrent ? "checkmark" : "")
+                    // Moving into a shared bucket publishes the todo to the
+                    // other members, so the menu says which entries do that.
+                    let name = destination.group ?? ""
+                    let title = destination.isShared
+                        ? "\(store.emoji(for: destination)) \(name) · shared"
+                        : "\(store.emoji(for: destination)) \(name)"
+                    Label(title, systemImage: todo.destination == destination ? "checkmark" : "")
                 }
             }
         } label: {

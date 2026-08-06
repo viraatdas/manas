@@ -11,6 +11,13 @@ struct TodoRecord: Codable, Hashable, Sendable {
     /// so a todo stays on "July 23" across timezones.
     var day: String
     var groupName: String?
+    /// The shared group this row belongs to. Non-null is exactly what makes a
+    /// row visible to the other members — RLS checks it, so a private todo
+    /// can never be reached by a label collision.
+    var shareID: UUID?
+    /// Digits of whoever wrote it, so a shared list can say who added what. A
+    /// server-side trigger fills it in when a client leaves it null.
+    var authorID: String?
     var isDone: Bool
     var verdict: Verdict?
     var position: Double
@@ -21,6 +28,8 @@ struct TodoRecord: Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, text, day, verdict, position, deleted
         case groupName = "group_name"
+        case shareID = "share_id"
+        case authorID = "author_id"
         case isDone = "is_done"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -31,6 +40,8 @@ struct TodoRecord: Codable, Hashable, Sendable {
         text = todo.text
         day = Self.dayString(from: todo.day)
         groupName = todo.group
+        shareID = todo.shareID
+        authorID = todo.authorPhone
         isDone = todo.isDone
         verdict = todo.verdict
         self.position = position
@@ -49,6 +60,8 @@ struct TodoRecord: Codable, Hashable, Sendable {
         try container.encode(text, forKey: .text)
         try container.encode(day, forKey: .day)
         try container.encode(groupName, forKey: .groupName)
+        try container.encode(shareID, forKey: .shareID)
+        try container.encode(authorID, forKey: .authorID)
         try container.encode(isDone, forKey: .isDone)
         try container.encode(verdict, forKey: .verdict)
         try container.encode(position, forKey: .position)
@@ -66,9 +79,18 @@ struct TodoRecord: Codable, Hashable, Sendable {
             createdAt: createdAt,
             day: Self.dayDate(from: day) ?? Date(),
             group: groupName,
+            shareID: shareID,
+            authorPhone: authorID,
             isDone: isDone,
             verdict: verdict
         )
+    }
+
+    /// True when this row was written by somebody else — the case where the
+    /// local device must not claim ownership of its order.
+    func isAuthored(by phone: String?) -> Bool {
+        guard let authorID, let phone = PhoneIdentity.normalized(phone) else { return true }
+        return authorID == phone
     }
 
     /// The fields that make two records "the same content" for dirty checks.
@@ -78,7 +100,8 @@ struct TodoRecord: Codable, Hashable, Sendable {
         let verdictPart = verdict.map {
             "\($0.status.rawValue)|\($0.evidence)|\($0.judgedAt.timeIntervalSince1970)|\(String(describing: $0.accepted))"
         } ?? "-"
-        return "\(text)|\(day)|\(groupName ?? "-")|\(isDone)|\(verdictPart)|\(position)|\(deleted)"
+        let sharePart = "\(shareID?.uuidString ?? "-")|\(authorID ?? "-")"
+        return "\(text)|\(day)|\(groupName ?? "-")|\(sharePart)|\(isDone)|\(verdictPart)|\(position)|\(deleted)"
     }
 
     // MARK: - Day formatting

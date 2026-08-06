@@ -6,7 +6,7 @@ import SwiftUI
 /// dragging afterwards.
 struct TodoGroupPickerButton: View {
     @Environment(AppStore.self) private var store
-    @Binding var selection: String?
+    @Binding var selection: TodoDestination
     var onClose: () -> Void = {}
 
     @State private var isPresented = false
@@ -16,12 +16,17 @@ struct TodoGroupPickerButton: View {
             isPresented.toggle()
         } label: {
             HStack(spacing: 5) {
-                if let selection {
-                    Text(store.emoji(forGroup: selection))
-                    Text(selection)
+                if let label = selection.group {
+                    Text(store.emoji(for: selection))
+                    Text(label)
                         .lineLimit(1)
                         .frame(maxWidth: 108, alignment: .leading)
                         .foregroundStyle(Color.primary)
+                    if selection.isShared {
+                        Image(systemName: "person.2.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.secondary)
+                    }
                 } else {
                     Image(systemName: "folder")
                         .foregroundStyle(Color.secondary)
@@ -43,7 +48,7 @@ struct TodoGroupPickerButton: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .accessibilityLabel(selection.map { "Group: \($0)" } ?? "Choose a group")
+        .accessibilityLabel(selection.group.map { "Group: \($0)" } ?? "Choose a group")
         .help("Put new todos in a group")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             TodoGroupPickerPopover(selection: $selection) {
@@ -58,7 +63,7 @@ struct TodoGroupPickerButton: View {
 
 private struct TodoGroupPickerPopover: View {
     @Environment(AppStore.self) private var store
-    @Binding var selection: String?
+    @Binding var selection: TodoDestination
     var close: () -> Void
 
     @State private var newGroup = ""
@@ -75,9 +80,13 @@ private struct TodoGroupPickerPopover: View {
 
             ScrollView {
                 VStack(spacing: 2) {
-                    option(title: "No group", group: nil, badge: nil)
-                    ForEach(groupOptions, id: \.self) { group in
-                        option(title: group, group: group, badge: store.emoji(forGroup: group))
+                    option(title: "No group", destination: .ungrouped, badge: nil)
+                    ForEach(groupOptions, id: \.key) { destination in
+                        option(
+                            title: destination.group ?? "",
+                            destination: destination,
+                            badge: store.emoji(for: destination)
+                        )
                     }
                 }
                 .padding(.horizontal, 6)
@@ -135,20 +144,20 @@ private struct TodoGroupPickerPopover: View {
         .padding(10)
     }
 
-    /// Existing groups, plus the current selection when it isn't one of them
-    /// yet (a just-typed new group stays visible until the todo is saved).
-    private var groupOptions: [String] {
-        guard let selection else { return store.availableTodoGroups }
-        let key = TodoGroupName.key(for: selection)
-        if store.availableTodoGroups.contains(where: { TodoGroupName.key(for: $0) == key }) {
-            return store.availableTodoGroups
-        }
-        return store.availableTodoGroups + [selection]
+    /// Existing buckets, shared ones included, plus the current selection when
+    /// it isn't one of them yet (a just-typed new group stays visible until the
+    /// todo is saved).
+    private var groupOptions: [TodoDestination] {
+        let available = store.availableDestinations
+        guard selection.group != nil else { return available }
+        if available.contains(where: { $0.key == selection.key }) { return available }
+        return available + [selection]
     }
 
-    private func option(title: String, group: String?, badge: String?) -> some View {
-        Button {
-            selection = group
+    private func option(title: String, destination: TodoDestination, badge: String?) -> some View {
+        let share = destination.shareID.flatMap { store.sharedGroup(id: $0) }
+        return Button {
+            selection = destination
             close()
         } label: {
             HStack(spacing: 9) {
@@ -164,7 +173,16 @@ private struct TodoGroupPickerPopover: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if selection == group {
+                // The people already in a shared bucket, so picking it is an
+                // informed choice about who will see the todo.
+                if let share {
+                    MemberAvatarStack(
+                        members: share.members(excluding: store.currentPhone),
+                        size: 16,
+                        maximum: 2
+                    )
+                }
+                if selection.key == destination.key {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Color.manasAccent)
@@ -175,14 +193,15 @@ private struct TodoGroupPickerPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(GroupOptionButtonStyle())
-        .accessibilityAddTraits(selection == group ? .isSelected : [])
+        .accessibilityLabel(share == nil ? title : "\(title), shared")
+        .accessibilityAddTraits(selection.key == destination.key ? .isSelected : [])
     }
 
     private func addGroup() {
         guard let group = store.createGroup(
             newGroup, emoji: newGroupEmoji.isEmpty ? nil : newGroupEmoji
         ) else { return }
-        selection = group
+        selection = TodoDestination(group: group)
         newGroup = ""
         newGroupEmoji = ""
         close()

@@ -33,6 +33,13 @@ Swift Charts, and SF Symbols.
   management. Ungrouped one-offs stay in a plain cluster at the top, labeled
   groups follow, and labels are reused across the day's re-checks so clusters
   stay stable. Anything you add from a discovered activity inherits its group.
+- **Shared groups** — share any group with a phone number and that person sees
+  the same bucket in their own Manas and can add to it. Every line in a shared
+  group carries a small circular avatar on the right for whoever wrote it, and
+  the group header wears the people it is shared with. A shared group is its
+  own bucket, never merged into a private group of the same name, so nothing
+  crosses over by accident; only the owner invites, removes, or stops sharing,
+  and when a share ends your own work stays behind as an ordinary group.
 - **Discovered activities** — "You might have also done this": feature-level
   work found in your sessions that wasn't on the list. Add it (arrives
   checked off) or dismiss it (it stays dismissed on future checks).

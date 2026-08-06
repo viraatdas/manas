@@ -62,6 +62,16 @@ enum SectionKey {
         "group:\(dayKey(day)):\(TodoGroupName.key(for: label))"
     }
 
+    /// A shared group folds on its share id, not its label: two buckets on the
+    /// same day may legitimately share a name, and folding one must not fold
+    /// the other.
+    static func group(_ destination: TodoDestination, on day: Date) -> String {
+        guard destination.shareID != nil else {
+            return group(destination.group ?? "", on: day)
+        }
+        return "group:\(dayKey(day)):\(destination.key)"
+    }
+
     static let discovered = "section:discovered"
 
     /// `yyyy-MM-dd` in the current calendar. Built from date components rather
@@ -104,6 +114,15 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
     /// Automatic project/theme cluster assigned by the judge (e.g. "Manas").
     /// nil until the judge groups it; ungrouped todos render first, unlabeled.
     var group: String?
+    /// The shared group this todo belongs to, if any. Only ever set by an
+    /// explicit user action (adding into a shared bucket, or dragging one
+    /// there) — the judge's automatic grouping never sets it, so a check-in
+    /// can't push private work into somebody else's list by guessing a label.
+    var shareID: UUID?
+    /// Digits of whoever wrote it, stamped at creation from the signed-in
+    /// number. nil for anything written before sharing existed, or while
+    /// signed out; a shared row without an author simply shows no avatar.
+    var authorPhone: String?
     var isDone: Bool
     var verdict: Verdict?
 
@@ -113,6 +132,8 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         createdAt: Date = Date(),
         day: Date? = nil,
         group: String? = nil,
+        shareID: UUID? = nil,
+        authorPhone: String? = nil,
         isDone: Bool = false,
         verdict: Verdict? = nil
     ) {
@@ -121,12 +142,19 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         self.createdAt = createdAt
         self.day = Calendar.current.startOfDay(for: day ?? createdAt)
         self.group = TodoGroupName.normalized(group)
+        self.shareID = shareID
+        self.authorPhone = PhoneIdentity.normalized(authorPhone)
         self.isDone = isDone
         self.verdict = verdict
     }
 
+    /// Where this todo sits: its label plus the share that owns it.
+    var destination: TodoDestination {
+        TodoDestination(group: group, shareID: shareID)
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, text, createdAt, day, group, section, isDone, verdict
+        case id, text, createdAt, day, group, section, shareID, authorPhone, isDone, verdict
     }
 
     init(from decoder: Decoder) throws {
@@ -147,6 +175,11 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         let decodedGroup = try container.decodeIfPresent(String.self, forKey: .group)
         let legacySection = try container.decodeIfPresent(String.self, forKey: .section)
         group = TodoGroupName.normalized(decodedGroup ?? legacySection)
+        // Both absent from every state.json written before sharing shipped.
+        shareID = try container.decodeIfPresent(UUID.self, forKey: .shareID)
+        authorPhone = PhoneIdentity.normalized(
+            try container.decodeIfPresent(String.self, forKey: .authorPhone)
+        )
         isDone = try container.decode(Bool.self, forKey: .isDone)
         verdict = try container.decodeIfPresent(Verdict.self, forKey: .verdict)
     }
@@ -158,6 +191,8 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(day, forKey: .day)
         try container.encodeIfPresent(group, forKey: .group)
+        try container.encodeIfPresent(shareID, forKey: .shareID)
+        try container.encodeIfPresent(authorPhone, forKey: .authorPhone)
         try container.encode(isDone, forKey: .isDone)
         try container.encodeIfPresent(verdict, forKey: .verdict)
     }
@@ -167,9 +202,22 @@ struct Todo: Identifiable, Codable, Hashable, Sendable {
 /// A nil `group` is the leading unlabeled cluster of ungrouped todos.
 struct TodoGroup: Identifiable, Hashable, Sendable {
     var group: String?
+    /// Set when this bucket is a shared group, which is what separates it from
+    /// a private group that happens to carry the same label.
+    var shareID: UUID?
     var todos: [Todo]
 
-    var id: String { group.map { TodoGroupName.key(for: $0) } ?? "__ungrouped__" }
+    init(group: String?, shareID: UUID? = nil, todos: [Todo]) {
+        self.group = group
+        self.shareID = shareID
+        self.todos = todos
+    }
+
+    var destination: TodoDestination {
+        TodoDestination(group: group, shareID: shareID)
+    }
+
+    var id: String { destination.key }
 }
 
 /// One calendar day's todos, as rendered by the day-grouped lists.

@@ -22,6 +22,16 @@ final class AppStore {
     /// Groups the user created, in creation order. Kept even while empty so a
     /// new group shows up as a standing bucket the moment it's made.
     var customGroups: [String] = [] { didSet { scheduleSave() } }
+    /// Shared groups, stored as the rows that go over the wire rather than as
+    /// assembled models. Keeping the tombstone and the stamp in hand is what
+    /// lets a share be created or revoked offline and still converge:
+    /// `SharedGroupRecord`/`SharedGroupMemberRecord` are both the local store
+    /// and the sync payload. `sharedGroups` assembles them for the UI.
+    var sharedGroupRecords: [SharedGroupRecord] = [] { didSet { scheduleSave() } }
+    var sharedMemberRecords: [SharedGroupMemberRecord] = [] { didSet { scheduleSave() } }
+    /// The name this user shows up as in a shared group's avatars. Written
+    /// onto their own membership rows so the other side sees it too.
+    var myDisplayName: String? { didSet { scheduleSave() } }
     /// Sections the user has folded away, by stable key (see `SectionKey`).
     /// A view preference rather than data: it is deliberately not part of the
     /// synced todo record, so collapsing a group on the desktop doesn't reach
@@ -46,6 +56,12 @@ final class AppStore {
     /// static "Manas" over somebody else's Tuesday. Transient: it describes
     /// where the scroll is, which is not worth persisting.
     var visibleFeedDay: Date = Calendar.current.startOfDay(for: Date())
+
+    /// The signed-in phone number as digits, pushed in by `SyncController`.
+    /// It is who "you" are in a shared group: the author stamped onto new
+    /// todos, and the member an avatar labels as yourself. Derived from the
+    /// session rather than persisted, so signing out forgets it.
+    var currentPhone: String?
 
     /// True while a check-in is running — spins the header refresh button
     /// and blocks overlapping checks.
@@ -104,6 +120,9 @@ final class AppStore {
             dailyTokenBudget = state.dailyTokenBudget
             groupEmojis = state.groupEmojis ?? [:]
             customGroups = state.customGroups ?? []
+            sharedGroupRecords = state.sharedGroupRecords ?? []
+            sharedMemberRecords = state.sharedMemberRecords ?? []
+            myDisplayName = state.myDisplayName
             collapsedSections = Self.pruningCollapsedSections(
                 state.collapsedSections ?? [],
                 toDaysWithTodos: state.todos
@@ -174,6 +193,23 @@ final class AppStore {
         return standingGroups + extra
     }
 
+    /// Every bucket a todo can be filed into, shared groups included. Shared
+    /// ones come last so the private list a user already knows stays where it
+    /// was, and each keeps its share id — the private "Manas" and the "Manas"
+    /// someone shared are two separate destinations even here.
+    var availableDestinations: [TodoDestination] {
+        availableTodoGroups.map { TodoDestination(group: $0) }
+            + sharedGroups.map { TodoDestination(group: $0.name, shareID: $0.id) }
+    }
+
+    /// Buckets that always show on today, even while empty: the built-ins, the
+    /// user's own groups, and every shared group — a group somebody shared has
+    /// to be visible before anything is in it, or there is nowhere to add.
+    var standingDestinations: [TodoDestination] {
+        standingGroups.map { TodoDestination(group: $0) }
+            + sharedGroups.map { TodoDestination(group: $0.name, shareID: $0.id) }
+    }
+
     /// Registers a user-created group so it appears as a bucket right away,
     /// before any todo is dropped into it. Returns the canonical label.
     @discardableResult
@@ -192,9 +228,15 @@ final class AppStore {
     /// Deletes a group: clears it from every todo, drops its emoji, and removes
     /// it from the created list. Built-in Work and Personal always remain
     /// available even after their todos are cleared.
+    ///
+    /// Todos in a shared group of the same name are left alone — the label is
+    /// shorthand for a private bucket here, and a shared one is only ended by
+    /// its owner stopping the share.
     func deleteGroup(_ group: String) {
         let key = TodoGroupName.key(for: group)
-        for index in todos.indices where todos[index].group.map({ TodoGroupName.key(for: $0) }) == key {
+        for index in todos.indices
+        where todos[index].shareID == nil
+            && todos[index].group.map({ TodoGroupName.key(for: $0) }) == key {
             todos[index].group = nil
         }
         customGroups.removeAll { TodoGroupName.key(for: $0) == key }
@@ -206,6 +248,15 @@ final class AppStore {
     func emoji(forGroup group: String) -> String {
         let key = TodoGroupName.key(for: group)
         return groupEmojis[key] ?? TodoGroupName.defaultEmoji[key] ?? TodoGroupName.fallbackEmoji
+    }
+
+    /// A shared group's badge travels with the share, so both people see the
+    /// same icon; everything else falls back to the local choice.
+    func emoji(for destination: TodoDestination) -> String {
+        if let shareID = destination.shareID, let share = sharedGroup(id: shareID) {
+            return share.emoji ?? TodoGroupName.fallbackEmoji
+        }
+        return destination.group.map { emoji(forGroup: $0) } ?? TodoGroupName.fallbackEmoji
     }
 
     /// Assigns (or clears) a group's emoji. Stored by the group's key so every
@@ -228,6 +279,9 @@ final class AppStore {
         usageRecords = []
         groupEmojis = [:]
         customGroups = []
+        sharedGroupRecords = []
+        sharedMemberRecords = []
+        myDisplayName = nil
         collapsedSections = []
         lastCheckedAt = nil
         lastAutomaticCheckAt = nil
@@ -245,14 +299,30 @@ final class AppStore {
 
     @discardableResult
     func addTodo(_ text: String, on day: Date = Date(), group: String? = nil) -> Todo? {
+        addTodo(text, on: day, destination: TodoDestination(group: group))
+    }
+
+    /// Adds a todo into a specific bucket, which may be a shared one. The
+    /// author is stamped from the signed-in number so a shared list can say
+    /// who put each line there.
+    @discardableResult
+    func addTodo(_ text: String, on day: Date = Date(), destination: TodoDestination) -> Todo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let todo = Todo(text: trimmed, day: day, group: canonicalTodoGroup(group))
+        let resolved = resolve(destination)
+        let todo = Todo(
+            text: trimmed,
+            day: day,
+            group: resolved.group,
+            shareID: resolved.shareID,
+            authorPhone: currentPhone
+        )
         insert(todo)
         UsageAnalytics.shared.capture(.todoCreated(
             day: UsageAnalytics.dayRelation(for: day),
             hasGroup: todo.group != nil
         ))
+        if resolved.isShared { UsageAnalytics.shared.capture(.sharedTodoAdded) }
         return todo
     }
 
@@ -260,11 +330,43 @@ final class AppStore {
     /// the judge only auto-groups todos that have no group yet, so this is
     /// never overwritten by a later check-in.
     func setTodoGroup(_ id: Todo.ID, group: String?) {
+        setTodoGroup(id, to: TodoDestination(group: group))
+    }
+
+    /// Moves a todo between buckets, shared ones included. Moving *out* of a
+    /// shared group drops its share id, which is what makes it private again;
+    /// moving *in* adds it, which is what publishes it to the other members.
+    func setTodoGroup(_ id: Todo.ID, to destination: TodoDestination) {
         guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
-        let canonical = canonicalTodoGroup(group)
-        guard todos[index].group != canonical else { return }
-        todos[index].group = canonical
-        UsageAnalytics.shared.capture(.todoGroupChanged(hasGroup: canonical != nil))
+        let resolved = resolve(destination)
+        guard todos[index].destination != resolved else { return }
+        // Somebody else's line in a shared group is theirs: check it off,
+        // delete it, but don't re-file it. The server's row-level security
+        // says the same, and one rejected row fails a whole sync batch — so
+        // the move is refused here rather than left to blow up later.
+        guard isAuthoredByCurrentUser(todos[index]) || resolved.shareID == todos[index].shareID
+        else { return }
+        todos[index].group = resolved.group
+        todos[index].shareID = resolved.shareID
+        // A todo written before sign-in has no author; moving it into a shared
+        // group is the moment one is needed, so claim it here.
+        if resolved.isShared, todos[index].authorPhone == nil {
+            todos[index].authorPhone = currentPhone
+        }
+        UsageAnalytics.shared.capture(.todoGroupChanged(hasGroup: resolved.group != nil))
+        if resolved.isShared { UsageAnalytics.shared.capture(.sharedTodoAdded) }
+    }
+
+    /// Canonicalizes a destination. A shared bucket always carries its share's
+    /// current name, so renaming a share renames the label everywhere; a
+    /// private one reuses an existing spelling of its label. A share id that no
+    /// longer resolves (the owner stopped sharing) falls back to a plain group,
+    /// which is exactly what should happen to its todos.
+    func resolve(_ destination: TodoDestination) -> TodoDestination {
+        if let shareID = destination.shareID, let share = sharedGroup(id: shareID) {
+            return TodoDestination(group: share.name, shareID: shareID)
+        }
+        return TodoDestination(group: canonicalTodoGroup(destination.group))
     }
 
     /// New todos go on top of their day's group. A day's first todo lands at
@@ -287,7 +389,7 @@ final class AppStore {
               let from = todos.firstIndex(where: { $0.id == id }),
               let anchor = todos.firstIndex(where: { $0.id == anchorID }),
               Calendar.current.isDate(todos[from].day, inSameDayAs: todos[anchor].day),
-              groupKey(todos[from].group) == groupKey(todos[anchor].group)
+              todos[from].destination.key == todos[anchor].destination.key
         else { return }
         let moved = todos.remove(at: from)
         // The anchor's index may have shifted after the removal, so find it again.
@@ -296,12 +398,6 @@ final class AppStore {
             return
         }
         todos.insert(moved, at: after ? landing + 1 : landing)
-    }
-
-    /// Case/diacritic-insensitive group key, with nil mapping to the ungrouped
-    /// cluster so two ungrouped todos compare equal.
-    private func groupKey(_ group: String?) -> String? {
-        group.map { TodoGroupName.key(for: $0) }
     }
 
     func removeTodo(_ id: Todo.ID) {
@@ -420,31 +516,37 @@ final class AppStore {
     /// cluster of ungrouped todos leads, then each labeled group in the order
     /// its first todo appears. Each group keeps the day's todo order so newly
     /// added items stay on top, with completed todos sunk to the bottom.
+    /// Clusters on the todo's whole destination rather than on its label, so a
+    /// shared "Manas" and a private "Manas" stay two separate buckets instead
+    /// of pouring private work into a list somebody else can read.
     func todoGroups(on day: Date) -> [TodoGroup] {
         let dayTodos = todos(on: day)
-        var groups: [TodoGroup] = []
-
-        let ungrouped = dayTodos.filter { $0.group == nil }
-        if !ungrouped.isEmpty {
-            groups.append(TodoGroup(group: nil, todos: sinkingDone(ungrouped)))
-        }
-
         var order: [String] = []
-        var byKey: [String: (label: String, todos: [Todo])] = [:]
+        var byKey: [String: TodoGroup] = [:]
         for todo in dayTodos {
-            guard let group = todo.group else { continue }
-            let key = TodoGroupName.key(for: group)
+            let destination = todo.destination
+            let key = destination.key
             if byKey[key] == nil {
                 order.append(key)
-                byKey[key] = (label: group, todos: [])
+                byKey[key] = TodoGroup(
+                    // A shared bucket is titled by its share, so the owner
+                    // renaming it retitles it on every device at once.
+                    group: destination.shareID.flatMap { sharedGroup(id: $0)?.name } ?? destination.group,
+                    shareID: destination.shareID,
+                    todos: []
+                )
             }
             byKey[key]?.todos.append(todo)
         }
-        for key in order {
-            guard let entry = byKey[key] else { continue }
-            groups.append(TodoGroup(group: entry.label, todos: sinkingDone(entry.todos)))
-        }
-        return groups
+        // The unlabeled cluster leads the day; labeled groups follow in the
+        // order their first todo appears.
+        let ungroupedKey = TodoDestination.ungrouped.key
+        return (order.filter { $0 == ungroupedKey } + order.filter { $0 != ungroupedKey })
+            .compactMap { key in
+                guard var group = byKey[key] else { return nil }
+                group.todos = sinkingDone(group.todos)
+                return group
+            }
     }
 
     /// Finished todos drop below the unfinished ones so the live list stays
@@ -663,6 +765,9 @@ final class AppStore {
         // cleanly instead of tripping the "start fresh" fallback.
         var groupEmojis: [String: String]?
         var customGroups: [String]?
+        var sharedGroupRecords: [SharedGroupRecord]?
+        var sharedMemberRecords: [SharedGroupMemberRecord]?
+        var myDisplayName: String?
         /// Sorted on the way out so the file doesn't churn on every save from
         /// Set's unstable iteration order.
         var collapsedSections: [String]?
@@ -679,6 +784,9 @@ final class AppStore {
             dailyTokenBudget: dailyTokenBudget,
             groupEmojis: groupEmojis,
             customGroups: customGroups,
+            sharedGroupRecords: sharedGroupRecords,
+            sharedMemberRecords: sharedMemberRecords,
+            myDisplayName: myDisplayName,
             collapsedSections: Self.pruningCollapsedSections(
                 collapsedSections,
                 toDaysWithTodos: todos
