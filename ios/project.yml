@@ -15,7 +15,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "18"
+    CURRENT_PROJECT_VERSION: "19"
     # Inject the public, write-only PostHog project token at archive time.
     # Keeping this empty makes analytics unavailable in ordinary dev builds.
     MANAS_POSTHOG_PROJECT_TOKEN: ""
@@ -30,6 +30,7 @@ targets:
       - path: ../Sources/Manas/Models
       - path: ../Sources/Manas/Store/AppStore.swift
       - path: ../Sources/Manas/Store/AppStore+Sharing.swift
+      - path: ../Sources/Manas/Store/AppStore+CarryForward.swift
       - path: ../Sources/Manas/Analytics
       - path: ../Sources/Manas/Design
       - path: ../Sources/Manas/Sync

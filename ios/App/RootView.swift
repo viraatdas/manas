@@ -29,8 +29,11 @@ struct RootView: View {
             // The preview seam shows the feed without a real session, so it
             // must never start sync (there's nothing to converge with).
             guard !isPreviewSignedIn, sync.isSignedIn else { return }
-            store.carryForwardOverdueTodos()
+            // Sync starts first: carrying forward waits for its first pass, so
+            // a phone that has been shut since yesterday doesn't roll a todo
+            // that was crossed off on the Mac back onto today.
             sync.start(store: store)
+            await store.carryForwardOverdueTodos(awaiting: sync)
             requestAnalyticsConsentIfNeeded()
         }
         .task {

@@ -46,9 +46,11 @@ struct ContentView: View {
             value: isOnboardingPresented
         )
         .task {
-            // Roll any unfinished todos from earlier days onto today before the
-            // feed settles, so what was left undone yesterday leads today.
-            store.carryForwardOverdueTodos()
+            // Roll any unfinished todos from earlier days onto today, so what
+            // was left undone yesterday leads today — but only once sync has
+            // landed, or a device that has been closed since yesterday rolls
+            // forward todos that were finished elsewhere and wins them back.
+            await store.carryForwardOverdueTodos(awaiting: sync)
             if showsOnboardingOnFirstLaunch, !hasCompletedOnboarding {
                 isOnboardingPresented = true
             } else {
