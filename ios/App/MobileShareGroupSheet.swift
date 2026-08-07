@@ -22,6 +22,8 @@ struct MobileShareGroupSheet: View {
     @State private var phone = ""
     @State private var inviteeName = ""
     @State private var errorText: String?
+    @State private var namingMember: SharedGroupMember?
+    @State private var draftName = ""
 
     private var share: SharedGroup? { target.shareID.flatMap { store.sharedGroup(id: $0) } }
     private var isOwner: Bool { share.map(store.isOwner(of:)) ?? true }
@@ -57,6 +59,22 @@ struct MobileShareGroupSheet: View {
                     Button("Done") { dismiss() }.tint(.manasAccent)
                 }
             }
+        }
+        .alert("Name this person", isPresented: Binding(
+            get: { namingMember != nil },
+            set: { if !$0 { namingMember = nil } }
+        )) {
+            TextField("Their name", text: $draftName)
+                .textContentType(.name)
+            Button("Cancel", role: .cancel) { namingMember = nil }
+            Button("Save") {
+                if let member = namingMember, let shareID = target.shareID {
+                    store.setMemberName(draftName, forMemberWithPhone: member.phone, in: shareID)
+                }
+                namingMember = nil
+            }
+        } message: {
+            Text("Shown on their avatar as initials, to everyone in the group.")
         }
     }
 
@@ -104,7 +122,7 @@ struct MobileShareGroupSheet: View {
     }
 
     private func memberSection(_ share: SharedGroup) -> some View {
-        Section("In this group") {
+        Section {
             ForEach(share.members) { member in
                 HStack(spacing: 10) {
                     MemberAvatar(member: member, size: 26)
@@ -117,7 +135,17 @@ struct MobileShareGroupSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
+                    // Digits mean nobody has a name yet. Offer the fix where
+                    // the problem is visible rather than burying it in a menu.
+                    if canName(member, in: share), member.displayName == nil {
+                        Button("Name") { beginNaming(member) }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            .tint(.manasAccent)
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { if canName(member, in: share) { beginNaming(member) } }
                 .swipeActions {
                     if isOwner, member.phone != share.ownerPhone {
                         Button(role: .destructive) {
@@ -129,7 +157,22 @@ struct MobileShareGroupSheet: View {
                     }
                 }
             }
+        } header: {
+            Text("In this group")
+        } footer: {
+            Text("Tap someone to name them. Their avatar shows initials instead of the last two digits of their number.")
         }
+    }
+
+    /// The owner names anyone; everyone else only themselves. That mirrors what
+    /// the server allows, so the write never bounces.
+    private func canName(_ member: SharedGroupMember, in share: SharedGroup) -> Bool {
+        isOwner || PhoneIdentity.matches(member.phone, store.currentPhone)
+    }
+
+    private func beginNaming(_ member: SharedGroupMember) {
+        namingMember = member
+        draftName = member.displayName ?? ""
     }
 
     private func endSection(_ share: SharedGroup) -> some View {

@@ -167,3 +167,33 @@ enum ShareMerge {
         return Outcome(records: merged, toPush: toPush)
     }
 }
+
+extension ShareMerge {
+    /// Narrows a share push to the rows this device may actually write.
+    ///
+    /// Row-level security lets only a group's owner write the group row, and
+    /// only the owner (or the member themselves) write a membership row. A
+    /// rejected row does not fail alone: PostgREST fails the whole batch, the
+    /// throw aborts the share sync, and share sync runs before todos are
+    /// fetched — so one unwritable row stops a member receiving any shared
+    /// todo at all, on every launch, with no error anywhere in the UI.
+    static func pushable(
+        groups: [SharedGroupRecord],
+        members: [SharedGroupMemberRecord],
+        knownGroups: [SharedGroupRecord],
+        currentPhone: String?
+    ) -> (groups: [SharedGroupRecord], members: [SharedGroupMemberRecord]) {
+        let ownedShareIDs = Set(
+            knownGroups
+                .filter { PhoneIdentity.matches($0.ownerID, currentPhone) }
+                .map(\.id)
+        )
+        return (
+            groups: groups.filter { PhoneIdentity.matches($0.ownerID, currentPhone) },
+            members: members.filter {
+                ownedShareIDs.contains($0.shareID)
+                    || PhoneIdentity.matches($0.phone, currentPhone)
+            }
+        )
+    }
+}

@@ -255,8 +255,23 @@ final class SyncController {
         let remoteMembers = try await shareAPI.members(accessToken: token)
         let groups = ShareMerge.merge(local: store.sharedGroupRecords, remote: remoteGroups)
         let members = ShareMerge.merge(local: store.sharedMemberRecords, remote: remoteMembers)
-        try await shareAPI.upsertGroups(groups.toPush, accessToken: token)
-        try await shareAPI.upsertMembers(members.toPush, accessToken: token)
+
+        // Only push what this device is allowed to write. The todo push has
+        // carried this guard from the start; the share push did not, and the
+        // consequence was worse than a lost edit: a member's client would send
+        // back the group row it had just pulled, the server would reject it
+        // with a 403 (only the owner may write that row), the throw would
+        // abort syncShares — and because shares are pushed *before* todos are
+        // fetched, that member never received a single shared todo again. It
+        // looked exactly like an empty group, on every launch, forever.
+        let pushable = ShareMerge.pushable(
+            groups: groups.toPush,
+            members: members.toPush,
+            knownGroups: store.sharedGroupRecords,
+            currentPhone: store.currentPhone
+        )
+        try await shareAPI.upsertGroups(pushable.groups, accessToken: token)
+        try await shareAPI.upsertMembers(pushable.members, accessToken: token)
         isApplyingMerge = true
         store.applyShareMerge(groups: groups.records, members: members.records)
         isApplyingMerge = false

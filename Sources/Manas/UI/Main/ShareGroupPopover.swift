@@ -17,6 +17,8 @@ struct ShareGroupPopover: View {
     @State private var phone = ""
     @State private var inviteeName = ""
     @State private var errorText: String?
+    @State private var namingMemberID: UUID?
+    @State private var draftName = ""
     @FocusState private var isPhoneFocused: Bool
 
     private var share: SharedGroup? { shareID.flatMap { store.sharedGroup(id: $0) } }
@@ -155,6 +157,18 @@ struct ShareGroupPopover: View {
             ForEach(share.members) { member in
                 HStack(spacing: 8) {
                     MemberAvatar(member: member, size: 22)
+                    if namingMemberID == member.id {
+                        // Named in place: the avatar sits right there, so the
+                        // initials change under the cursor as you type.
+                        TextField("Their name", text: $draftName)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.small)
+                            .onSubmit { commitName(for: member, in: share) }
+                            .accessibilityLabel("Name for \(PhoneIdentity.display(member.phone))")
+                        Button("Save") { commitName(for: member, in: share) }
+                            .buttonStyle(.ghost)
+                            .controlSize(.small)
+                    } else {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(store.memberLabel(member))
                             .font(.subheadline)
@@ -167,6 +181,16 @@ struct ShareGroupPopover: View {
                         }
                     }
                     Spacer(minLength: 4)
+                    // Digits mean nobody has named them yet; offer the fix
+                    // exactly where the digits are.
+                    if canName(member, in: share), member.displayName == nil {
+                        Button("Name") {
+                            draftName = ""
+                            namingMemberID = member.id
+                        }
+                        .buttonStyle(.ghost)
+                        .controlSize(.small)
+                    }
                     if isOwner, member.phone != share.ownerPhone {
                         Button {
                             store.removeMember(member.id, from: share.id)
@@ -178,10 +202,23 @@ struct ShareGroupPopover: View {
                         .help("Remove from this group")
                         .accessibilityLabel("Remove \(store.memberLabel(member))")
                     }
+                    }
                 }
                 .padding(.vertical, 2)
             }
         }
+    }
+
+    /// The owner names anyone; everyone else only themselves — the same rule
+    /// the server enforces, so the write never bounces.
+    private func canName(_ member: SharedGroupMember, in share: SharedGroup) -> Bool {
+        isOwner || PhoneIdentity.matches(member.phone, store.currentPhone)
+    }
+
+    private func commitName(for member: SharedGroupMember, in share: SharedGroup) {
+        store.setMemberName(draftName, forMemberWithPhone: member.phone, in: share.id)
+        namingMemberID = nil
+        draftName = ""
     }
 
     private func caption(for member: SharedGroupMember, in share: SharedGroup) -> String {

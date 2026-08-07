@@ -352,3 +352,36 @@ extension AppStore {
         return String(trimmed.prefix(40))
     }
 }
+
+extension AppStore {
+    /// Names a member so their avatar shows initials instead of digits.
+    ///
+    /// Avatars fall back to the last two digits of a number when nobody has a
+    /// name, which reads like a serial number rather than a person. Invites
+    /// made from the contact picker carry a name across on their own; this is
+    /// for the ones that predate it, and for correcting a name that came
+    /// through wrong. The owner may name anyone in the group; everyone else
+    /// only themselves — which is exactly what row-level security allows, so
+    /// the write never bounces.
+    @discardableResult
+    func setMemberName(
+        _ rawName: String?,
+        forMemberWithPhone rawPhone: String,
+        in shareID: UUID,
+        now: Date = Date()
+    ) -> Bool {
+        guard let share = sharedGroup(id: shareID),
+              let phone = PhoneIdentity.normalized(rawPhone),
+              isOwner(of: share) || PhoneIdentity.matches(phone, currentPhone),
+              let index = sharedMemberRecords.firstIndex(where: {
+                  $0.shareID == shareID && $0.phone == phone && !$0.deleted
+              })
+        else { return false }
+
+        let name = Self.normalizedName(rawName)
+        guard sharedMemberRecords[index].displayName != name else { return true }
+        sharedMemberRecords[index].displayName = name
+        sharedMemberRecords[index].updatedAt = now
+        return true
+    }
+}
