@@ -986,9 +986,16 @@ struct TodoRow: View {
     @ViewBuilder
     private var authorAvatar: some View {
         if let member = store.author(of: todo) {
+            // Two initials can't say which Krithik; the tooltip spells the
+            // whole name out, from the address book when this device has one.
+            let name = ContactNames.shared.label(
+                for: member,
+                signedInAs: store.currentPhone,
+                fallback: store.memberLabel(member)
+            )
             MemberAvatar(member: member)
-                .help("Added by \(store.memberLabel(member))")
-                .accessibilityLabel("Added by \(store.memberLabel(member))")
+                .help("Added by \(name)")
+                .accessibilityLabel("Added by \(name)")
         }
     }
 

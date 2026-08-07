@@ -100,14 +100,14 @@ final class MemberNamingTests: XCTestCase {
         }
 
         let before = share.members.first { $0.phone == "14155550137" }
-        XCTAssertEqual(MemberBadge.initials(name: before!.displayName, phone: before!.phone), "37",
-                       "with no name, the avatar falls back to the last two digits")
+        XCTAssertNil(MemberBadge.initials(name: before!.displayName),
+                     "with no name anywhere, the avatar draws its glyph rather than digits")
 
         XCTAssertTrue(store.setMemberName("Krithik Rao", forMemberWithPhone: "+1 415 555 0137", in: share.id))
 
         let after = store.sharedGroup(id: share.id)?.members.first { $0.phone == "14155550137" }
         XCTAssertEqual(after?.displayName, "Krithik Rao")
-        XCTAssertEqual(MemberBadge.initials(name: after!.displayName, phone: after!.phone), "KR")
+        XCTAssertEqual(MemberBadge.initials(name: after!.displayName), "KR")
     }
 
     /// A member may name themselves but not other people — matching the

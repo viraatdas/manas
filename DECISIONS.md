@@ -414,3 +414,39 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - AGENTS.md's screenshot guidance was stale and cost real time [out of lane] — The documented screencapture -x -o -l path has been broken since macOS 15 and fails with a message that reads like a permissions problem. I corrected AGENTS.md, but any other verification script or skill in the wider toolchain that still shells out to screencapture -l is silently broken on this machine.
 - **By:** n1 · 2026-08-07T07:12:23.405Z
 
+## n1 — Contacts-backed member initials (avatars)
+
+- Member avatars no longer fall back to `digits.suffix(2)`. `MemberBadge.initials`
+  now returns `String?` and takes only a name; `MemberAvatar` draws a neutral
+  `person.fill` glyph when there is none. Precedence is
+  **device address book → member `displayName` → unnamed glyph**, expressed as the
+  pure `MemberBadge.initials(contactName:displayName:)`.
+- The lookup lives in the new `Sources/Manas/Design/ContactNames.swift` — Design/
+  rather than Models/ because the widget extension compiles all of Models/ and has
+  no business linking Contacts. It is `@MainActor @Observable` with a `.shared`
+  instance; views read it synchronously and get nil until the answer lands, so a
+  todo row never waits on Contacts.
+- **Contacts stay on device.** A resolved name is drawn and forgotten — never
+  written onto a `SharedGroupMemberRecord`, never pushed to Supabase. `displayName`
+  remains the only name that syncs. Anyone touching the sync layer: do not start
+  persisting these.
+- Matching reuses n0's `PhoneIdentity` unchanged. `ContactMatch.isSamePerson`
+  compares a contact number to a member identity by canonicalizing *against the
+  member's own identity* (`PhoneIdentity.canonical(number, signedInAs: identity)`),
+  which means the resolver needs no signed-in number threaded through it, and the
+  reverse direction covers legacy bare member rows.
+- Reading `CNContactStore` needed `NSContactsUsageDescription` added to
+  `ios/project.yml` and to the plist `scripts/make-app.sh` writes. The existing
+  contact *pickers* deliberately avoid that permission and are untouched.
+- Access is requested only from people-shaped surfaces (the share popover/sheet,
+  and the app root when shared groups exist) — never from a list row.
+  `MANAS_PROBE_CONTACTS` is a launch seam holding a fixed address book (or the
+  literal `denied`) for verification runs.
+## n1: Resolved the single 2-sided jj merge conflict (DECISIONS.md) for
+- **Did:** Resolved the single 2-sided jj merge conflict (DECISIONS.md) for the Contacts-backed member initials task (n1). The conflict was purely additive log churn at the end of the file: base was empty at the hunk, the integrated side had appended n1's completion report, and the worker side appended its n1 rationale section ("n1 — Contacts-backed member initials (avatars)"). Kept both, main content first then the worker section, matching the additive-log pattern every earlier DECISIONS.md resolution in this repo used (n0/n3/n1/n2/n5). Nothing dropped from either side. All Swift, project.yml, plist and script files auto-merged cleanly and both lanes' work survived: n0's PhoneIdentity.canonical/e164 + PhoneRegion.swift, and n1's Sources/Manas/Design/ContactNames.swift, the pure MemberBadge.initials(name:)/initials(contactName:displayName:) returning String?, the removed digits.suffix(2) fallback, and NSContactsUsageDescription in ios/project.yml, ios/App/Info.plist and scripts/make-app.sh. Verified: jj resolve --list reports no conflicts, no stray conflict markers anywhere in the tree, swift build clean (one pre-existing unrelated Sendable warning in Sync/TodoRecord.swift), swift test 330 XCTest tests 0 failures 14 env-gated skips plus 6 swift-testing tests passing, including the 15 ContactNamesTests.
+- **Interfaces:** DECISIONS.md only — no code changed. Both the n1 completion report and the n1 Contacts-backed-initials rationale section are retained in the log.
+- **Follow-ups:**
+  - App Store privacy label decision for Contacts [out of lane] — n1 flagged that the app now reads CNContactStore; names are matched and drawn on device and never transmitted, so the label likely needs no change, but it is a shipping-time judgement that should be made explicitly rather than by omission.
+  - Ship the client that matches the applied migration [out of lane] — Carried forward from n0: the canonicalizing migration is already live on gdnknuiqxmosuwoytrzc, but mac 0.4.5 and TestFlight build 17 still send national digits and rely on the server trigger.
+- **By:** n1 · 2026-08-07T07:14:52.644Z
+

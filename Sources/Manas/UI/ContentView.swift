@@ -69,6 +69,15 @@ struct ContentView: View {
                 sync.stop()
             }
         }
+        // Shared groups only know their people as phone numbers, so the app
+        // asks the address book who they are — once, and only once there is
+        // somebody on screen to name. Keyed on the count because the first
+        // group usually arrives with the first sync pass, after this view.
+        .task(id: store.sharedGroups.count) {
+            await ContactNames.shared.requestAccessIfNeeded(
+                for: store.sharedGroups.flatMap(\.members)
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showManasOnboarding)) { _ in
             isOnboardingPresented = true
         }
