@@ -15,6 +15,22 @@ enum JudgeError: Error, Equatable, LocalizedError {
     /// The CLI's envelope says the run itself failed (is_error / non-success subtype).
     case cliReportedError(String)
 
+    /// A coarse category for analytics. Deliberately a fixed vocabulary with no
+    /// interpolated payload: `stderr`, CLI output, and model output all quote
+    /// the user's own todos and messages, and none of that may leave the
+    /// machine. Whoever adds a case here adds a constant, never a `\(value)`.
+    var analyticsReason: String {
+        switch self {
+        case .cliNotFound: "cli_not_found"
+        case .launchFailed: "launch_failed"
+        case .nonZeroExit: "non_zero_exit"
+        case .timedOut: "timed_out"
+        case .malformedCLIOutput: "malformed_cli_output"
+        case .malformedModelOutput: "malformed_model_output"
+        case .cliReportedError: "cli_reported_error"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .cliNotFound:

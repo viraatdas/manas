@@ -35,7 +35,7 @@ final class UsageAnalytics {
         case quickCaptureOpened
         case checkInStarted(automatic: Bool)
         case checkInCompleted(automatic: Bool, sourceCount: Int, todoCount: Int)
-        case checkInFailed(automatic: Bool)
+        case checkInFailed(automatic: Bool, reason: String)
 
         fileprivate var name: String {
             switch self {
@@ -76,8 +76,15 @@ final class UsageAnalytics {
                 ["has_group": .bool(hasGroup)]
             case .todoRescheduled(let day):
                 ["day": .string(day.rawValue)]
-            case .checkInStarted(let automatic), .checkInFailed(let automatic):
+            case .checkInStarted(let automatic):
                 ["trigger": .string(automatic ? "automatic" : "manual")]
+            case .checkInFailed(let automatic, let reason):
+                [
+                    "trigger": .string(automatic ? "automatic" : "manual"),
+                    // A coarse category, never the error text: stderr and model
+                    // output can quote the user's own todos and messages.
+                    "reason": .string(reason),
+                ]
             case .checkInCompleted(let automatic, let sourceCount, let todoCount):
                 [
                     "trigger": .string(automatic ? "automatic" : "manual"),

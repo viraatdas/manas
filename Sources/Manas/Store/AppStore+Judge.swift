@@ -5,9 +5,14 @@ import Foundation
 // no "run" button; the header metadata row and usage strip are the feedback
 // that checks are happening.
 extension AppStore {
-    /// A real day of transcripts makes a large prompt; the CLI's default 60s
-    /// is too tight for haiku to chew through it (observed live).
-    static let judgeTimeout: TimeInterval = 180
+    /// A real day of transcripts makes a large prompt, and the CLI's runtime
+    /// on it is wildly variable: the same 43-todo pass measured 121s on one
+    /// attempt and had not returned after 600s on the next. At 180s that
+    /// variance showed up as a check-in failure rate that climbed past half of
+    /// all automatic passes. Nothing waits on this — it runs hourly in the
+    /// background — so the budget is set well past the slow tail rather than
+    /// near the median.
+    static let judgeTimeout: TimeInterval = 900
 
     /// How often the background check-in re-runs.
     static let autoCheckInterval: Duration = .seconds(3600)
@@ -163,7 +168,10 @@ extension AppStore {
                 // App is quitting or the check was superseded; stay quiet.
             } catch {
                 self?.lastCheckInError = error.localizedDescription
-                UsageAnalytics.shared.capture(.checkInFailed(automatic: isAutomatic))
+                UsageAnalytics.shared.capture(.checkInFailed(
+                    automatic: isAutomatic,
+                    reason: (error as? JudgeError)?.analyticsReason ?? "other"
+                ))
             }
             self?.isCheckingIn = false
         }

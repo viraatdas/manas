@@ -87,6 +87,52 @@ final class UsageAnalyticsTests: XCTestCase {
         XCTAssertNil(analytics.request(for: .appOpened))
     }
 
+    func testCheckInFailureReasonIsACategoryAndNeverTheErrorText() throws {
+        let analytics = makeAnalytics(defaults: makeDefaults())
+        analytics.setEnabled(true)
+
+        // stderr here is the shape of the thing that must not escape: the CLI
+        // quotes the user's own todos back in its error output.
+        let leaky = JudgeError.nonZeroExit(
+            code: 1,
+            stderr: "todo \"call mum about the flat\" could not be judged"
+        )
+        let request = try XCTUnwrap(analytics.request(
+            for: .checkInFailed(automatic: true, reason: leaky.analyticsReason)
+        ))
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any]
+        )
+        let properties = try XCTUnwrap(json["properties"] as? [String: Any])
+
+        XCTAssertEqual(json["event"] as? String, "manas_check_in_failed")
+        XCTAssertEqual(properties["trigger"] as? String, "automatic")
+        XCTAssertEqual(properties["reason"] as? String, "non_zero_exit")
+
+        let body = try XCTUnwrap(String(data: XCTUnwrap(request.httpBody), encoding: .utf8))
+        XCTAssertFalse(body.contains("call mum"))
+        XCTAssertFalse(body.contains("flat"))
+    }
+
+    func testEveryJudgeErrorHasADistinctConstantReason() {
+        let errors: [JudgeError] = [
+            .cliNotFound,
+            .launchFailed("boom"),
+            .nonZeroExit(code: 1, stderr: "boom"),
+            .timedOut(seconds: 900),
+            .malformedCLIOutput("boom"),
+            .malformedModelOutput("boom"),
+            .cliReportedError("boom"),
+        ]
+        let reasons = errors.map(\.analyticsReason)
+
+        XCTAssertEqual(Set(reasons).count, errors.count, "reasons must distinguish the cases")
+        for reason in reasons {
+            XCTAssertFalse(reason.contains("boom"), "\(reason) interpolated the payload")
+            XCTAssertFalse(reason.isEmpty)
+        }
+    }
+
     private func distinctID(in request: URLRequest) throws -> String {
         let body = try XCTUnwrap(request.httpBody)
         let json = try XCTUnwrap(
