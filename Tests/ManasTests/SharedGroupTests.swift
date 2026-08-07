@@ -26,6 +26,90 @@ final class SharedGroupIdentityTests: XCTestCase {
         )
     }
 
+    /// The bug this rule exists for. "(309) 826-4765" is how a US number is
+    /// said out loud, and it was stored as those ten digits — while the
+    /// account it names authenticates as eleven, because a JWT phone is E.164.
+    /// `is_share_member` compares them with `=`, so the share reached nobody
+    /// and RLS correctly hid the whole group from the person it was for.
+    func testANumberSaidOutLoudResolvesToTheAccountItNames() {
+        let home = "13042164370"
+        XCTAssertEqual(PhoneIdentity.canonical("(309) 826-4765", signedInAs: home), "13098264765")
+        XCTAssertEqual(PhoneIdentity.canonical("309-826-4765", signedInAs: home), "13098264765")
+        XCTAssertEqual(PhoneIdentity.canonical("1 309 826 4765", signedInAs: home), "13098264765")
+        XCTAssertEqual(PhoneIdentity.canonical("+1 (309) 826-4765", signedInAs: home), "13098264765")
+        XCTAssertEqual(PhoneIdentity.canonical("001 309 826 4765", signedInAs: home), "13098264765")
+        XCTAssertEqual(
+            PhoneIdentity.canonical("(309) 826-4765", signedInAs: "+1 304 216 4370"),
+            PhoneIdentity.canonical("+13098264765", signedInAs: nil),
+            "every way of writing it is one identity, with or without a country code"
+        )
+    }
+
+    /// The country code comes from the inviter's own number, not from a `+1`
+    /// nailed into the code: two people in one country write national numbers
+    /// of the same length, so the reference carries the answer.
+    func testTheCountryCodeComesFromTheInviterNotFromNorthAmerica() {
+        XCTAssertEqual(
+            PhoneIdentity.canonical("07911 123456", signedInAs: "447700900123"), "447911123456",
+            "a UK inviter resolves a UK number, trunk zero and all"
+        )
+        XCTAssertEqual(
+            PhoneIdentity.canonical("98765 43210", signedInAs: "919876500000"), "919876543210"
+        )
+        XCTAssertEqual(
+            PhoneIdentity.canonical("0412 345 678", signedInAs: "61400000000"), "61412345678"
+        )
+        XCTAssertEqual(
+            PhoneIdentity.canonical("447911123456", signedInAs: "13042164370"), "447911123456",
+            "a number already longer than the inviter's is already international"
+        )
+    }
+
+    /// Where the rule cannot tell, it declines rather than storing digits that
+    /// reach nobody — the UI turns that into "add the country code".
+    func testAnUnresolvableNumberIsRefusedRatherThanGuessedAt() {
+        XCTAssertNil(
+            PhoneIdentity.canonical("9123 4567", signedInAs: "13042164370"),
+            "eight digits under a US inviter would need the prefix '130', which is not a calling code"
+        )
+        XCTAssertNil(PhoneIdentity.canonical("555 0137", signedInAs: "13042164370"))
+        XCTAssertNil(PhoneIdentity.canonical("", signedInAs: "13042164370"))
+        XCTAssertNil(PhoneIdentity.canonical(nil, signedInAs: "13042164370"))
+        XCTAssertEqual(
+            PhoneIdentity.canonical("+65 9123 4567", signedInAs: "13042164370"), "6591234567",
+            "spelling out the country code always works"
+        )
+        XCTAssertEqual(
+            PhoneIdentity.canonical("3098264765", signedInAs: nil), "3098264765",
+            "signed out there is no country to resolve against; take the digits as given"
+        )
+    }
+
+    /// The sign-in field on macOS has no country picker beside it, so a number
+    /// typed the way people say it takes the device region's code. It used to
+    /// take a bare `+`, which sent the OTP provider a different number.
+    func testSignInFillsInTheCountryCodeInsteadOfJustAddingAPlus() {
+        XCTAssertEqual(PhoneIdentity.e164("(309) 826-4765", defaultDialCode: "1"), "+13098264765")
+        XCTAssertEqual(PhoneIdentity.e164("1 309 826 4765", defaultDialCode: "1"), "+13098264765")
+        XCTAssertEqual(PhoneIdentity.e164("+44 7911 123456", defaultDialCode: "1"), "+447911123456")
+        XCTAssertEqual(PhoneIdentity.e164("0044 7911 123456", defaultDialCode: "1"), "+447911123456")
+        XCTAssertEqual(PhoneIdentity.e164("07911 123456", defaultDialCode: "44"), "+447911123456")
+        XCTAssertNil(
+            PhoneIdentity.e164("309 826 4765", defaultDialCode: nil),
+            "an unknown region asks for a + rather than guessing"
+        )
+        XCTAssertEqual(PhoneIdentity.e164("+3098264765", defaultDialCode: "1"), "+3098264765")
+        XCTAssertNil(PhoneIdentity.e164("", defaultDialCode: "1"))
+    }
+
+    func testFifteenDigitsIsTheMostANumberCanBe() {
+        XCTAssertNotNil(PhoneIdentity.normalized("123456789012345"))
+        XCTAssertNil(
+            PhoneIdentity.normalized("1234567890123456"),
+            "E.164 stops at fifteen; longer is a paste accident"
+        )
+    }
+
     func testDisplayGroupsNorthAmericanNumbersAndLeavesOthersPlain() {
         XCTAssertEqual(PhoneIdentity.display("14155550137"), "+1 (415) 555-0137")
         XCTAssertEqual(PhoneIdentity.display("442071838750"), "+442071838750")
@@ -126,6 +210,43 @@ final class SharedGroupStoreTests: XCTestCase {
             signedOut.shareGroup("Manas", withPhone: "+1 555 555 0100", now: now),
             "sharing is keyed on your own number, so it needs a signed-in one"
         )
+    }
+
+    /// The regression this whole change exists for, at the level the bug
+    /// actually happened: the owner typed a number the way it is said, and the
+    /// membership row went in ten digits long while the invitee's account
+    /// authenticates as eleven. The server compares them with `=`, so the
+    /// group and every todo in it stayed invisible to them — correctly, which
+    /// is what made it so hard to see.
+    func testAnInviteTypedWithoutACountryCodeStillNamesTheInviteesAccount() {
+        let store = signedInStore()
+        store.addTodo("2376 W Broadway, Vancouver, BC", group: "Apt buy list")
+        let share = store.shareGroup("Apt buy list", withPhone: "(555) 555-0100", now: now)
+
+        XCTAssertEqual(
+            share?.members.map(\.phone), [mine, theirs],
+            "the roster carries the eleven digits the server derives from their JWT, not the ten typed"
+        )
+        XCTAssertNotNil(
+            share?.member(withPhone: "+1 555 555 0100"),
+            "the same person, said out loud or written internationally, is one member"
+        )
+        XCTAssertEqual(
+            store.sharedMemberRecords.map(\.phone).sorted(), [theirs, mine].sorted(),
+            "what is pushed to the server is what the server can match"
+        )
+    }
+
+    /// `currentPhone` arrives with the first sync pass, not at launch. Until
+    /// it does there is no country code to resolve against, and resolving
+    /// against nothing would write exactly the digits this change exists to
+    /// stop — so the invite path is closed rather than approximate.
+    func testANationalNumberIsRefusedUntilThisDeviceKnowsItsOwn() {
+        let store = AppStore(fileURL: tempStateURL())
+        XCTAssertNil(store.canonicalPhone("(555) 555-0100"))
+        XCTAssertNil(store.canonicalPhone("+1 555 555 0100"))
+        store.currentPhone = mine
+        XCTAssertEqual(store.canonicalPhone("(555) 555-0100"), theirs)
     }
 
     func testInvitingTheSameNumberTwiceIsRejected() {

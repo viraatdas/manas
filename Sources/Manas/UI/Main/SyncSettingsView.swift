@@ -157,11 +157,14 @@ struct SyncSettingsSection: View {
         }
     }
 
-    /// E.164 shape: digits with a leading plus; anything else disables Send.
+    /// E.164, which is what the OTP provider and the JWT phone claim both
+    /// speak. There is no country picker beside this field, so a number typed
+    /// the way people say it — "(415) 555-0137" — takes the device region's
+    /// calling code; sticking a bare `+` in front of it, as this used to, sent
+    /// the provider a different number entirely. A `+` typed by hand always
+    /// wins, and an unrecognized region asks for one rather than guessing.
     private var normalizedPhone: String? {
-        let digits = phone.filter(\.isWholeNumber)
-        guard digits.count >= 8 else { return nil }
-        return "+\(digits)"
+        PhoneIdentity.e164(phone)
     }
 
     private func sendCode() {

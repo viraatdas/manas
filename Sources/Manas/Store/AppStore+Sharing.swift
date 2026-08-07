@@ -102,6 +102,22 @@ extension AppStore {
         return share.member(withPhone: phone)
     }
 
+    /// The identity to store for a number someone typed, pasted, or picked out
+    /// of their contacts, resolved against the number this device is signed in
+    /// as. Every write that takes a number from a human goes through here, so
+    /// "(309) 826-4765" and "+1 309 826 4765" become the same eleven digits
+    /// the server derives from that person's JWT — which is the only way an
+    /// invite ever reaches their account.
+    ///
+    /// Nil until this device knows its own number. `currentPhone` arrives with
+    /// the first `SyncController` pass rather than at launch, and resolving a
+    /// national number against nothing would quietly produce the very digits
+    /// this exists to stop being written.
+    func canonicalPhone(_ rawPhone: String?) -> String? {
+        guard currentPhone != nil else { return nil }
+        return PhoneIdentity.canonical(rawPhone, signedInAs: currentPhone)
+    }
+
     // MARK: - Writing
 
     /// Opens a group up to a phone number, creating the share the first time.
@@ -119,7 +135,7 @@ extension AppStore {
     ) -> SharedGroup? {
         guard let group = canonicalTodoGroup(label),
               let owner = PhoneIdentity.normalized(currentPhone),
-              let invitee = PhoneIdentity.normalized(rawPhone),
+              let invitee = canonicalPhone(rawPhone),
               invitee != owner
         else { return nil }
 
@@ -145,7 +161,7 @@ extension AppStore {
         now: Date = Date()
     ) -> SharedGroupMember? {
         guard let share = sharedGroup(id: shareID), isOwner(of: share),
-              let phone = PhoneIdentity.normalized(rawPhone),
+              let phone = canonicalPhone(rawPhone),
               share.member(withPhone: phone) == nil
         else { return nil }
         let record = SharedGroupMemberRecord(

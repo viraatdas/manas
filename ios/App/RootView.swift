@@ -100,6 +100,32 @@ struct RootView: View {
                     NSLog("[ManasProbe] sign-in FAILED: \(error)")
                 }
             }
+            // Verification seam for sharing by a number typed the way people
+            // say it — no country code. `-manasProbeShareWith 4155550137` runs
+            // the same store call the Share button makes and logs the identity
+            // that will be pushed, so the digits the server has to match can be
+            // checked from outside without a tap.
+            //
+            // Pass the number as bare digits. UserDefaults parses argument
+            // values as old-style plists, so "(415) 555-0137" arrives as an
+            // *array* and this reads back nil. And put bare flags like
+            // `-manasTestSignIn` last: UserDefaults takes the argument after a
+            // key as its value, so a flag in front of this one swallows it.
+            if let raw = UserDefaults.standard.string(forKey: "manasProbeShareWith") {
+                // Wait for this device's own number, not merely for a session:
+                // it arrives with the first sync pass, and it is what a typed
+                // number's country code is resolved against.
+                for _ in 0..<40 where store.currentPhone == nil {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let label = "Probe share"
+                if store.todos.first(where: { $0.group == label }) == nil {
+                    store.addTodo("Probe line", group: label)
+                }
+                let share = store.shareGroup(label, withPhone: raw)
+                NSLog("[ManasProbe] typed=\(raw) canonical=\(store.canonicalPhone(raw) ?? "nil") "
+                    + "members=\(share?.members.map(\.phone).joined(separator: ",") ?? "nil")")
+            }
             #endif
         }
         .alert("Help improve Manas?", isPresented: $showingAnalyticsConsent) {

@@ -3,17 +3,33 @@ import Foundation
 /// Phone numbers as identity.
 ///
 /// The server derives a row's owner from the JWT with
-/// `regexp_replace(phone, '[^0-9]', '', 'g')`, so the client has to key people
-/// by exactly the same digits: a number typed as "+1 (415) 555-0137", one
-/// pasted as "001 415 555 0137", and one stored as "14155550137" are one
-/// person, and a share addressed to any of them must reach the same account.
+/// `regexp_replace(phone, '[^0-9]', '', 'g')`, and a JWT phone is always
+/// E.164 — country code included. So the identity is *always* the full
+/// international digits: "+1 (415) 555-0137", "001 415 555 0137" and
+/// "14155550137" are one person, and a share addressed to any of them must
+/// reach the same account.
+///
+/// The one form that cannot be read on its own is a number typed the way
+/// people actually say it — "(309) 826-4765", with no country code at all.
+/// Stored as its bare ten digits it is a different string from the eleven the
+/// server derives, so `is_share_member` never matches and row-level security
+/// correctly hides the group from the person it was shared with. Every entry
+/// point that takes a number from a human therefore goes through
+/// `canonical(_:signedInAs:)`, which resolves the missing country code from
+/// the number the inviter is themselves signed in as.
 enum PhoneIdentity {
     /// The shortest digit count worth treating as a real number, matching the
     /// gate the sign-in field already applies.
     static let minimumDigits = 8
+    /// E.164 allows fifteen digits; more is a paste accident, not a number.
+    static let maximumDigits = 15
 
-    /// The digits-only identity, or nil when the input isn't a plausible
-    /// number. Mirrors the server's `current_phone_id()`.
+    /// The digits-only identity of a number that already carries its country
+    /// code — anything read back from the server, the JWT, or a stored record.
+    /// Mirrors the server's `current_phone_id()`.
+    ///
+    /// This does *not* resolve a missing country code; input that came from a
+    /// person goes through `canonical(_:signedInAs:)` instead.
     static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
         var digits = asciiDigits(in: rawValue)
@@ -22,11 +38,69 @@ enum PhoneIdentity {
         if !rawValue.contains("+"), digits.hasPrefix("00") {
             digits = String(digits.dropFirst(2))
         }
-        guard digits.count >= minimumDigits else { return nil }
-        return digits
+        return plausible(digits)
     }
 
-    /// Two numbers written any which way, compared as one identity.
+    /// The canonical identity of a number a person typed, pasted, or picked
+    /// out of their contacts, resolved against the number they are signed in
+    /// as. Nil when it cannot be resolved to full international digits.
+    ///
+    /// The country code is taken from `homeNumber` by length rather than from
+    /// a table of national formats: within one country every national number
+    /// is the same length, so whatever the inviter's own identity carries in
+    /// front of a number that long *is* the country code. Sharing is
+    /// overwhelmingly with people in your own country, and the guess is
+    /// checked against `PhoneRegion.dialCodes` before it is believed — a
+    /// prefix that is not a real calling code returns nil so the UI can ask
+    /// for a `+` rather than store an identity that reaches nobody.
+    static func canonical(_ rawValue: String?, signedInAs homeNumber: String?) -> String? {
+        guard let rawValue else { return nil }
+        let digits = asciiDigits(in: rawValue)
+        guard !digits.isEmpty else { return nil }
+
+        // Written internationally already: the country code is right there.
+        if rawValue.contains("+") || rawValue.contains("＋") { return plausible(digits) }
+        if digits.hasPrefix("00") { return plausible(String(digits.dropFirst(2))) }
+
+        // Signed out there is no country to resolve against. Fall back to the
+        // digits as given rather than refusing to render anything.
+        guard let home = normalized(homeNumber) else { return plausible(digits) }
+
+        let national = droppingTrunkPrefix(digits, home: home)
+        // As long as the inviter's own identity, or longer: it is already an
+        // international number, not a national one missing its code.
+        guard national.count < home.count else { return plausible(national) }
+
+        let dialCode = String(home.prefix(home.count - national.count))
+        guard PhoneRegion.dialCodes.contains(dialCode) else { return nil }
+        return plausible(dialCode + national)
+    }
+
+    /// The E.164 string to hand the OTP provider for a number typed into a
+    /// sign-in field. There is no signed-in number to resolve against yet, so
+    /// a missing country code comes from the device's own region; where that
+    /// is a region we don't carry a code for, a `+` is required.
+    static func e164(_ rawValue: String, defaultDialCode: String? = PhoneRegion.deviceDialCode) -> String? {
+        let digits = asciiDigits(in: rawValue)
+        guard !digits.isEmpty else { return nil }
+        if rawValue.contains("+") || rawValue.contains("＋") {
+            return plausible(digits).map { "+\($0)" }
+        }
+        if digits.hasPrefix("00") {
+            return plausible(String(digits.dropFirst(2))).map { "+\($0)" }
+        }
+        guard let dialCode = defaultDialCode else { return nil }
+        let national = droppingTrunkPrefix(digits, home: dialCode)
+        // Already carrying the code, with a whole number still behind it.
+        if national.hasPrefix(dialCode), national.count - dialCode.count >= 7 {
+            return plausible(national).map { "+\($0)" }
+        }
+        return plausible(dialCode + national).map { "+\($0)" }
+    }
+
+    /// Two numbers written any which way, compared as one identity. Both sides
+    /// are treated as already carrying a country code; compare typed input
+    /// with `canonical(_:signedInAs:)` first.
     static func matches(_ lhs: String?, _ rhs: String?) -> Bool {
         guard let lhs = normalized(lhs), let rhs = normalized(rhs) else { return false }
         return lhs == rhs
@@ -43,6 +117,21 @@ enum PhoneIdentity {
         let exchange = rest.dropFirst(3).prefix(3)
         let line = rest.suffix(4)
         return "+1 (\(area)) \(exchange)-\(line)"
+    }
+
+    /// A run of digits, or nil if it is too short or too long to be a number.
+    private static func plausible(_ digits: String) -> String? {
+        (minimumDigits...maximumDigits).contains(digits.count) ? digits : nil
+    }
+
+    /// Drops the single leading zero that most countries dial in front of a
+    /// national number and drop when writing it internationally. No calling
+    /// code begins with zero, so this can never be eating a country code; the
+    /// `home` check keeps it off numbers from the regions that have no trunk
+    /// prefix at all, where a leading zero would be a typo rather than one.
+    private static func droppingTrunkPrefix(_ digits: String, home: String) -> String {
+        guard digits.count > 1, digits.hasPrefix("0"), !home.hasPrefix("0") else { return digits }
+        return String(digits.dropFirst())
     }
 
     private static func asciiDigits(in value: String) -> String {
