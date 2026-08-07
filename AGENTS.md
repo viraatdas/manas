@@ -30,3 +30,73 @@
 
 - SwiftUI `scrollPosition(id:anchor:)` was tried with both lazy and eager variable-height vertical day stacks, plus `defaultScrollAnchor`; live checks showed the binding and the actual top page could disagree by one or more days. The current vertical feed uses `ScrollViewReader` only for explicit Today jumps and derives Today visibility from measured geometry.
 - A single `proxy.scrollTo(today, anchor: .top)` — whether at launch or on ⌘L — is not reliable in this feed for the same reason: a LazyVStack has realized only a handful of its ~127 sections on the first pass and the rest are height estimates, so a scroll aimed across unbuilt days lands short (observed opening on a day six back in history). Both paths now nudge, measure Today's frame against the viewport, and re-nudge until it lands; each pass realizes more of the feed, so it converges in a few frames. Do not replace this with a single call.
+
+## Deploy Configuration
+
+Manas ships two artifacts from one repo. Neither goes through a web deploy, and
+neither has a staging environment.
+
+- **Platform:** macOS Developer ID (direct distribution, not the Mac App Store) + iOS TestFlight/App Store.
+- **Mac distribution:** notarized DMG on GitHub Releases, auto-update via Sparkle appcast at https://manas.viraat.dev/appcast.xml.
+- **Production URL:** https://manas.viraat.dev (marketing site + the appcast; deployed from `site/` to Vercel).
+- **iOS:** App Store Connect app `dev.viraat.manas.ios` (id 6794079354), TestFlight internal + external groups.
+- **Backend:** Supabase project `gdnknuiqxmosuwoytrzc`. Migrations in `supabase/migrations/` are applied with `supabase db push`.
+- **Version source of truth:** `VERSION`/`BUILD` in `scripts/make-app.sh` (mac) and `CURRENT_PROJECT_VERSION` in `ios/project.yml` (iOS). Bump both together.
+- **Release notes:** `release-notes-<x.y.z>.md` is required by `scripts/release.sh` and fails the release if missing.
+
+### The release sequence
+
+Run in this order. Do not skip a step because the previous one "obviously" worked.
+
+1. `~/.agent-skills/release-gate/scripts/preflight.sh` — must exit 0, or every
+   blocker it prints must be reported to the user and explicitly overridden by them.
+2. `bash scripts/e2e.sh` — macOS build, unit suite, live backend contract, the
+   two-account shared-group RLS boundary, live client integration, iOS build.
+3. Apply any pending migration **before** shipping the client that needs it
+   (`supabase db push`). A client that sends a column the server lacks 400s on
+   every sync, for every existing user.
+4. Bump `scripts/make-app.sh` + `ios/project.yml`, write the release notes, commit, push.
+5. `bash scripts/make-app.sh && bash scripts/release.sh <x.y.z>` — notarize,
+   GitHub release, mirror the DMG, regenerate and sign the appcast, deploy the site.
+6. `~/.agent-skills/release-gate/scripts/postflight.sh --version <x.y.z>`, then
+   confirm the **live** appcast advertises the new version. Postflight passing is
+   not sufficient: it does not check the feed.
+7. `bash scripts/ios-testflight.sh`, then confirm on App Store Connect that the
+   build reached `processingState=VALID` and `internalBuildState=IN_BETA_TESTING`.
+   For external testers the build must also be added to the external group and
+   submitted for beta review, or it silently reaches nobody.
+
+### Rules learned the hard way
+
+- **Never pipe a release command into `tail`.** `release.sh 0.4.2 | tail -3`
+  returns `tail`'s exit status, so a failed release reports success and the
+  steps after it are skipped. That is how 0.4.2 shipped with a GitHub release
+  but no appcast entry — published, and auto-updating to nobody.
+- **A published release is not a shipped release until the appcast carries it.**
+  Check `curl https://manas.viraat.dev/appcast.xml` for the version and an
+  `edSignature`, every time.
+- **Never verify UI by reading the diff.** The contacts picker shipped twice
+  without being run, and both times it was broken for a reason no amount of
+  reading would have surfaced (a SwiftUI-sheet-wrapped remote view controller,
+  then a CNUI predicate silently ignored). Run it: iOS via the simulator with a
+  `-manasProbe…` launch argument and `xcrun simctl launch --console-pty`, macOS
+  by driving the accessibility API.
+- **`strings` does not find Swift string literals in these binaries.** Do not
+  use it to decide whether a build contains a change; run the build and look at
+  its behaviour.
+- **`find -name Manas.app -print -quit` is non-deterministic** — xcodegen
+  changes the project identity hash, so several DerivedData folders exist and
+  the oldest can win. Always build simulator artifacts with an explicit
+  `-derivedDataPath`.
+- **Never launch an unbundled scratch build** (`.build/debug/Manas`). Sparkle is
+  compiled in, fails to start outside a bundle, and puts a modal error on the
+  user's screen. Copy `dist/Manas.app`, strip `SUFeedURL`, and run that instead.
+- **Scratch builds must use the offline seams** — `MANAS_DISABLE_SYNC=1`,
+  `MANAS_STATE_FILE=<scratch>`, `MANAS_DISABLE_AUTO_CHECKS=1`. Without them a
+  local build reads the installed app's keychain and writes to live data.
+- **Screenshots must be window-scoped** (`screencapture -x -o -l <windowid>`).
+  The bare form captures the user's entire screen, including whatever else they
+  have open.
+- **CI runs on `macos-26`** and asserts Swift 6.x. macos-15's Xcode 16.4 crashes
+  in SILGen on `UsageAnalytics.shared`; a green local build proves nothing about
+  a CI that compiles with a different toolchain.
