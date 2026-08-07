@@ -72,6 +72,19 @@
   `digits.suffix(2)` fallback is gone for good: digits in a circle read as
   initials, which is how a shared list came to show "65" and "44" for people it
   had never heard of. No name means the neutral `person.fill` glyph.
+- **The avatar and the label are two code paths, and both have to ask.**
+  `MemberBadge.initials` resolved contacts from the start; `AppStore.memberLabel`
+  did not, so the share panel drew "KR" in the circle and the raw digits in the
+  text beside it, with a "Name" button offering to fix a name the phone already
+  knew. Both now run the same precedence — you, then the address book, then a
+  `displayName` set in the group, then the number — and `AppStore.hasName` is
+  what any "name this person" affordance keys on, so nobody is asked to type a
+  name their device already has. `memberLabel` reads `store.contactNames`
+  (injectable, defaulting to `ContactNames.shared`) rather than the singleton,
+  because the naming rules cannot be tested against the real Contacts framework
+  and untested is how the label drifted from the avatar in the first place.
+  Anything new that renders a member — a header, a tooltip, a share sheet on a
+  third platform — goes through `memberLabel`, never `displayName ?? digits`.
 - The offline verification seams (`MANAS_DISABLE_SYNC`, `MANAS_STATE_FILE`,
   `MANAS_DISABLE_AUTO_CHECKS`, `MANAS_PROBE_CONTACTS`,
   `MANAS_PROBE_SIGNED_IN_AS`) only work if the app lets `SyncController` pick
@@ -83,6 +96,17 @@
   session (it is what an invite's missing country code resolves against);
   `bearerToken()` throws and `syncNow()` refuses to run while the seam is set,
   so nothing can leave the machine.
+
+  **The same mistake was sitting one seam over.** `ManasIOSApp` also named
+  `AppGroup.stateURL` explicitly, which computes exactly the path
+  `AppStore.defaultStateURL` does minus the `MANAS_STATE_FILE` override — so
+  the scratch-state seam was silently macOS-only too, and a simulator run read
+  and wrote the *real* state file while looking like it honoured the override.
+  It is now `AppStore()`, and `AppGroup` no longer vends a `stateURL` at all.
+  The general rule: a seam that lives inside a type's own default is defeated
+  by any caller that names the value instead. On both platforms, construct
+  these with the default and let the type decide — and when a probe run shows
+  an empty screen where you seeded data, suspect the seam before the data.
 - **`AXUIElementSetAttributeValue` on a SwiftUI `TextField` does not commit the
   binding.** It sets `NSTextField.stringValue` without the editing-changed path,
   so `@State` stays empty, the Share button stays `.disabled`, and pressing it

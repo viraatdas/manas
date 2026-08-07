@@ -77,13 +77,33 @@ extension AppStore {
         share.isOwned(by: currentPhone)
     }
 
-    /// How a phone number reads in the UI: their name if the group knows one,
-    /// "You" for yourself, otherwise the number.
+    /// How a phone number reads in the UI: "You" for yourself, then whatever
+    /// this device's address book calls them, then a name set in the group,
+    /// and only then the digits.
+    ///
+    /// The address book comes first for the same reason it does in
+    /// `MemberBadge.initials` — it is the reader's own name for that person,
+    /// and it is the one that needs no typing. Reading this inside a view body
+    /// is what makes the name appear when the lookup lands: `ContactNames` is
+    /// `@Observable`, so a row that asked before the address book answered is
+    /// re-rendered when it does.
+    ///
+    /// The signed-in user is deliberately exempt: being shown your own contact
+    /// card instead of "You" is worse, not better.
     func memberLabel(_ member: SharedGroupMember) -> String {
         if PhoneIdentity.matches(member.phone, currentPhone) {
             return member.displayName.map { "\($0) (you)" } ?? "You"
         }
-        return member.displayName ?? PhoneIdentity.display(member.phone)
+        return contactNames.name(for: member)
+            ?? member.displayName
+            ?? PhoneIdentity.display(member.phone)
+    }
+
+    /// Whether anybody has a name for this member — this device's address book
+    /// or a name set in the group. What the "Name" affordance keys on: someone
+    /// their phone already knows should not be asked to be named by hand.
+    func hasName(_ member: SharedGroupMember) -> Bool {
+        contactNames.name(for: member) != nil || member.displayName != nil
     }
 
     /// True unless the todo is a shared one somebody else wrote. Anything with

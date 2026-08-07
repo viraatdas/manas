@@ -112,6 +112,62 @@ final class ContactNamesTests: XCTestCase {
         )
     }
 
+    /// The row *label*, not just the avatar.
+    ///
+    /// These are separate code paths and only the avatar was ever pinned down,
+    /// which is exactly how the share panel came to draw "KR" in the circle and
+    /// the raw digits in the text beside it — with a "Name" button offering to
+    /// fix a name the phone already knew. Reported as "it shows the number, and
+    /// I don't want to type the name myself".
+    func testTheShareRowReadsAsTheContactsNameWithoutAnybodyTypingIt() async {
+        let store = AppStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManasTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("state.json"))
+        store.currentPhone = "13042164370"
+        let directory = FakeContactDirectory(entries: [("(309) 826-4765", "Krithik Rao")])
+        store.contactNames = ContactNames(directory: directory)
+
+        let share = store.shareGroup("Manas", withPhone: "(309) 826-4765")!
+        let krithik = try! XCTUnwrap(share.members.first { $0.phone != store.currentPhone })
+
+        XCTAssertEqual(
+            store.memberLabel(krithik), PhoneIdentity.display(krithik.phone),
+            "before the address book answers the row is honest about knowing nothing"
+        )
+        XCTAssertFalse(store.hasName(krithik))
+
+        store.contactNames.resolve([krithik])
+        _ = await waitForName(store.contactNames, krithik)
+
+        XCTAssertEqual(store.memberLabel(krithik), "Krithik Rao", "no name was typed anywhere")
+        XCTAssertTrue(store.hasName(krithik), "so nothing should still be asking to name him")
+        XCTAssertNil(krithik.displayName, "and the contact name was not written onto the record")
+    }
+
+    /// The address book outranks a name set in the group, and neither outranks
+    /// being yourself — the same order the avatar draws.
+    func testYourOwnRowStaysYouEvenWhenYouAreInYourOwnAddressBook() async {
+        let store = AppStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManasTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("state.json"))
+        store.currentPhone = "13042164370"
+        let directory = FakeContactDirectory(entries: [
+            ("+13042164370", "Viraat Das"),
+            ("+15555550100", "Ada Kane"),
+        ])
+        store.contactNames = ContactNames(directory: directory)
+
+        let share = store.shareGroup("Manas", withPhone: "15555550100", memberName: "Apartment Guy")!
+        let me = try! XCTUnwrap(share.members.first { $0.phone == store.currentPhone })
+        let them = try! XCTUnwrap(share.members.first { $0.phone != store.currentPhone })
+
+        store.contactNames.resolve([me, them])
+        _ = await waitForName(store.contactNames, them)
+
+        XCTAssertEqual(store.memberLabel(me), "You", "your own contact card is not an improvement")
+        XCTAssertEqual(store.memberLabel(them), "Ada Kane", "the address book beats the typed name")
+    }
+
     /// A list redraws constantly; the address book must be read once.
     func testTheAddressBookIsReadOncePerNumberNoMatterHowOftenTheRowRedraws() async {
         let directory = FakeContactDirectory(entries: [("(309) 826-4765", "Krithik Rao")])

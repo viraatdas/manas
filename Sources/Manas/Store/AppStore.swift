@@ -63,6 +63,17 @@ final class AppStore {
     /// session rather than persisted, so signing out forgets it.
     var currentPhone: String?
 
+    /// Who this device's address book thinks a member's number belongs to.
+    /// The app-wide resolver by default; tests hand in one backed by a fake
+    /// directory. A reference rather than a hard `ContactNames.shared` call so
+    /// `memberLabel` stays testable — the naming rules are the part of this
+    /// feature worth pinning down, and they cannot be exercised against the
+    /// real Contacts framework.
+    ///
+    /// Deliberately not persisted and never written back: a resolved name is
+    /// drawn and forgotten (see `ContactNames`).
+    var contactNames: ContactNames = .shared
+
     /// True while a check-in is running — spins the header refresh button
     /// and blocks overlapping checks.
     var isCheckingIn = false

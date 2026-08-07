@@ -186,7 +186,7 @@ struct ShareGroupPopover: View {
                         Text(store.memberLabel(member))
                             .font(.subheadline)
                             .lineLimit(1)
-                        if member.displayName != nil || member.phone == share.ownerPhone {
+                        if showsCaption(for: member, in: share) {
                             Text(caption(for: member, in: share))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -195,8 +195,11 @@ struct ShareGroupPopover: View {
                     }
                     Spacer(minLength: 4)
                     // Digits mean nobody has named them yet; offer the fix
-                    // exactly where the digits are.
-                    if canName(member, in: share), member.displayName == nil {
+                    // exactly where the digits are. Someone the address book
+                    // already names is not offered it: the row reads as their
+                    // name, so a "Name" button beside it asks for work that is
+                    // visibly already done.
+                    if canName(member, in: share), !store.hasName(member) {
                         Button("Name") {
                             draftName = ""
                             namingMemberID = member.id
@@ -232,6 +235,15 @@ struct ShareGroupPopover: View {
         store.setMemberName(draftName, forMemberWithPhone: member.phone, in: share.id)
         namingMemberID = nil
         draftName = ""
+    }
+
+    /// The number belongs under the name — but never under itself. Comparing
+    /// against the label rather than testing for a `displayName` means this
+    /// keeps working now that a name can also arrive from the address book,
+    /// and it cannot drift out of step with `memberLabel` later.
+    private func showsCaption(for member: SharedGroupMember, in share: SharedGroup) -> Bool {
+        member.phone == share.ownerPhone
+            || store.memberLabel(member) != PhoneIdentity.display(member.phone)
     }
 
     private func caption(for member: SharedGroupMember, in share: SharedGroup) -> String {

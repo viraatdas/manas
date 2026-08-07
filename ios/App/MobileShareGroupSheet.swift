@@ -143,7 +143,9 @@ struct MobileShareGroupSheet: View {
                     Spacer(minLength: 0)
                     // Digits mean nobody has a name yet. Offer the fix where
                     // the problem is visible rather than burying it in a menu.
-                    if canName(member, in: share), member.displayName == nil {
+                    // Someone already in this phone's contacts is skipped —
+                    // their row reads as their name with nothing to fix.
+                    if canName(member, in: share), !store.hasName(member) {
                         Button("Name") { beginNaming(member) }
                             .buttonStyle(.borderless)
                             .font(.caption)
@@ -166,7 +168,7 @@ struct MobileShareGroupSheet: View {
         } header: {
             Text("In this group")
         } footer: {
-            Text("Tap someone to name them. Their avatar shows initials instead of the last two digits of their number.")
+            Text("People in your contacts show up by name automatically. Tap anyone else to name them yourself.")
         }
     }
 
