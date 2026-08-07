@@ -24,6 +24,22 @@
 - A group's identity is `TodoDestination` (label + optional `shareID`), not the label. A shared "Manas" and a private "Manas" are two buckets and must never pour into each other, so `todoGroups(on:)`, the drag targets, and the fold keys all key on `TodoDestination.key`. `SectionKey.group(_:on:)` keeps its old string form for private groups so existing folds survive. The judge only ever sets `group`, never `shareID` — auto-grouping guesses labels, and a guess must not publish private work to somebody else.
 - Supabase RLS is checkable locally without the hosted project or the full Supabase stack: `docker run postgres:15-alpine`, a ~20-line stub of `auth.jwt()`/`auth.uid()`/`auth.users` and an `authenticated` role, then replay `supabase/migrations/*.sql` in order and drive scenarios with `set local role authenticated` + `set local request.jwt.claims`. That is how the sharing policies were verified — and how the hole where an outsider holding a share id could insert todos into it was found.
 - PostgREST upserts with `on conflict do update`, and Postgres applies the INSERT policy's `with check` to the *final* row. So a write policy on a collaborative table cannot be keyed on the row's author: it would block a member from ever ticking a box on somebody else's row. It also means a client must never push a row it lacks rights to — one rejected row fails the whole batch and wedges every later sync, which is what `SyncMerge`'s `isWritable` and `ShareMerge`'s drop-unpushable-tombstones rule exist to prevent.
+- The contact *picker* needs no Contacts permission but reading names does, and
+  they are different features. The picker is out-of-process and hands back only
+  what the user tapped; naming a member nobody picked — somebody who shared a
+  group with *you* — means `CNContactStore`, which needs
+  `NSContactsUsageDescription` in both bundles (ios/project.yml and the plist
+  scripts/make-app.sh writes). Resolved names are drawn and forgotten: they are
+  never written to a member record and never pushed to Supabase, so no contact
+  data is "collected" for the App Store privacy label. `CNContact
+  .predicateForContacts(matching:)` does work — verified on a simulator with a
+  seeded address book, matching a contact saved as "(309) 826-4765" to a member
+  stored as `13098264765` — but `ContactNames` re-checks every hit through
+  `PhoneIdentity` and keeps a full-enumeration fallback anyway, because the
+  predicate's rules are undocumented and a Contacts predicate has been silently
+  ignored in this app before. Which path answered is in the unified log under
+  `subsystem == "Manas"`, category `ContactNames` (debug level: `log stream`
+  catches it, `log show` after the fact does not).
 - UI geometry claims are checkable without touching the user's screen: drive a scratch bundle through the accessibility API (`AXUIElementPerformAction` presses buttons in a background window; `screencapture -x -o -l <id>` captures it un-raised) and compare element `AXPosition` before and after. That is how the scroll jump was quantified, and how the fix was confirmed at exactly +0.0pt. Note `kAXWindowsAttribute` on this app hands back the application element — walk the app element's children for the `AXWindow` instead, and guard the walk against cycles.
 
 ## Execute: Dead-ends tried
@@ -94,9 +110,24 @@ Run in this order. Do not skip a step because the previous one "obviously" worke
 - **Scratch builds must use the offline seams** — `MANAS_DISABLE_SYNC=1`,
   `MANAS_STATE_FILE=<scratch>`, `MANAS_DISABLE_AUTO_CHECKS=1`. Without them a
   local build reads the installed app's keychain and writes to live data.
-- **Screenshots must be window-scoped** (`screencapture -x -o -l <windowid>`).
-  The bare form captures the user's entire screen, including whatever else they
-  have open.
+- **Screenshots must be window-scoped.** The bare form captures the user's
+  entire screen, including whatever else they have open. `screencapture -x -o -l
+  <windowid>` no longer does this on macOS 26: it goes through
+  `CGWindowListCreateImage`, obsoleted in macOS 15, and fails with "could not
+  create image from window" even with Screen Recording granted. Use
+  ScreenCaptureKit instead — `SCContentFilter(desktopIndependentWindow:)` plus
+  `SCScreenshotManager.captureImage` is still window-scoped and still does not
+  raise the window. Two gotchas: that tool must touch `NSApplication.shared`
+  first or it aborts in `CGS_REQUIRE_INIT`, and it fails with SCStream error
+  −3811 while the display is asleep (`caffeinate -u -t 20` in the background is
+  enough, and does not steal focus).
+- **A scratch app launched as a bare executable has no accessibility tree.**
+  `Manas.app/Contents/MacOS/Manas` run straight from the shell vends only its
+  menu bar — `AXWindows`, `AXMainWindow`, and even
+  `AXUIElementCopyElementAtPosition` all hand back the application element, so
+  there is nothing to drive. Launch the bundle through LaunchServices instead:
+  `open -g -n -a <app> --env KEY=VALUE …`, which keeps the user's focus. The
+  window's AX subtree also stays empty while the display is asleep.
 - **CI runs on `macos-26`** and asserts Swift 6.x. macos-15's Xcode 16.4 crashes
   in SILGen on `UsageAnalytics.shared`; a green local build proves nothing about
   a CI that compiles with a different toolchain.

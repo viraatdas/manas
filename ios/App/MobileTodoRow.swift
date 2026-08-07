@@ -54,8 +54,15 @@ struct MobileTodoRow: View {
     @ViewBuilder
     private var authorAvatar: some View {
         if let member = store.author(of: todo) {
+            // Two initials can't say which Krithik; the spoken label spells
+            // the whole name out, from the address book when this device has
+            // one.
             MemberAvatar(member: member)
-                .accessibilityLabel("Added by \(store.memberLabel(member))")
+                .accessibilityLabel("Added by " + ContactNames.shared.label(
+                    for: member,
+                    signedInAs: store.currentPhone,
+                    fallback: store.memberLabel(member)
+                ))
         }
     }
 

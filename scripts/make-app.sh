@@ -109,6 +109,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 $ANALYTICS_PLIST_ENTRY
+	<!-- Reading names for the people in a shared group. The out-of-process
+	     contact picker needs no permission, but naming a member the user never
+	     picked does: it reads CNContactStore. Names are matched and drawn on
+	     this Mac and never leave it. -->
+	<key>NSContactsUsageDescription</key>
+	<string>Manas shows the people in a shared list by name instead of by phone number. Names stay on this Mac and are never uploaded.</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSApplicationCategoryType</key>

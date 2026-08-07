@@ -405,3 +405,32 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Ship the client that matches the applied migration [out of lane] — n0 flagged that the canonicalizing migration is already live on gdnknuiqxmosuwoytrzc, but mac 0.4.5 and TestFlight build 17 still send national digits and rely on the server trigger.
 - **By:** n0 · 2026-08-07T06:40:25.654Z
 
+
+## n1 — Contacts-backed member initials (avatars)
+
+- Member avatars no longer fall back to `digits.suffix(2)`. `MemberBadge.initials`
+  now returns `String?` and takes only a name; `MemberAvatar` draws a neutral
+  `person.fill` glyph when there is none. Precedence is
+  **device address book → member `displayName` → unnamed glyph**, expressed as the
+  pure `MemberBadge.initials(contactName:displayName:)`.
+- The lookup lives in the new `Sources/Manas/Design/ContactNames.swift` — Design/
+  rather than Models/ because the widget extension compiles all of Models/ and has
+  no business linking Contacts. It is `@MainActor @Observable` with a `.shared`
+  instance; views read it synchronously and get nil until the answer lands, so a
+  todo row never waits on Contacts.
+- **Contacts stay on device.** A resolved name is drawn and forgotten — never
+  written onto a `SharedGroupMemberRecord`, never pushed to Supabase. `displayName`
+  remains the only name that syncs. Anyone touching the sync layer: do not start
+  persisting these.
+- Matching reuses n0's `PhoneIdentity` unchanged. `ContactMatch.isSamePerson`
+  compares a contact number to a member identity by canonicalizing *against the
+  member's own identity* (`PhoneIdentity.canonical(number, signedInAs: identity)`),
+  which means the resolver needs no signed-in number threaded through it, and the
+  reverse direction covers legacy bare member rows.
+- Reading `CNContactStore` needed `NSContactsUsageDescription` added to
+  `ios/project.yml` and to the plist `scripts/make-app.sh` writes. The existing
+  contact *pickers* deliberately avoid that permission and are untouched.
+- Access is requested only from people-shaped surfaces (the share popover/sheet,
+  and the app root when shared groups exist) — never from a list row.
+  `MANAS_PROBE_CONTACTS` is a launch seam holding a fixed address book (or the
+  literal `denied`) for verification runs.

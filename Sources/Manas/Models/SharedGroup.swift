@@ -186,22 +186,37 @@ struct SharedGroupMember: Identifiable, Hashable, Sendable {
     var joinedAt: Date
 }
 
-/// How a member is drawn: two initials and a stable slot in the avatar palette.
-/// Both are pure functions of the member, so the same person is the same badge
-/// on every device and in every group without any shared state.
+/// How a member is drawn: their initials and a stable slot in the avatar
+/// palette. Both are pure functions of the member — no I/O, no store — so the
+/// same inputs draw the same badge on every device and in every preview.
+/// Finding the *name* is `ContactNames`' job; this only spells it.
 enum MemberBadge {
-    /// Up to two characters. A name gives its initials, a bare number gives its
-    /// last two digits — which is what people actually recognize a number by.
-    static func initials(name: String?, phone: String) -> String {
+    /// Up to two letters, or nil when the string doesn't name anybody.
+    ///
+    /// Nil rather than the last two digits of their phone number. Digits in a
+    /// circle read as initials — the shared apartment list showed "65" and
+    /// "44" and looked like it knew two people it had never heard of. A
+    /// number's tail says nothing about whose it is, so an avatar with no name
+    /// behind it should say nothing either; `MemberAvatar` draws its neutral
+    /// person glyph instead.
+    static func initials(name: String?) -> String? {
         let words = (name ?? "")
             .split(whereSeparator: { $0.isWhitespace })
             .filter { $0.contains(where: \.isLetter) || $0.contains(where: \.isNumber) }
-        if !words.isEmpty {
-            let letters = words.prefix(2).compactMap { $0.first }
-            return String(letters).uppercased()
-        }
-        let digits = PhoneIdentity.normalized(phone) ?? phone
-        return String(digits.suffix(2))
+        guard !words.isEmpty else { return nil }
+        let letters = words.prefix(2).compactMap { $0.first }
+        return String(letters).uppercased()
+    }
+
+    /// Which name wins, in one place: this device's address book first, then
+    /// whatever the member is called inside the group, then nobody.
+    ///
+    /// The address book leads because it is the name the person *reading* the
+    /// screen already uses for them. `displayName` is a label set through
+    /// Manas and shared with everyone in the group, which makes it the right
+    /// fallback and the wrong first choice.
+    static func initials(contactName: String?, displayName: String?) -> String? {
+        initials(name: contactName) ?? initials(name: displayName)
     }
 
     /// A deterministic palette slot.

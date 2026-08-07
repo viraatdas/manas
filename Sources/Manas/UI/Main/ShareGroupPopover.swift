@@ -49,6 +49,11 @@ struct ShareGroupPopover: View {
             guard sync.isSignedIn, isOwner else { return }
             DispatchQueue.main.async { isPhoneFocused = true }
         }
+        // The one screen that is entirely about which people are in a group is
+        // the right place to ask for the address book — never a todo row.
+        .task(id: share?.id) {
+            await ContactNames.shared.requestAccessIfNeeded(for: share?.members ?? [])
+        }
     }
 
     private var header: some View {

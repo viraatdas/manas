@@ -40,9 +40,9 @@ final class SharedGroupLayoutTests: XCTestCase {
         }
         let theirs = shared.todos.first { $0.text == "Draft the release notes" }!
         XCTAssertEqual(store.memberLabel(store.author(of: theirs)!), "Ada Kane")
-        XCTAssertEqual(
-            MemberBadge.initials(name: nil, phone: "16505550188"), "88",
-            "a member who never named themselves still gets a legible badge"
+        XCTAssertNil(
+            MemberBadge.initials(contactName: nil, displayName: nil),
+            "a member nobody has named draws the unnamed glyph, never two digits of their number"
         )
         // A private group has one author by definition, so it draws no badges.
         let private_ = store.todoGroups(on: Date()).first { $0.group == "Launch" }!

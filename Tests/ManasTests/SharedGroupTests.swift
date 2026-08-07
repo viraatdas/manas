@@ -115,11 +115,29 @@ final class SharedGroupIdentityTests: XCTestCase {
         XCTAssertEqual(PhoneIdentity.display("442071838750"), "+442071838750")
     }
 
-    func testInitialsPreferANameAndFallBackToTheLastDigits() {
-        XCTAssertEqual(MemberBadge.initials(name: "Priya Das", phone: "14155550137"), "PD")
-        XCTAssertEqual(MemberBadge.initials(name: "sam", phone: "14155550137"), "S")
-        XCTAssertEqual(MemberBadge.initials(name: nil, phone: "14155550137"), "37")
-        XCTAssertEqual(MemberBadge.initials(name: "   ", phone: "14155550137"), "37")
+    func testInitialsSpellANameAndAreNilWithoutOne() {
+        XCTAssertEqual(MemberBadge.initials(name: "Priya Das"), "PD")
+        XCTAssertEqual(MemberBadge.initials(name: "sam"), "S")
+        XCTAssertNil(MemberBadge.initials(name: nil))
+        XCTAssertNil(MemberBadge.initials(name: "   "))
+        XCTAssertNil(
+            MemberBadge.initials(name: ""),
+            "a number's last two digits are not initials — the avatar draws its glyph instead"
+        )
+    }
+
+    /// contact name > self-set display name > nobody.
+    func testTheAddressBookNameWinsOverTheOneSetInTheGroup() {
+        XCTAssertEqual(
+            MemberBadge.initials(contactName: "Krithik Rao", displayName: "Work Phone"), "KR",
+            "the name the reader already uses for them leads"
+        )
+        XCTAssertEqual(
+            MemberBadge.initials(contactName: nil, displayName: "Ada Kane"), "AK",
+            "a member who named themselves is still named on a device with no contacts"
+        )
+        XCTAssertEqual(MemberBadge.initials(contactName: "   ", displayName: "Ada Kane"), "AK")
+        XCTAssertNil(MemberBadge.initials(contactName: nil, displayName: nil))
     }
 
     func testPaletteSlotIsStableAcrossRuns() {

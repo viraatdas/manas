@@ -26,6 +26,8 @@
 	<string>public.app-category.productivity</string>
 	<key>ManasPostHogProjectToken</key>
 	<string>$(MANAS_POSTHOG_PROJECT_TOKEN)</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Manas shows the people in a shared list by name instead of by phone number. Names stay on this device and are never uploaded.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

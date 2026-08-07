@@ -56,6 +56,15 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ManasPostHogProjectToken: $(MANAS_POSTHOG_PROJECT_TOKEN)
+        # Reading names for the people in a shared group. The out-of-process
+        # contact *picker* needs no permission, but naming a member the user
+        # never picked — somebody who shared a group with them — means reading
+        # CNContactStore, and that does. Names are matched and drawn on the
+        # device; none is stored, synced, or sent anywhere, so no contact data
+        # is collected in the App Store privacy sense.
+        NSContactsUsageDescription: >-
+          Manas shows the people in a shared list by name instead of by phone
+          number. Names stay on this device and are never uploaded.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
