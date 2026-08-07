@@ -114,22 +114,30 @@ struct ShareGroupPopover: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.manasAccent)
                     .controlSize(.small)
-                    .disabled(PhoneIdentity.normalized(phone) == nil)
+                    .disabled(store.canonicalPhone(phone) == nil)
             }
         }
     }
 
     private func invite() {
         errorText = nil
-        guard sync.isSignedIn else {
+        // Both halves matter: sharing needs a session, and it needs this
+        // device to know its own number — that is what an invite's missing
+        // country code is resolved against.
+        guard sync.isSignedIn, store.currentPhone != nil else {
             errorText = "Sign in with your phone number first."
             return
         }
-        guard PhoneIdentity.normalized(phone) != nil else {
-            errorText = "That doesn't look like a phone number."
+        // The stored identity, not the digits as typed: a number written the
+        // way people say it carries no country code, and the account it has to
+        // reach is keyed by the international form.
+        guard let identity = store.canonicalPhone(phone) else {
+            errorText = PhoneIdentity.normalized(phone) == nil
+                ? "That doesn't look like a phone number."
+                : "Add the country code, like +1, so this reaches their account."
             return
         }
-        if PhoneIdentity.matches(phone, store.currentPhone) {
+        if PhoneIdentity.matches(identity, store.currentPhone) {
             errorText = "That's your own number."
             return
         }

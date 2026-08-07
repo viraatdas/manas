@@ -172,6 +172,27 @@ share_checks() {
   [[ "$intruded" != "201" ]] || FAIL "RLS breach: an outsider wrote themselves into a group they hold the id of"
   PASS "an outsider cannot join a group by id"
 
+  # Identity is E.164 digits, because that is what the JWT carries. A number
+  # typed the way people say it has no country code in it, and a roster row
+  # written from those bare national digits matches no account at all — the
+  # share looks complete to its owner and empty to the person it was for, with
+  # RLS doing exactly its job. The server canonicalizes the write now, so
+  # adding B by their national number alone must still reach B's account.
+  local mem_national="deadbeef-0000-4000-8000-00000000a003"
+  as_a -o /dev/null -X DELETE "$URL/rest/v1/shared_group_members?id=eq.$mem_b"
+  as_a -o /dev/null -X POST "$URL/rest/v1/shared_group_members" -H "Prefer: return=minimal" \
+    -d "{\"id\":\"$mem_national\",\"share_id\":\"$sg_a\",\"phone\":\"5555550100\",\"created_at\":\"2026-01-01T00:00:00Z\"}"
+  local stored
+  stored="$(as_a "$URL/rest/v1/shared_group_members?id=eq.$mem_national&select=phone" \
+    | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["phone"] if r else "")')"
+  [[ "$stored" == "$b_id" ]] || FAIL "a national-number invite was stored as '$stored', which reaches no account"
+  PASS "an invite typed without a country code is stored as the invitee's identity"
+
+  local reaches
+  reaches="$(as_b "$URL/rest/v1/todos?id=eq.$row&select=id" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+  [[ "$reaches" == "1" ]] || FAIL "a member added by their national number cannot see the group's todos"
+  PASS "the group reaches a member added by their national number"
+
   # A's private rows stay private through all of the above.
   local leak
   leak="$(as_b "$URL/rest/v1/todos?share_id=is.null&user_id=eq.$a_id&select=id" \
