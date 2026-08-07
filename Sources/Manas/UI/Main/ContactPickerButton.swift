@@ -25,7 +25,10 @@ struct ContactPickerButton: View {
         }
         .buttonStyle(.ghost)
         .controlSize(.small)
-        .background(ContactPickerAnchorView(anchor: anchor).frame(width: 0, height: 0))
+        // Sized to the button, not zero. An NSPopover positioned against an
+        // empty rect in an empty view has nowhere to attach and never appears,
+        // which is exactly how this shipped broken the first time.
+        .background(ContactPickerAnchorView(anchor: anchor))
     }
 }
 
@@ -38,7 +41,9 @@ final class ContactPickerAnchor: ObservableObject {
     private var delegate: Delegate?
 
     func show(onPick: @escaping (String, String?) -> Void) {
-        guard let view else { return }
+        // A view that has not been placed in a window yet cannot anchor a
+        // popover either, so both conditions are checked rather than assumed.
+        guard let view, view.window != nil, !view.bounds.isEmpty else { return }
         let picker = CNContactPicker()
         let delegate = Delegate { [weak self] phone, name in
             onPick(phone, name)
@@ -51,7 +56,7 @@ final class ContactPickerAnchor: ObservableObject {
         picker.displayedKeys = [CNContactPhoneNumbersKey]
         self.picker = picker
         self.delegate = delegate
-        picker.showRelative(to: .zero, of: view, preferredEdge: .maxY)
+        picker.showRelative(to: view.bounds, of: view, preferredEdge: .maxY)
     }
 
     fileprivate final class Delegate: NSObject, CNContactPickerDelegate {

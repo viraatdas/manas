@@ -1,4 +1,8 @@
 import SwiftUI
+#if DEBUG
+import Contacts
+import ContactsUI
+#endif
 
 /// Gate: phone sign-in until a session exists, then the day feed. Sync starts
 /// the moment a signed-in root appears and pauses with sign-out.
@@ -41,6 +45,31 @@ struct RootView: View {
             sync.refreshAuthState()
             #if DEBUG
             if isPreviewSignedIn { DemoSeed.seedIfEmpty(store) }
+            // Verification seam for the contact picker. It presents through
+            // UIKit rather than a SwiftUI sheet, and the failure mode when that
+            // is wrong is silent — the picker renders but never calls back, or
+            // never appears at all — so it needs to be drivable without taps.
+            if ProcessInfo.processInfo.arguments.contains("-manasProbeContactPicker") {
+                try? await Task.sleep(for: .seconds(2))
+                ContactPickerPresenter.shared.present { number, name in
+                    NSLog("[ManasProbe] contact picked: \(number) name=\(name ?? "-")")
+                }
+                NSLog("[ManasProbe] contact picker presented")
+                // Drive a selection without a tap. Presenting proves the picker
+                // appears; only this proves the delegate actually delivers one,
+                // which is the half that silently did nothing before.
+                try? await Task.sleep(for: .seconds(1))
+                let person = CNMutableContact()
+                person.givenName = "Probe"
+                person.familyName = "Person"
+                person.phoneNumbers = [CNLabeledValue(
+                    label: CNLabelPhoneNumberMobile,
+                    value: CNPhoneNumber(stringValue: "+1 415 555 0137")
+                )]
+                ContactPickerPresenter.shared.contactPicker(
+                    CNContactPickerViewController(), didSelect: person as CNContact
+                )
+            }
             // Verification seam: sign in via the real StytchSyncAuth → edge
             // function path using phone/code from launch arguments.
             if let phone = UserDefaults.standard.string(forKey: "probePhone"),

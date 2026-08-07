@@ -22,7 +22,6 @@ struct MobileShareGroupSheet: View {
     @State private var phone = ""
     @State private var inviteeName = ""
     @State private var errorText: String?
-    @State private var showingContactPicker = false
 
     private var share: SharedGroup? { target.shareID.flatMap { store.sharedGroup(id: $0) } }
     private var isOwner: Bool { share.map(store.isOwner(of:)) ?? true }
@@ -58,16 +57,6 @@ struct MobileShareGroupSheet: View {
                     Button("Done") { dismiss() }.tint(.manasAccent)
                 }
             }
-            .sheet(isPresented: $showingContactPicker) {
-                ContactPicker(
-                    onPick: { number, name in
-                        showingContactPicker = false
-                        adopt(number: number, name: name)
-                    },
-                    onCancel: { showingContactPicker = false }
-                )
-                .ignoresSafeArea()
-            }
         }
     }
 
@@ -85,7 +74,11 @@ struct MobileShareGroupSheet: View {
             // Pick a person, done. Nobody knows anyone's number by heart, and
             // typing one in is the fallback for someone not in your contacts.
             Button {
-                showingContactPicker = true
+                // Presented through UIKit, not a SwiftUI sheet: the picker is a
+                // remote view controller and never calls back from inside one.
+                ContactPickerPresenter.shared.present { number, name in
+                    adopt(number: number, name: name)
+                }
             } label: {
                 Label("Share with someone", systemImage: "person.crop.circle.badge.plus")
             }
