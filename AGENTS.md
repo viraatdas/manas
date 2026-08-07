@@ -128,10 +128,24 @@ Run in this order. Do not skip a step because the previous one "obviously" worke
 6. `~/.agent-skills/release-gate/scripts/postflight.sh --version <x.y.z>`, then
    confirm the **live** appcast advertises the new version. Postflight passing is
    not sufficient: it does not check the feed.
-7. `bash scripts/ios-testflight.sh`, then confirm on App Store Connect that the
-   build reached `processingState=VALID` and `internalBuildState=IN_BETA_TESTING`.
-   For external testers the build must also be added to the external group and
-   submitted for beta review, or it silently reaches nobody.
+7. `bash scripts/ios-testflight.sh` uploads and stops there. Finishing the
+   delivery is four more commands, from `ios/` with `.asc.env` sourced:
+   - `TF_BUILD_NUMBER=<n> fastlane tf_internal` — waits for `VALID`, clears
+     export compliance, puts it in front of internal testers.
+   - `TF_BUILD_NUMBER=<n> fastlane tf_external` — attaches it to the External
+     Testers group. An external group is created `hasAccessToAllBuilds: false`,
+     so unlike the internal one it does **not** inherit new builds.
+   - `TF_BUILD_NUMBER=<n> ASC_REVIEW_PHONE=<+1…> fastlane submit_beta_review`.
+   - `TF_BUILD_NUMBER=<n> fastlane tf_delivery_status` — the proof. Ship only
+     when it reports `processing=VALID`, `internal=IN_BETA_TESTING`,
+     `external=IN_BETA_TESTING`, `betaReview=APPROVED`.
+
+   Skipping the middle two leaves a build that is `VALID`, live to internal
+   testers, and sitting at `external=READY_FOR_BETA_SUBMISSION` — reaching
+   every external tester exactly never, with nothing anywhere reporting a
+   problem. `tf_external` deliberately picks the external group with the most
+   testers: same-named empty twins have existed on this app, and attaching to
+   one of those succeeds and still reaches nobody.
 
 ### Rules learned the hard way
 

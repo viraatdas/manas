@@ -833,6 +833,96 @@ platform :ios do
     end
   end
 
+  desc "Did a build actually reach testers? Set TF_BUILD_NUMBER."
+  # "Uploaded" and "delivered" are different states, and the gap between them
+  # is silent: a build can be VALID, in the external group, and still reach
+  # nobody because it was never approved for beta review. This reports the
+  # whole chain so a release can be verified rather than assumed.
+  lane :tf_delivery_status do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    build_number = ENV["TF_BUILD_NUMBER"] || UI.user_error!("Set TF_BUILD_NUMBER")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+
+    _, detail = asc_raw(:get, "v1/builds/#{build.id}?include=betaAppReviewSubmission%2CbuildBetaDetail")
+    included = detail["included"] || []
+    submission = included.find { |item| item["type"] == "betaAppReviewSubmissions" }
+    beta_detail = included.find { |item| item["type"] == "buildBetaDetails" }
+    UI.message("processing=#{build.processing_state}")
+    UI.message("internal=#{beta_detail&.dig("attributes", "internalBuildState") || "unknown"}")
+    UI.message("external=#{beta_detail&.dig("attributes", "externalBuildState") || "unknown"}")
+    UI.message("betaReview=#{submission&.dig("attributes", "betaReviewState") || "none submitted"}")
+
+    _, review_details = asc_raw(:get, "v1/betaAppReviewDetails?filter%5Bapp%5D=#{app.id}&limit=1")
+    contact = (review_details["data"] || []).first
+    UI.message("reviewContactPhone=#{contact&.dig("attributes", "contactPhone").inspect}")
+
+    _, groups = asc_raw(:get, "v1/builds/#{build.id}/betaGroups?limit=50")
+    (groups["data"] || []).each do |group|
+      UI.message("inGroup=#{group.dig("attributes", "name").inspect} internal=#{group.dig("attributes", "isInternalGroup")}")
+    end
+  end
+
+  desc "Attach a build to the External Testers group. Set TF_BUILD_NUMBER."
+  # An external group does NOT inherit new builds the way the internal one does
+  # (it is created with hasAccessToAllBuilds: false, because every external
+  # build needs Apple's beta review). So each release has to attach the build
+  # here explicitly and then run submit_beta_review — miss this and the upload
+  # is VALID, internal testers get it, and every external tester silently stays
+  # on the previous build with nothing anywhere saying so.
+  lane :tf_external do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    build_number = ENV["TF_BUILD_NUMBER"] || UI.user_error!("Set TF_BUILD_NUMBER")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+    UI.user_error!("Build #{build_number} is #{build.processing_state}, not VALID") unless
+      build.processing_state == "VALID"
+
+    code, body = asc_raw(
+      :get,
+      "v1/betaGroups?include=app%2CbetaTesters%2Cbuilds&limit=200&limit%5BbetaTesters%5D=50&limit%5Bbuilds%5D=50"
+    )
+    UI.user_error!("Group lookup failed (#{code}): #{body.inspect}") unless (200..299).include?(code)
+    candidates = (body["data"] || []).select do |group|
+      group.dig("relationships", "app", "data", "id") == app.id &&
+        !group.dig("attributes", "isInternalGroup")
+    end
+    # Several same-named groups have existed here. Pick the one people are
+    # actually in, not the first match — attaching to an empty twin reaches
+    # nobody and still reports success.
+    target = candidates.max_by { |group| (group.dig("relationships", "betaTesters", "data") || []).size }
+    UI.user_error!("No external group found") unless target
+    testers = (target.dig("relationships", "betaTesters", "data") || []).size
+    UI.user_error!("External group #{target["id"]} has no testers") if testers.zero?
+
+    attach_code, attach_body = asc_raw(
+      :post,
+      "v1/betaGroups/#{target["id"]}/relationships/builds",
+      { data: [{ type: "builds", id: build.id }] }
+    )
+    unless (200..299).include?(attach_code) || attach_code == 409
+      UI.user_error!("Attach build failed (#{attach_code}): #{attach_body.inspect}")
+    end
+
+    _, verify = asc_raw(:get, "v1/betaGroups/#{target["id"]}/builds?limit=50")
+    attached = (verify["data"] || []).map { |item| item.dig("attributes", "version") }
+    UI.user_error!("Build #{build_number} still not in the group") unless attached.include?(build_number)
+    UI.success("Build #{build_number} attached to '#{target.dig("attributes", "name")}' (#{testers} testers)")
+    UI.important("Not live to them yet — run submit_beta_review and wait for Apple's approval.")
+  end
+
   desc "Consolidate external testers into the group that owns the approved build."
   lane :tf_consolidate_external do
     require "spaceship"
