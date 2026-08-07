@@ -8,7 +8,13 @@ import SwiftUI
 @main
 struct ManasIOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var store = AppStore(fileURL: AppGroup.stateURL)
+    // Naming a URL here was the same mistake as naming `StytchSyncAuth()`
+    // below, one seam over: `AppGroup.stateURL` computes exactly the path
+    // `AppStore.defaultStateURL` already does, minus the `MANAS_STATE_FILE`
+    // override — so the scratch-state seam was silently macOS-only and a
+    // simulator run read and wrote the real state file. Ordinary launches land
+    // on the identical path; verification runs get their scratch file.
+    @State private var store = AppStore()
     // Naming `StytchSyncAuth()` here used to bypass `SyncController`'s own
     // default, which is the one that honours `MANAS_DISABLE_SYNC` — so the
     // offline verification seams were silently macOS-only and a simulator run
@@ -43,6 +49,8 @@ enum AppGroup {
             .appendingPathComponent("Manas", isDirectory: true)
     }
 
-    static var stateURL: URL { containerURL.appendingPathComponent("state.json") }
+    // No `stateURL` here on purpose: the store's own `defaultStateURL` is the
+    // single place that decides where state lives, so the verification seam
+    // cannot be bypassed by a caller naming a path.
     static var syncStateURL: URL { containerURL.appendingPathComponent("sync-state.json") }
 }
