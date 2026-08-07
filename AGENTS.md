@@ -40,7 +40,58 @@
   ignored in this app before. Which path answered is in the unified log under
   `subsystem == "Manas"`, category `ContactNames` (debug level: `log stream`
   catches it, `log show` after the fact does not).
-- UI geometry claims are checkable without touching the user's screen: drive a scratch bundle through the accessibility API (`AXUIElementPerformAction` presses buttons in a background window; `screencapture -x -o -l <id>` captures it un-raised) and compare element `AXPosition` before and after. That is how the scroll jump was quantified, and how the fix was confirmed at exactly +0.0pt. Note `kAXWindowsAttribute` on this app hands back the application element — walk the app element's children for the `AXWindow` instead, and guard the walk against cycles.
+- **A phone identity is always full E.164 digits, country code included.** The
+  server derives a row's owner from the JWT with `regexp_replace(phone,
+  '[^0-9]', '', 'g')` and a JWT phone is always international, so
+  `(309) 826-4765` is the account `13098264765` — never `3098264765`.
+  `is_share_member()` compares with `=`, so a roster row written from the bare
+  national digits matched nothing, and RLS did exactly its job: the group and
+  every todo in it were hidden from the person it had been shared with, while
+  looking complete to its owner. Every entry point that takes a number from a
+  human goes through `PhoneIdentity.canonical(_:signedInAs:)` (and
+  `AppStore.canonicalPhone`), which borrows the country code from the number the
+  inviter is signed in as — by length, then checked against
+  `PhoneRegion.dialCodes`, so an unrecognizable prefix asks for a `+` rather
+  than storing digits that reach nobody. `PhoneIdentity.normalized` is the
+  *already-international* form and must never be used on typed input.
+  The server enforces the same rule independently
+  (`shared_group_members_canonical_phone`, migration
+  `20260807060000_canonical_member_phones.sql`), because shipped clients keep
+  writing the old shape until everybody updates. Do not "simplify" either half
+  away, and do not compare a typed number to an identity with `==`.
+- **Contacts are read on device and never leave it.** Member avatars draw
+  initials from `CNContactStore` via `ContactNames`, whose resolved names are
+  held in memory, drawn, and forgotten — never written onto a
+  `SharedGroupMemberRecord`, never pushed to Supabase. `displayName` is the only
+  name that syncs. This is what keeps the feature outside the App Store privacy
+  label's definition of collection, so anyone tempted to cache a resolved name
+  into the store or send it with a share is changing a privacy commitment, not
+  an implementation detail. It also means the same group correctly reads "KR" on
+  a phone that has Krithik in its contacts and stays unnamed on one that
+  doesn't. `MemberBadge.initials` returns `String?` and the old
+  `digits.suffix(2)` fallback is gone for good: digits in a circle read as
+  initials, which is how a shared list came to show "65" and "44" for people it
+  had never heard of. No name means the neutral `person.fill` glyph.
+- The offline verification seams (`MANAS_DISABLE_SYNC`, `MANAS_STATE_FILE`,
+  `MANAS_DISABLE_AUTO_CHECKS`, `MANAS_PROBE_CONTACTS`,
+  `MANAS_PROBE_SIGNED_IN_AS`) only work if the app lets `SyncController` pick
+  its own auth. `ManasIOSApp` named `StytchSyncAuth()` explicitly, which
+  bypassed `isDisabledByEnvironment` — so `MANAS_DISABLE_SYNC` was silently
+  macOS-only and every simulator run reached the live backend. Construct the
+  controller as `SyncController(stateURL:)` and let the default stand.
+  `MANAS_PROBE_SIGNED_IN_AS=+1…` gives a scratch run an identity without a
+  session (it is what an invite's missing country code resolves against);
+  `bearerToken()` throws and `syncNow()` refuses to run while the seam is set,
+  so nothing can leave the machine.
+- **`AXUIElementSetAttributeValue` on a SwiftUI `TextField` does not commit the
+  binding.** It sets `NSTextField.stringValue` without the editing-changed path,
+  so `@State` stays empty, the Share button stays `.disabled`, and pressing it
+  looks like a silent failure of the feature rather than of the harness. Post
+  real key events with `CGEventPostToPid` instead — which also does not steal
+  the user's focus. And when matching AX elements by label, prefer an exact
+  match: "Share" is a substring of "Share this group with a phone number", and
+  that one comes first in tree order.
+- UI geometry claims are checkable without touching the user's screen: drive a scratch bundle through the accessibility API (`AXUIElementPerformAction` presses buttons in a background window; ScreenCaptureKit captures it un-raised — see the screenshot rule below, `screencapture -l` no longer works) and compare element `AXPosition` before and after. That is how the scroll jump was quantified, and how the fix was confirmed at exactly +0.0pt. Note `kAXWindowsAttribute` on this app hands back the application element — walk the app element's children for the `AXWindow` instead, and guard the walk against cycles.
 
 ## Execute: Dead-ends tried
 

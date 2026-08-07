@@ -450,3 +450,40 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Ship the client that matches the applied migration [out of lane] — Carried forward from n0: the canonicalizing migration is already live on gdnknuiqxmosuwoytrzc, but mac 0.4.5 and TestFlight build 17 still send national digits and rely on the server trigger.
 - **By:** n1 · 2026-08-07T07:14:52.644Z
 
+
+## n2 — Integration pass: verifying the sharing fix on a device, not on paper
+
+- 2026-08-07 (n2): the n0 fix could be *run* on iOS (`-manasProbeShareWith`) but
+  not on macOS — the share popover needs `sync.isSignedIn` and a
+  `store.currentPhone`, and the only way to get either on macOS was to sign the
+  verification run into the user's real account through the shared keychain.
+  Added `MANAS_PROBE_SIGNED_IN_AS=+1…` to `SignedOutSyncAuth`: it gives a
+  scratch run an identity without a session. `bearerToken()` still throws and
+  `syncNow()` now returns early whenever `MANAS_DISABLE_SYNC` is set, so the
+  seam cannot reach the network. `SyncController.start(store:)` publishes the
+  identity before the disabled guard rather than after it — that one line is
+  what makes the store know its own number offline.
+- 2026-08-07 (n2): `ManasIOSApp` constructed `SyncController(auth:
+  StytchSyncAuth(), …)`, naming the auth explicitly and so bypassing
+  `SyncController`'s own env-aware default. `MANAS_DISABLE_SYNC` has therefore
+  never worked on iOS, and every simulator verification run has been talking to
+  the live backend. Now `SyncController(stateURL:)`, which picks the same Stytch
+  bridge in an ordinary launch. Anyone adding a platform entry point: let the
+  default stand.
+- 2026-08-07 (n2): both defects were confirmed by running the apps, not by
+  reading the diff. macOS: `dist/Manas.app` copied, `SUFeedURL` stripped,
+  launched through LaunchServices with the offline seams, typed
+  "(309) 826-4765" into the real share field with `CGEventPostToPid` and pressed
+  the real Share button — the member row written was `13098264765`, the identity
+  `auth.users` holds for that account. iOS: simulator, offline seams,
+  `-manasProbeShareWith 3098264765` → `canonical=13098264765
+  members=13042164370,13098264765`. Avatars read "KR"/"VD" on both, and with
+  `MANAS_PROBE_CONTACTS=denied` they fall to the neutral glyph rather than to
+  any digits.
+- 2026-08-07 (n2): the canonicalizing migration
+  (`20260807060000_canonical_member_phones.sql`) is **applied** on
+  `gdnknuiqxmosuwoytrzc` — trigger `shared_group_members_canonical_phone` is
+  enabled, `canonical_phone_id('3098264765','14155550137')` returns
+  `13098264765`, and no member row on the project is shorter than its group
+  owner's identity. Krithik's real row on "Maanasa apt buy list" reads
+  `13098264765`. Nothing needed re-applying.

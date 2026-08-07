@@ -152,9 +152,14 @@ final class SyncController {
     /// Binds to the store and starts the cadence: an immediate pass, a pass
     /// ~2s after any local change, and a steady pull every minute.
     func start(store: AppStore) {
-        guard !Self.isDisabledByEnvironment else { return }
         self.store = store
+        // Identity is published even with sync disabled: a verification run
+        // signed in through `MANAS_PROBE_SIGNED_IN_AS` needs the store to know
+        // its own number, which is what an invite's missing country code is
+        // resolved against. The loop below is what actually talks to the
+        // network, and it stays off.
         publishIdentity()
+        guard !Self.isDisabledByEnvironment else { return }
         startLoopIfPossible()
     }
 
@@ -210,6 +215,10 @@ final class SyncController {
 
     /// One full pass: refresh the token if needed, pull, merge, apply, push.
     func syncNow() async {
+        // The offline seam is absolute: `MANAS_PROBE_SIGNED_IN_AS` makes
+        // `isSignedIn` true so the sharing UI is drivable, and this is what
+        // keeps that identity from ever reaching the network.
+        guard !Self.isDisabledByEnvironment else { return }
         guard SupabaseConfig.isConfigured, isSignedIn, let store, !syncInFlight else { return }
         syncInFlight = true
         defer { syncInFlight = false }

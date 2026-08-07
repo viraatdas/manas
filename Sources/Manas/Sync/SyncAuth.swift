@@ -22,17 +22,36 @@ protocol SyncAuth: AnyObject {
     func signOut()
 }
 
-/// A backend that is permanently signed out and never reaches the keychain or
-/// the network. Stands in for the real one when `MANAS_DISABLE_SYNC` is set —
-/// see `SyncController.isDisabledByEnvironment`.
+/// A backend that never reaches the keychain or the network. Stands in for the
+/// real one when `MANAS_DISABLE_SYNC` is set — see
+/// `SyncController.isDisabledByEnvironment`.
+///
+/// Signed out by default. `MANAS_PROBE_SIGNED_IN_AS=+13042164370` gives a
+/// scratch run an *identity* without a session: shared groups draw "you" from
+/// it, and — the reason this exists — an invite typed the way people say a
+/// number ("(309) 826-4765", no country code) resolves its country code
+/// against it, which is the whole of the sharing fix and cannot otherwise be
+/// driven on macOS without signing the verification run into the real user's
+/// account. `bearerToken()` still throws and `syncNow()` refuses to run while
+/// the seam is set, so nothing can leave the machine.
 @MainActor
 final class SignedOutSyncAuth: SyncAuth {
     struct Disabled: LocalizedError {
         var errorDescription: String? { "Sync is disabled in this build." }
     }
 
-    var isSignedIn: Bool { false }
-    var phone: String? { nil }
+    /// Deliberately not `#if DEBUG`: macOS is verified from a release bundle
+    /// (`dist/Manas.app`), the same way `MANAS_STATE_FILE` and
+    /// `MANAS_PROBE_CONTACTS` are.
+    private static var probePhone: String? {
+        guard let value = ProcessInfo.processInfo.environment["MANAS_PROBE_SIGNED_IN_AS"],
+              !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    var isSignedIn: Bool { Self.probePhone != nil }
+    var phone: String? { Self.probePhone }
 
     func requestCode(phone: String) async throws { throw Disabled() }
     func verifyCode(phone: String, code: String) async throws { throw Disabled() }

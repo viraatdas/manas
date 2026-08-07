@@ -9,7 +9,13 @@ import SwiftUI
 struct ManasIOSApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store = AppStore(fileURL: AppGroup.stateURL)
-    @State private var sync = SyncController(auth: StytchSyncAuth(), stateURL: AppGroup.syncStateURL)
+    // Naming `StytchSyncAuth()` here used to bypass `SyncController`'s own
+    // default, which is the one that honours `MANAS_DISABLE_SYNC` — so the
+    // offline verification seams were silently macOS-only and a simulator run
+    // always reached the live backend. Letting the default stand picks the
+    // same Stytch bridge in every ordinary launch and the signed-out stand-in
+    // when the seam is set.
+    @State private var sync = SyncController(stateURL: AppGroup.syncStateURL)
 
     var body: some Scene {
         WindowGroup {

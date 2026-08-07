@@ -40,6 +40,16 @@ Swift Charts, and SF Symbols.
   own bucket, never merged into a private group of the same name, so nothing
   crosses over by accident; only the owner invites, removes, or stops sharing,
   and when a share ends your own work stays behind as an ordinary group.
+  Type a number the way you say it — "(309) 826-4765" — and Manas fills in the
+  country code from your own, because the account it has to reach is keyed by
+  the full international number.
+- **Avatars with real initials** — the discs show initials from *your* address
+  book ("KR", not the last two digits of a phone number), falling back to the
+  name someone set inside the group and then to a plain person glyph when this
+  device knows neither. Manas asks for Contacts the first time a shared group
+  is on screen; a resolved name is drawn and forgotten — never saved onto a
+  member, never uploaded, and never shown to anyone else in the group. Declining
+  costs nothing but the letters.
 - **Discovered activities** — "You might have also done this": feature-level
   work found in your sessions that wasn't on the list. Add it (arrives
   checked off) or dismiss it (it stays dismissed on future checks).
