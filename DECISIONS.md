@@ -460,3 +460,48 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
   - Pin the CI toolchain [out of lane] — preflight warns that macos-26's Swift is not pinned, so a green local build still proves nothing about CI. Pre-existing, unrelated to this node.
 - **By:** n2 · 2026-08-07T07:36:08.814Z
 
+## n2 — Integration pass: verifying the sharing fix on a device, not on paper
+
+- 2026-08-07 (n2): the n0 fix could be *run* on iOS (`-manasProbeShareWith`) but
+  not on macOS — the share popover needs `sync.isSignedIn` and a
+  `store.currentPhone`, and the only way to get either on macOS was to sign the
+  verification run into the user's real account through the shared keychain.
+  Added `MANAS_PROBE_SIGNED_IN_AS=+1…` to `SignedOutSyncAuth`: it gives a
+  scratch run an identity without a session. `bearerToken()` still throws and
+  `syncNow()` now returns early whenever `MANAS_DISABLE_SYNC` is set, so the
+  seam cannot reach the network. `SyncController.start(store:)` publishes the
+  identity before the disabled guard rather than after it — that one line is
+  what makes the store know its own number offline.
+- 2026-08-07 (n2): `ManasIOSApp` constructed `SyncController(auth:
+  StytchSyncAuth(), …)`, naming the auth explicitly and so bypassing
+  `SyncController`'s own env-aware default. `MANAS_DISABLE_SYNC` has therefore
+  never worked on iOS, and every simulator verification run has been talking to
+  the live backend. Now `SyncController(stateURL:)`, which picks the same Stytch
+  bridge in an ordinary launch. Anyone adding a platform entry point: let the
+  default stand.
+- 2026-08-07 (n2): both defects were confirmed by running the apps, not by
+  reading the diff. macOS: `dist/Manas.app` copied, `SUFeedURL` stripped,
+  launched through LaunchServices with the offline seams, typed
+  "(309) 826-4765" into the real share field with `CGEventPostToPid` and pressed
+  the real Share button — the member row written was `13098264765`, the identity
+  `auth.users` holds for that account. iOS: simulator, offline seams,
+  `-manasProbeShareWith 3098264765` → `canonical=13098264765
+  members=13042164370,13098264765`. Avatars read "KR"/"VD" on both, and with
+  `MANAS_PROBE_CONTACTS=denied` they fall to the neutral glyph rather than to
+  any digits.
+- 2026-08-07 (n2): the canonicalizing migration
+  (`20260807060000_canonical_member_phones.sql`) is **applied** on
+  `gdnknuiqxmosuwoytrzc` — trigger `shared_group_members_canonical_phone` is
+  enabled, `canonical_phone_id('3098264765','14155550137')` returns
+  `13098264765`, and no member row on the project is shorter than its group
+  owner's identity. Krithik's real row on "Maanasa apt buy list" reads
+  `13098264765`. Nothing needed re-applying.
+## n2: Resolved the single 2-sided jj merge conflict (DECISIONS.md) for
+- **Did:** Resolved the single 2-sided jj merge conflict (DECISIONS.md) for the n2 integration/release-readiness node. Base was empty at the hunk — both sides were pure appends to the end of the log: the integrated side had n2's completion report, the worker side had the n2 rationale section ("n2 — Integration pass: verifying the sharing fix on a device, not on paper"). Kept both, main content first then the worker section, matching the additive-log pattern every prior DECISIONS.md resolution in this repo used (n0/n3/n1/n2/n5). Nothing dropped from either side; no code touched. All Swift, plist, project.yml and migration files auto-merged cleanly and all three lanes survived: n0 (PhoneIdentity in Models/SharedGroup.swift, Models/PhoneRegion.swift, migration 20260807060000_canonical_member_phones.sql), n1 (Design/ContactNames.swift, NSContactsUsageDescription in ios/project.yml + scripts/make-app.sh, no digits.suffix(2) anywhere in the tree), n2 (MANAS_PROBE_SIGNED_IN_AS in SyncAuth.swift, publishIdentity() before the isDisabledByEnvironment guard in SyncController.start(store:) plus the syncNow() guard, SyncController(stateURL:) in ManasIOSApp.swift, and the AGENTS.md Execute: Discoveries + README.md doc updates). Verified: jj resolve --list reports no conflicts, no stray conflict markers anywhere in the tree, and bash scripts/e2e.sh passes ALL on the merged tree — macOS build, 316 unit cases, live backend contract, the 8-check two-account shared-group RLS boundary (including the two that pin the n0 fix: an invite typed without a country code is stored as the invitee's identity, and the group reaches a member added by their national number), 3 live client integration cases, and the iOS app+widget build.
+- **Interfaces:** DECISIONS.md only — no code changed. Both the n2 completion report and the n2 integration rationale section are retained in the log.
+- **Follow-ups:**
+  - Ship the client that matches the already-applied migration [out of lane] — Carried forward from n0/n1/n2 and still true: the canonicalizing trigger is live on gdnknuiqxmosuwoytrzc, but mac 0.4.5 and TestFlight build 17/22 still send national digits and rely on the server to fix them. Release preflight currently BLOCKS on no CI run for HEAD, because nothing is pushed.
+  - Decide the App Store privacy label for Contacts [out of lane] — Flagged three times now (n1 twice, n2 once). The app reads CNContactStore; names are matched and drawn on device and never transmitted, which under Apple rules is not collection — but it is a shipping-time judgement that should be made explicitly at iOS submission rather than by omission.
+  - Audit past iOS verification runs that assumed MANAS_DISABLE_SYNC worked [out of lane] — n2 found ManasIOSApp bypassed the env-aware default, so every past simulator verification run reached the live backend. Fixed, but earlier iOS probe conclusions about offline behaviour were measuring the live backend.
+- **By:** n2 · 2026-08-07T07:39:17.407Z
+
