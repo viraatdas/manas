@@ -106,6 +106,66 @@ extension AppStore {
         contactNames.name(for: member) != nil || member.displayName != nil
     }
 
+    /// Where the name on a member's row came from, which decides whether
+    /// anybody *else* can see it.
+    ///
+    /// This is the distinction the members list has to make legible: a name
+    /// read out of this device's address book is local and is never pushed,
+    /// while a `displayName` typed into the group syncs to everyone. The two
+    /// look identical on the row, so without saying which is which there is no
+    /// way to tell whether naming somebody did anything for anyone but you.
+    enum MemberNameSource: Equatable {
+        /// The signed-in user's own row.
+        case you
+        /// This device's address book. Local — nobody else in the group sees it.
+        case contacts
+        /// A `displayName` set in the group. Shared with everyone in it.
+        case group
+        /// Nobody has a name for them anywhere; the row reads as the number.
+        case none
+    }
+
+    func nameSource(of member: SharedGroupMember) -> MemberNameSource {
+        if PhoneIdentity.matches(member.phone, currentPhone) { return .you }
+        if contactNames.name(for: member) != nil { return .contacts }
+        if member.displayName != nil { return .group }
+        return .none
+    }
+
+    /// The two lines a members-list row draws, and where its name came from.
+    ///
+    /// Computed here rather than in each platform's view because they used to
+    /// do it separately and drifted twice: first the label ignored the address
+    /// book while the avatar consulted it, then macOS learned to suppress the
+    /// number when it would only repeat the name and iOS never did — so an
+    /// unnamed member on iPhone rendered the same digits on both lines. One
+    /// implementation, and `detail` is derived from `title` rather than from a
+    /// parallel guess about what `title` will say, so it cannot repeat it.
+    struct MemberPresentation: Equatable {
+        /// First line: a name when anyone has one, otherwise the number.
+        var title: String
+        /// Second line, or nil when there is nothing left to add. Never a
+        /// repeat of `title`.
+        var detail: String?
+        var nameSource: MemberNameSource
+    }
+
+    func presentation(of member: SharedGroupMember, in share: SharedGroup) -> MemberPresentation {
+        let title = memberLabel(member)
+        let number = PhoneIdentity.display(member.phone)
+        let ownerTag = member.phone == share.ownerPhone ? "owner" : nil
+        // The number earns its line only when the name above it isn't already
+        // the number. When it is, the owner tag still does.
+        let detail = title == number
+            ? ownerTag
+            : [number, ownerTag].compactMap { $0 }.joined(separator: " · ")
+        return MemberPresentation(
+            title: title,
+            detail: (detail?.isEmpty ?? true) ? nil : detail,
+            nameSource: nameSource(of: member)
+        )
+    }
+
     /// True unless the todo is a shared one somebody else wrote. Anything with
     /// no author — every todo written before sharing existed, and everything
     /// added while signed out — is this user's.

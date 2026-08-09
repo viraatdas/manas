@@ -168,6 +168,96 @@ final class ContactNamesTests: XCTestCase {
         XCTAssertEqual(store.memberLabel(them), "Ada Kane", "the address book beats the typed name")
     }
 
+    /// Reported as "it's showing multiple numbers".
+    ///
+    /// When nobody has a name, the row's title falls back to the number — and
+    /// both platforms then drew the number *again* underneath it as the
+    /// caption. iOS drew it unconditionally, macOS whenever the member owned
+    /// the group. The detail line is now derived from the title rather than
+    /// guessed alongside it, so it cannot repeat it.
+    func testAnUnnamedMemberNeverShowsTheirNumberTwice() async {
+        let store = probeStore()
+        store.contactNames = ContactNames(directory: FakeContactDirectory(entries: []))
+        let share = store.shareGroup("Apartment", withPhone: "15555550100")!
+        let stranger = try! XCTUnwrap(share.members.first { $0.phone != store.currentPhone })
+
+        let row = store.presentation(of: stranger, in: share)
+
+        XCTAssertEqual(row.title, PhoneIdentity.display(stranger.phone))
+        XCTAssertNil(row.detail, "the number is already the title; a caption would repeat it")
+    }
+
+    /// The same row, when somebody else owns the group: the owner tag still has
+    /// to survive, because that is the one thing the caption was carrying.
+    func testAnUnnamedOwnerKeepsTheOwnerTagWithoutRepeatingTheNumber() async {
+        let store = probeStore()
+        store.contactNames = ContactNames(directory: FakeContactDirectory(entries: []))
+        let share = store.shareGroup("Apartment", withPhone: "15555550100")!
+        let me = try! XCTUnwrap(share.members.first { $0.phone == store.currentPhone })
+        let other = try! XCTUnwrap(share.members.first { $0.phone != store.currentPhone })
+
+        // The owner is the signed-in user here, so check both shapes: a titled
+        // row keeps number + owner, an untitled one keeps owner alone.
+        XCTAssertEqual(store.presentation(of: me, in: share).title, "You")
+        XCTAssertEqual(
+            store.presentation(of: me, in: share).detail,
+            "\(PhoneIdentity.display(me.phone)) · owner"
+        )
+        XCTAssertNil(store.presentation(of: other, in: share).detail)
+    }
+
+    /// "I don't know if it's syncing the name." A name out of the address book
+    /// is local and a typed one is not, and the row has to say which.
+    func testTheRowDistinguishesANameOnlyYouSeeFromOneTheGroupSees() async {
+        let store = probeStore()
+        let directory = FakeContactDirectory(entries: [("(309) 826-4765", "Krithik Rao")])
+        store.contactNames = ContactNames(directory: directory)
+        let share = store.shareGroup("Apartment", withPhone: "13098264765")!
+        store.addMember(to: share.id, phone: "15555550100", name: "Ada Kane")
+        let current = store.sharedGroup(id: share.id)!
+        let fromContacts = try! XCTUnwrap(current.members.first { $0.phone == "13098264765" })
+        let typed = try! XCTUnwrap(current.members.first { $0.phone == "15555550100" })
+
+        store.contactNames.resolve(current.members)
+        _ = await waitForName(store.contactNames, fromContacts)
+
+        XCTAssertEqual(store.presentation(of: fromContacts, in: current).nameSource, .contacts)
+        XCTAssertEqual(store.presentation(of: typed, in: current).nameSource, .group)
+        XCTAssertEqual(
+            store.nameSource(of: try! XCTUnwrap(current.members.first { $0.phone == store.currentPhone })),
+            .you
+        )
+        XCTAssertNil(
+            fromContacts.displayName,
+            "a contact name must never be written onto the record — that is what makes it local"
+        )
+    }
+
+    /// Naming yourself from a group's panel used to write one membership row
+    /// and leave `myDisplayName` empty, so the name was missing from your other
+    /// groups and from Settings. It is your name everywhere or it is nothing.
+    func testNamingYourselfCarriesToEveryGroupAndToSettings() {
+        let store = probeStore()
+        let apartment = store.shareGroup("Apartment", withPhone: "15555550100")!
+        let work = store.shareGroup("Work", withPhone: "13098264765")!
+
+        store.setMyDisplayName("Viraat")
+
+        XCTAssertEqual(store.myDisplayName, "Viraat")
+        for id in [apartment.id, work.id] {
+            let me = store.sharedGroup(id: id)!.members.first { $0.phone == store.currentPhone }
+            XCTAssertEqual(me?.displayName, "Viraat", "your name is missing from a group")
+        }
+    }
+
+    private func probeStore() -> AppStore {
+        let store = AppStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManasTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("state.json"))
+        store.currentPhone = "13042164370"
+        return store
+    }
+
     /// A list redraws constantly; the address book must be read once.
     func testTheAddressBookIsReadOncePerNumberNoMatterHowOftenTheRowRedraws() async {
         let directory = FakeContactDirectory(entries: [("(309) 826-4765", "Krithik Rao")])

@@ -85,6 +85,27 @@
   and untested is how the label drifted from the avatar in the first place.
   Anything new that renders a member — a header, a tooltip, a share sheet on a
   third platform — goes through `memberLabel`, never `displayName ?? digits`.
+- **A members-list row is `AppStore.presentation(of:in:)`, both platforms.**
+  The two views each computed their own second line and drifted again: iOS drew
+  the number unconditionally and macOS drew it for any owner, so a member with
+  no name rendered the same digits on both lines — the number as the title
+  (memberLabel's fallback) and the number again underneath. `detail` is now
+  derived from `title` (`title == number ? ownerTag : …`) rather than guessed
+  in parallel, so it cannot repeat it whatever `memberLabel` later decides to
+  say. Do not reintroduce a per-platform caption expression.
+- **Say which names sync.** `nameSource` distinguishes `.contacts` (local, never
+  pushed, only this device sees it) from `.group` (a `displayName`, pushed to
+  everyone) from `.you`. Both share panels mark a `.contacts` name with a
+  `person.crop.circle` and state the rule in a footer, because the two are
+  otherwise identical on the row and there is no way to tell whether naming
+  somebody did anything for anyone but you.
+- **Naming yourself is `setMyDisplayName`, never `setMemberName`.** They look
+  interchangeable on your own row and are not: `setMemberName` writes one
+  membership row, so the name was missing from your other groups and Settings
+  still showed an empty field — indistinguishable from a name that failed to
+  sync. `setMyDisplayName` sets it and carries it to every group at once.
+  `ShareMerge.pushable` lets a device write its own membership row in any
+  group, so the name does reach everyone.
 - The offline verification seams (`MANAS_DISABLE_SYNC`, `MANAS_STATE_FILE`,
   `MANAS_DISABLE_AUTO_CHECKS`, `MANAS_PROBE_CONTACTS`,
   `MANAS_PROBE_SIGNED_IN_AS`) only work if the app lets `SyncController` pick

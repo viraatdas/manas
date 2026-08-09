@@ -32,7 +32,10 @@ struct ShareGroupPopover: View {
                 signedOutNotice
             } else {
                 if isOwner { inviteField }
-                if let share, !share.members.isEmpty { memberList(share) }
+                if let share, !share.members.isEmpty {
+                    memberList(share)
+                    namingNote
+                }
                 if let share { footer(share) }
             }
 
@@ -182,24 +185,48 @@ struct ShareGroupPopover: View {
                             .buttonStyle(.ghost)
                             .controlSize(.small)
                     } else {
+                    let row = store.presentation(of: member, in: share)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(store.memberLabel(member))
-                            .font(.subheadline)
-                            .lineLimit(1)
-                        if showsCaption(for: member, in: share) {
-                            Text(caption(for: member, in: share))
+                        HStack(spacing: 4) {
+                            Text(row.title)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                            // A name only this Mac knows. Without the marker
+                            // there is no way to tell it apart from a name the
+                            // whole group can see.
+                            if row.nameSource == .contacts {
+                                Image(systemName: "person.crop.circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .help("From your Contacts — only you see this name")
+                                    .accessibilityLabel("from your Contacts, only you see this name")
+                            }
+                        }
+                        if let detail = row.detail {
+                            Text(detail)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
                     Spacer(minLength: 4)
-                    // Digits mean nobody has named them yet; offer the fix
-                    // exactly where the digits are. Someone the address book
-                    // already names is not offered it: the row reads as their
-                    // name, so a "Name" button beside it asks for work that is
-                    // visibly already done.
-                    if canName(member, in: share), !store.hasName(member) {
+                    // Your own name is the one thing here that everybody else
+                    // sees, so it is always editable — and it goes through
+                    // `setMyDisplayName`, which carries it to every group
+                    // rather than just this one.
+                    if PhoneIdentity.matches(member.phone, store.currentPhone) {
+                        Button(store.myDisplayName == nil ? "Your name" : "Rename") {
+                            draftName = store.myDisplayName ?? ""
+                            namingMemberID = member.id
+                        }
+                        .buttonStyle(.ghost)
+                        .controlSize(.small)
+                    } else if canName(member, in: share), store.nameSource(of: member) == .none {
+                        // Digits mean nobody has named them anywhere; offer the
+                        // fix where the digits are. Somebody the address book
+                        // already names is not offered it — the row reads as
+                        // their name, so the button would ask for work that
+                        // visibly looks done.
                         Button("Name") {
                             draftName = ""
                             namingMemberID = member.id
@@ -231,24 +258,29 @@ struct ShareGroupPopover: View {
         isOwner || PhoneIdentity.matches(member.phone, store.currentPhone)
     }
 
+    /// Naming yourself is a different write from naming somebody else: it is
+    /// your name everywhere, not in this one group. Routing it through
+    /// `setMemberName` updated a single membership row and left `myDisplayName`
+    /// empty, so the name vanished from your other groups and Settings still
+    /// showed a blank field — which reads as "it didn't sync".
     private func commitName(for member: SharedGroupMember, in share: SharedGroup) {
-        store.setMemberName(draftName, forMemberWithPhone: member.phone, in: share.id)
+        if PhoneIdentity.matches(member.phone, store.currentPhone) {
+            store.setMyDisplayName(draftName)
+        } else {
+            store.setMemberName(draftName, forMemberWithPhone: member.phone, in: share.id)
+        }
         namingMemberID = nil
         draftName = ""
     }
 
-    /// The number belongs under the name — but never under itself. Comparing
-    /// against the label rather than testing for a `displayName` means this
-    /// keeps working now that a name can also arrive from the address book,
-    /// and it cannot drift out of step with `memberLabel` later.
-    private func showsCaption(for member: SharedGroupMember, in share: SharedGroup) -> Bool {
-        member.phone == share.ownerPhone
-            || store.memberLabel(member) != PhoneIdentity.display(member.phone)
-    }
-
-    private func caption(for member: SharedGroupMember, in share: SharedGroup) -> String {
-        let number = PhoneIdentity.display(member.phone)
-        return member.phone == share.ownerPhone ? "\(number) · owner" : number
+    /// What a name here does and does not reach. Sharing is the one screen
+    /// where "only you can see this" is a real distinction, and the members
+    /// list above is otherwise silent about it.
+    private var namingNote: some View {
+        Text("Names from your Contacts stay on this Mac. A name you type here is shared with everyone in the group.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Footer

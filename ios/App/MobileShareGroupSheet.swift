@@ -74,13 +74,24 @@ struct MobileShareGroupSheet: View {
                 .textContentType(.name)
             Button("Cancel", role: .cancel) { namingMember = nil }
             Button("Save") {
+                // Naming yourself is your name everywhere, not in this one
+                // group: setMemberName would touch a single membership row and
+                // leave myDisplayName empty, so the name would be missing from
+                // your other groups and from Settings — which reads as a name
+                // that didn't sync.
                 if let member = namingMember, let shareID = target.shareID {
-                    store.setMemberName(draftName, forMemberWithPhone: member.phone, in: shareID)
+                    if PhoneIdentity.matches(member.phone, store.currentPhone) {
+                        store.setMyDisplayName(draftName)
+                    } else {
+                        store.setMemberName(draftName, forMemberWithPhone: member.phone, in: shareID)
+                    }
                 }
                 namingMember = nil
             }
         } message: {
-            Text("Shown on their avatar as initials, to everyone in the group.")
+            Text(namingMember.map { PhoneIdentity.matches($0.phone, store.currentPhone) } == true
+                ? "How you appear to everyone in your shared groups."
+                : "Shared with everyone in this group, and shown on their avatar as initials.")
         }
     }
 
@@ -130,22 +141,42 @@ struct MobileShareGroupSheet: View {
     private func memberSection(_ share: SharedGroup) -> some View {
         Section {
             ForEach(share.members) { member in
+                let row = store.presentation(of: member, in: share)
                 HStack(spacing: 10) {
                     MemberAvatar(member: member, size: 26)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(store.memberLabel(member))
-                        Text(member.phone == share.ownerPhone
-                            ? "\(PhoneIdentity.display(member.phone)) · owner"
-                            : PhoneIdentity.display(member.phone))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text(row.title)
+                            // A name only this phone knows. Without the marker
+                            // it is indistinguishable from one the whole group
+                            // can see.
+                            if row.nameSource == .contacts {
+                                Image(systemName: "person.crop.circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("from your Contacts, only you see this name")
+                            }
+                        }
+                        // nil when the title is already the number — drawing it
+                        // anyway is how this row showed the same digits twice.
+                        if let detail = row.detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer(minLength: 0)
-                    // Digits mean nobody has a name yet. Offer the fix where
-                    // the problem is visible rather than burying it in a menu.
-                    // Someone already in this phone's contacts is skipped —
-                    // their row reads as their name with nothing to fix.
-                    if canName(member, in: share), !store.hasName(member) {
+                    // Your own name is the one everybody else sees, so it stays
+                    // editable; anyone the address book already names does not
+                    // get asked for work that visibly looks done.
+                    if PhoneIdentity.matches(member.phone, store.currentPhone) {
+                        Button(store.myDisplayName == nil ? "Your name" : "Rename") {
+                            beginNaming(member)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .tint(.manasAccent)
+                    } else if canName(member, in: share), row.nameSource == .none {
                         Button("Name") { beginNaming(member) }
                             .buttonStyle(.borderless)
                             .font(.caption)
@@ -168,7 +199,7 @@ struct MobileShareGroupSheet: View {
         } header: {
             Text("In this group")
         } footer: {
-            Text("People in your contacts show up by name automatically. Tap anyone else to name them yourself.")
+            Text("Names from your Contacts stay on this phone. A name you type here is shared with everyone in the group.")
         }
     }
 
@@ -180,7 +211,9 @@ struct MobileShareGroupSheet: View {
 
     private func beginNaming(_ member: SharedGroupMember) {
         namingMember = member
-        draftName = member.displayName ?? ""
+        draftName = PhoneIdentity.matches(member.phone, store.currentPhone)
+            ? store.myDisplayName ?? ""
+            : member.displayName ?? ""
     }
 
     private func endSection(_ share: SharedGroup) -> some View {
