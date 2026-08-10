@@ -196,6 +196,30 @@ struct MobileShareGroupSheet: View {
                     }
                 }
             }
+            // Everyone showing as a number has two very different causes —
+            // nobody here is in your address book, or Manas was never allowed
+            // to read it — and they look the same on screen. Only one is
+            // fixable, so say which one this is.
+            if !ContactNames.shared.canReadContacts,
+               share.members.contains(where: { store.nameSource(of: $0) == .none }) {
+                Button {
+                    if ContactNames.shared.canAskForContacts {
+                        Task { await ContactNames.shared.requestAccessIfNeeded(for: share.members) }
+                    } else {
+                        // Already decided, so asking again is a silent no.
+                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                    }
+                } label: {
+                    Label(
+                        ContactNames.shared.canAskForContacts
+                            ? "Show names from Contacts"
+                            : "Turn on Contacts in Settings",
+                        systemImage: "person.crop.circle.badge.questionmark"
+                    )
+                    .font(.caption)
+                }
+                .tint(.manasAccent)
+            }
         } header: {
             Text("In this group")
         } footer: {

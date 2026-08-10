@@ -106,6 +106,23 @@
   sync. `setMyDisplayName` sets it and carries it to every group at once.
   `ShareMerge.pushable` lets a device write its own membership row in any
   group, so the name does reach everyone.
+- **"No contacts permission" and "nobody here is in your contacts" look
+  identical, and only one is fixable.** The development Mac had no
+  `kTCCServiceAddressBook` row for `dev.viraat.manas` at all, so every member
+  rendered as digits under a footer promising names from Contacts — the
+  feature was inert with nothing on screen admitting it. Both share panels now
+  key an explanation off `ContactNames.canReadContacts` and offer either the
+  prompt (`canAskForContacts`) or a jump to Settings. Check TCC directly when
+  a permission-shaped feature "just doesn't work":
+  `sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db "select client,
+  auth_value from access where service='kTCCServiceAddressBook';"` — no row
+  means never asked, which is not the same as denied.
+- **Don't mark a permission as asked until the system records a decision.**
+  `requestAccessIfNeeded` set `hasAskedForAccess = true` before awaiting the
+  request, so a prompt that never appeared — hidden app, no window to present
+  from — burned the single ask for the whole process. It now sets the flag
+  from `!directory.canAsk` *after* the await, so an unshown prompt is retried
+  rather than silently swallowed.
 - The offline verification seams (`MANAS_DISABLE_SYNC`, `MANAS_STATE_FILE`,
   `MANAS_DISABLE_AUTO_CHECKS`, `MANAS_PROBE_CONTACTS`,
   `MANAS_PROBE_SIGNED_IN_AS`) only work if the app lets `SyncController` pick

@@ -250,6 +250,43 @@ final class ContactNamesTests: XCTestCase {
         }
     }
 
+    /// A prompt that never got shown must not count as having asked.
+    ///
+    /// `hasAskedForAccess` used to be set before the request was awaited, so a
+    /// prompt the system never displayed — the app was hidden, or had no
+    /// window to present from — burned the single ask for the rest of the
+    /// process, and the members list went on silently showing digits. Found on
+    /// a Mac whose TCC database had no row for the app at all.
+    func testAPromptThatNeverAppearedDoesNotCountAsAsking() async {
+        let directory = FakeContactDirectory(entries: [("(309) 826-4765", "Krithik Rao")], canRead: false, canAsk: true)
+        directory.ignoreRequests = true          // the prompt never appears
+        let names = ContactNames(directory: directory)
+        let krithik = member("13098264765")
+
+        await names.requestAccessIfNeeded(for: [krithik])
+        XCTAssertEqual(directory.requestCount, 1)
+        XCTAssertTrue(names.canAskForContacts, "still undecided")
+
+        // Next time there is a window to present from, it must ask again.
+        directory.ignoreRequests = false
+        await names.requestAccessIfNeeded(for: [krithik])
+        XCTAssertEqual(directory.requestCount, 2, "the app gave up after one unshown prompt")
+        XCTAssertTrue(names.canReadContacts)
+        let resolved = await waitForName(names, krithik)
+        XCTAssertEqual(resolved, "Krithik Rao")
+    }
+
+    /// What the members list keys its explanation on.
+    func testAccessStateIsReadableSoTheListCanExplainItself() async {
+        let denied = ContactNames(directory: FakeContactDirectory(entries: [], canRead: false, canAsk: false))
+        XCTAssertFalse(denied.canReadContacts)
+        XCTAssertFalse(denied.canAskForContacts, "decided already — Settings is the only way back")
+
+        let fresh = ContactNames(directory: FakeContactDirectory(entries: [], canRead: false, canAsk: true))
+        XCTAssertFalse(fresh.canReadContacts)
+        XCTAssertTrue(fresh.canAskForContacts, "never asked — a prompt is still worth offering")
+    }
+
     private func probeStore() -> AppStore {
         let store = AppStore(fileURL: FileManager.default.temporaryDirectory
             .appendingPathComponent("ManasTests-\(UUID().uuidString)", isDirectory: true)
@@ -403,6 +440,7 @@ private final class FakeContactDirectory: ContactDirectory, @unchecked Sendable 
     private var askable: Bool
     private var lookups: [Set<String>] = []
     private var requests = 0
+    private var ignoring = false
 
     init(entries: [(number: String, name: String)], canRead: Bool = true, canAsk: Bool = false) {
         self.entries = entries
@@ -418,10 +456,19 @@ private final class FakeContactDirectory: ContactDirectory, @unchecked Sendable 
 
     func grant() { lock.withLock { readable = true } }
 
+    /// Stands in for a prompt the system never displays — a hidden app, or one
+    /// with no window to present from. The status stays undecided.
+    var ignoreRequests: Bool {
+        get { lock.withLock { ignoring } }
+        set { lock.withLock { ignoring = newValue } }
+    }
+
     func requestAccess() async -> Bool {
         lock.withLock {
             requests += 1
+            guard !ignoring else { return false }
             askable = false
+            readable = true
             return readable
         }
     }

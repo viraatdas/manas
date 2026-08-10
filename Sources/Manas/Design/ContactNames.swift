@@ -50,6 +50,7 @@ final class ContactNames {
     private var queued: Set<String> = []
     private var isLookingUp = false
     private var hasAskedForAccess = false
+    private var isRequestingAccess = false
 
     init(directory: (any ContactDirectory)? = nil) {
         self.directory = directory
@@ -95,18 +96,37 @@ final class ContactNames {
         lookUpNextBatch()
     }
 
+    /// Whether names can be read at all right now. A members list uses this to
+    /// explain itself: without it, "everyone shows as a phone number" and
+    /// "nobody in this group is in your address book" look exactly the same on
+    /// screen, and the first one is fixable.
+    var canReadContacts: Bool { directory.canRead }
+
+    /// Whether asking would show the system prompt rather than being a silent
+    /// no. False once the choice has been made either way — then the only way
+    /// back is System Settings.
+    var canAskForContacts: Bool { directory.canAsk }
+
     /// Ask for the address book, once, from a screen that is already about
     /// people — sharing a group, or opening an app that has shared groups in
     /// it. Resolves either way, so a grant that already exists takes effect
     /// without a prompt and a refusal costs nothing.
     func requestAccessIfNeeded(for members: [SharedGroupMember]) async {
         guard !members.isEmpty else { return }
-        guard !hasAskedForAccess, directory.canAsk else {
+        guard !hasAskedForAccess, !isRequestingAccess, directory.canAsk else {
             resolve(members)
             return
         }
-        hasAskedForAccess = true
+        isRequestingAccess = true
         _ = await directory.requestAccess()
+        isRequestingAccess = false
+        // Only count it as asked if the system actually recorded a decision.
+        // A prompt that never got shown — the app was hidden, or had no
+        // window to present from — leaves the status `notDetermined`, and
+        // marking that "asked" burns the single ask for the rest of the
+        // process while the panel goes on silently showing digits. Observed
+        // on a Mac whose TCC database had no row for the app at all.
+        hasAskedForAccess = !directory.canAsk
         // A fresh grant means the numbers that were skipped for lack of
         // permission are worth another look.
         looked.removeAll()

@@ -34,6 +34,7 @@ struct ShareGroupPopover: View {
                 if isOwner { inviteField }
                 if let share, !share.members.isEmpty {
                     memberList(share)
+                    contactsAccessNotice(share)
                     namingNote
                 }
                 if let share { footer(share) }
@@ -271,6 +272,40 @@ struct ShareGroupPopover: View {
         }
         namingMemberID = nil
         draftName = ""
+    }
+
+    /// Everyone showing as a phone number has two very different causes —
+    /// nobody here is in your address book, or Manas was never allowed to read
+    /// it — and they look identical on screen. Only one of them is fixable, so
+    /// say which one this is and offer the fix.
+    @ViewBuilder
+    private func contactsAccessNotice(_ share: SharedGroup) -> some View {
+        let contacts = ContactNames.shared
+        if !contacts.canReadContacts,
+           share.members.contains(where: { store.nameSource(of: $0) == .none }) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.caption)
+                Text("Manas can't read your Contacts, so people here show as numbers.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button(contacts.canAskForContacts ? "Allow" : "Open Settings") {
+                    if contacts.canAskForContacts {
+                        Task { await contacts.requestAccessIfNeeded(for: share.members) }
+                    } else {
+                        // The choice has already been made, so asking again is
+                        // a silent no — System Settings is the only way back.
+                        NSWorkspace.shared.open(URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts"
+                        )!)
+                    }
+                }
+                .buttonStyle(.ghost)
+                .controlSize(.small)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
     }
 
     /// What a name here does and does not reach. Sharing is the one screen
