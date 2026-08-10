@@ -23,6 +23,9 @@ struct ManasIOSApp: App {
     // when the seam is set.
     @State private var sync = SyncController(stateURL: AppGroup.syncStateURL)
 
+    /// Same as the Mac: opt-in, so only a real app makes a sound.
+    init() { Sounds.isEnabled = true }
+
     var body: some Scene {
         WindowGroup {
             RootView()

@@ -58,6 +58,11 @@ struct ManasApp: App {
     @State private var sync = SyncController()
     @State private var updates = UpdateController()
 
+    /// Sound is opt-in so that constructing a store — in a test, a preview, or
+    /// a verification run — never makes a noise. A real app is the one thing
+    /// that should.
+    init() { Sounds.isEnabled = true }
+
     var body: some Scene {
         Window("Manas", id: "main") {
             ContentView()

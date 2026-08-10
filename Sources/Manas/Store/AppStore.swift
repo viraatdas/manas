@@ -433,6 +433,11 @@ final class AppStore {
         guard let index = todos.firstIndex(where: { $0.id == id }) else { return }
         todos[index].isDone.toggle()
         let todo = todos[index]
+        // Here rather than at the three places that call this — the checkbox,
+        // the space bar, and the phone's tap — because a fourth way to finish
+        // a todo should not have to remember to make a sound. `Sounds` is off
+        // until an app switches it on, so this stays silent in tests.
+        if todo.isDone { Sounds.pop() }
         let event: UsageAnalytics.Event = todo.isDone
             ? .todoCompleted(
                 day: UsageAnalytics.dayRelation(for: todo.day),
