@@ -117,6 +117,28 @@
   `sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db "select client,
   auth_value from access where service='kTCCServiceAddressBook';"` — no row
   means never asked, which is not the same as denied.
+- **The hardened runtime needs the entitlement, not just the usage string.**
+  `scripts/make-app.sh` signs with `--options runtime`, and under it macOS
+  refuses a Contacts request *before it becomes a prompt* unless the binary
+  carries `com.apple.security.personal-information.addressbook`. The app had
+  `NSContactsUsageDescription` and nothing else, so: no dialog, no denial, no
+  row in the TCC database, nothing to switch on in Privacy & Security, and
+  every member of a shared group reading as digits. Member names shipped inert
+  in 0.4.6, 0.4.7 and 0.4.8 that way. `make-app.sh` now writes
+  `dist/Manas.entitlements`, signs the app (not the Sparkle helpers) with it,
+  and **fails the build** if the entitlement is missing from the finished
+  bundle, because the symptom is silence. Do NOT add the App Sandbox while
+  fixing something like this: Messages, Arc history and knowledgeC are reached
+  through Full Disk Access and sandboxing would cut all three off.
+  Diagnose with `codesign -d --entitlements - --xml <app>` — "(none)" against
+  `flags=0x10000(runtime)` is the whole bug.
+- **A probe seam proves the seam, not the feature.** Every verification run of
+  member names used `MANAS_PROBE_CONTACTS`, which swaps in
+  `ProbeContactDirectory` and never touches `CNContactStore` — so the naming
+  logic was proven repeatedly while the real permission path had never once
+  been exercised. When a feature depends on a system permission, one run has
+  to go through the real framework on a real machine, or the only thing tested
+  is the fake.
 - **Don't mark a permission as asked until the system records a decision.**
   `requestAccessIfNeeded` set `hasAskedForAccess = true` before awaiting the
   request, so a prompt that never appeared — hidden app, no window to present

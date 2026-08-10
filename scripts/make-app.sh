@@ -22,8 +22,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Manas"
 BUNDLE_ID="dev.viraat.manas"
-VERSION="0.4.9"
-BUILD="31"
+VERSION="0.4.10"
+BUILD="32"
 # Where installed copies look for new versions, and the public half of the
 # EdDSA key their Sparkle verifies the feed with. The private half lives in the
 # login keychain (Sparkle's generate_keys); scripts/release.sh signs with it.
@@ -127,6 +127,30 @@ $ANALYTICS_PLIST_ENTRY
 </plist>
 PLIST
 
+# The hardened runtime (`--options runtime`, below) does not merely want a
+# usage string for Contacts — it requires the entitlement as well, and without
+# it the request is refused before it ever reaches TCC. No prompt, no denial
+# recorded, no row in the TCC database at all: the app just reads an empty
+# address book forever while `NSContactsUsageDescription` sits in the plist
+# looking like the whole story. That is exactly how member names shipped inert
+# in 0.4.6 through 0.4.8.
+#
+# Deliberately NOT the App Sandbox. This app reads Messages, Arc history and
+# knowledgeC through Full Disk Access, and sandboxing it would cut all three
+# off. `personal-information.addressbook` is a hardened-runtime resource
+# entitlement and stands on its own.
+ENTITLEMENTS="$DIST_DIR/Manas.entitlements"
+cat > "$ENTITLEMENTS" <<'ENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+</dict>
+</plist>
+ENTS
+
 SIGN_IDENTITY="${MANAS_CODESIGN_IDENTITY:-}"
 if [[ -z "$SIGN_IDENTITY" ]]; then
   SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
@@ -152,15 +176,26 @@ if [[ "$SIGN_IDENTITY" == "-" ]]; then
   for target in "${NESTED[@]}"; do
     [[ -e "$target" ]] && codesign --force -s - "$target"
   done
-  codesign --force -s - "$APP"
+  # Entitlements on the scratch build too, or a local verification run cannot
+  # exercise the real Contacts path at all.
+  codesign --force -s - --entitlements "$ENTITLEMENTS" "$APP"
 else
   echo "==> Signing ($SIGN_IDENTITY)"
   for target in "${NESTED[@]}"; do
     [[ -e "$target" ]] && \
       codesign --force --options runtime --timestamp -s "$SIGN_IDENTITY" "$target"
   done
-  codesign --force --options runtime --timestamp -s "$SIGN_IDENTITY" "$APP"
+  # Only the app itself carries them; the Sparkle helpers have no business
+  # reading an address book.
+  codesign --force --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS" -s "$SIGN_IDENTITY" "$APP"
 fi
 codesign --verify --strict --deep "$APP"
+
+# A silent regression here is invisible until somebody notices names never
+# resolve, so fail the build rather than ship another inert release.
+codesign -d --entitlements - --xml "$APP" 2>/dev/null \
+  | grep -q "com.apple.security.personal-information.addressbook" \
+  || { echo "error: $APP is missing the Contacts entitlement" >&2; exit 1; }
 
 echo "==> Done: $APP"
