@@ -15,6 +15,7 @@ struct ModelJudgeOutput: Hashable, Sendable {
         var source: WorkSource
         var kind: DiscoveredActivity.Kind
         var group: String?
+        var estimatedMinutes: Int?
     }
 
     var verdicts: [VerdictItem]
@@ -130,7 +131,8 @@ enum JudgeOutputParser {
                 // observed work, which is how every discovery behaved before
                 // commitments existed.
                 kind: item.kind?.lowercased() == "owed" ? .owed : .done,
-                group: item.group
+                group: item.group,
+                estimatedMinutes: item.estimatedMinutes
             )
         }
         return ModelJudgeOutput(verdicts: verdicts, discovered: discovered)
@@ -202,6 +204,23 @@ enum JudgeOutputParser {
         var source: String?
         var kind: String?
         var group: String?
+        var estimatedMinutes: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case title, evidence, source, kind, group
+            case estimatedMinutes = "estimated_minutes"
+            case minutes
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            title = container.lenientString(.title)
+            evidence = container.lenientString(.evidence)
+            source = container.lenientString(.source)
+            kind = container.lenientString(.kind)
+            group = container.lenientString(.group)
+            estimatedMinutes = container.lenientInt(.estimatedMinutes, .minutes)
+        }
     }
 }
 
@@ -211,6 +230,16 @@ private extension KeyedDecodingContainer {
         for key in keys {
             if let value = try? decodeIfPresent(String.self, forKey: key) {
                 return value
+            }
+        }
+        return nil
+    }
+
+    func lenientInt(_ keys: Key...) -> Int? {
+        for key in keys {
+            if let value = try? decodeIfPresent(Int.self, forKey: key) { return value }
+            if let value = try? decodeIfPresent(String.self, forKey: key), let integer = Int(value) {
+                return integer
             }
         }
         return nil

@@ -149,8 +149,10 @@ final class SyncController {
 
     // MARK: - Sync loop
 
-    /// Binds to the store and starts the cadence: an immediate pass, a pass
-    /// ~2s after any local change, and a steady pull every minute.
+    /// Binds to the store and starts the cadence: an immediate, user-visible
+    /// priority pass, a pass ~2s after any local change, and a steady pull
+    /// every minute. `syncNow()` suspends at network calls, so this never
+    /// delays the first frame of the feed.
     func start(store: AppStore) {
         self.store = store
         // Identity is published even with sync disabled: a verification run
@@ -166,7 +168,7 @@ final class SyncController {
     private func startLoopIfPossible() {
         guard loopTask == nil, !Self.isDisabledByEnvironment else { return }
         observeStore()
-        loopTask = Task { [weak self] in
+        loopTask = Task(priority: .userInitiated) { [weak self] in
             while !Task.isCancelled {
                 await self?.syncNow()
                 try? await Task.sleep(for: .seconds(60))
@@ -179,6 +181,17 @@ final class SyncController {
         loopTask = nil
         pendingSync?.cancel()
         pendingSync = nil
+    }
+
+    /// Pull promptly when the app returns to the foreground or the Mac wakes.
+    /// The in-flight guard in `syncNow()` coalesces this with a launch or
+    /// periodic pass, so duplicate lifecycle notifications cannot create
+    /// competing database updates.
+    func refreshInBackground() {
+        guard !Self.isDisabledByEnvironment, isSignedIn else { return }
+        Task(priority: .userInitiated) { [weak self] in
+            await self?.syncNow()
+        }
     }
 
     /// Re-arms observation of the synced state; every change (except our own

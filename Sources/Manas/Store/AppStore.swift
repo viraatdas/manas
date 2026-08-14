@@ -22,6 +22,14 @@ final class AppStore {
     /// Groups the user created, in creation order. Kept even while empty so a
     /// new group shows up as a standing bucket the moment it's made.
     var customGroups: [String] = [] { didSet { scheduleSave() } }
+    /// Locally derived time-sink durations used by the Waste of time header.
+    /// Like discoveries, these never sync or include raw source activity.
+    var wastedTimeEntries: [WastedTimeEntry] = [] { didSet { scheduleSave() } }
+    /// The destination most recently chosen while manually filing a todo.
+    /// Add bars use it as their next default, so creating a task and then
+    /// filing it once teaches Manas where subsequent tasks should begin.
+    /// This remains local state: it must not be synced to other devices.
+    var lastManuallyMovedDestination: TodoDestination? { didSet { scheduleSave() } }
     /// Shared groups, stored as the rows that go over the wire rather than as
     /// assembled models. Keeping the tombstone and the stamp in hand is what
     /// lets a share be created or revoked offline and still converge:
@@ -131,6 +139,12 @@ final class AppStore {
             dailyTokenBudget = state.dailyTokenBudget
             groupEmojis = state.groupEmojis ?? [:]
             customGroups = state.customGroups ?? []
+            // Existing time-sink rows predate the structured duration field.
+            // Recover their already-visible “44 minutes” style evidence once,
+            // so this feature is useful as soon as the app updates.
+            wastedTimeEntries = state.wastedTimeEntries
+                ?? Self.legacyWastedTimeEntries(from: state.todos)
+            lastManuallyMovedDestination = state.lastManuallyMovedDestination
             sharedGroupRecords = state.sharedGroupRecords ?? []
             sharedMemberRecords = state.sharedMemberRecords ?? []
             myDisplayName = state.myDisplayName
@@ -290,6 +304,8 @@ final class AppStore {
         usageRecords = []
         groupEmojis = [:]
         customGroups = []
+        wastedTimeEntries = []
+        lastManuallyMovedDestination = nil
         sharedGroupRecords = []
         sharedMemberRecords = []
         myDisplayName = nil
@@ -364,6 +380,11 @@ final class AppStore {
         if resolved.isShared, todos[index].authorPhone == nil {
             todos[index].authorPhone = currentPhone
         }
+        // Clearing a group is not a destination to suggest for the next todo;
+        // only a deliberate filing into a real bucket establishes the default.
+        if resolved.group != nil {
+            lastManuallyMovedDestination = resolved
+        }
         UsageAnalytics.shared.capture(.todoGroupChanged(hasGroup: resolved.group != nil))
         if resolved.isShared { UsageAnalytics.shared.capture(.sharedTodoAdded) }
     }
@@ -378,6 +399,18 @@ final class AppStore {
             return TodoDestination(group: share.name, shareID: shareID)
         }
         return TodoDestination(group: canonicalTodoGroup(destination.group))
+    }
+
+    /// The current, usable version of the bucket most recently selected by a
+    /// manual move. A deleted custom group or a share we no longer belong to
+    /// deliberately falls back to no group rather than recreating a stale
+    /// private bucket with the same label.
+    var suggestedDestinationForNewTodo: TodoDestination {
+        guard let lastManuallyMovedDestination else { return .ungrouped }
+        let resolved = resolve(lastManuallyMovedDestination)
+        return availableDestinations.contains(where: { $0.key == resolved.key })
+            ? resolved
+            : .ungrouped
     }
 
     /// New todos go on top of their day's group. A day's first todo lands at
@@ -702,6 +735,12 @@ final class AppStore {
         let settled = discoveredActivities.filter { $0.resolution != .pending }
         var knownTitles = Set(todos.map { Self.dedupeKey($0.text) })
         knownTitles.formUnion(settled.map { Self.dedupeKey($0.title) })
+        // Update a detected stretch even when a later check-in names it again;
+        // the judge reports its current duration, so the largest observation
+        // is the best "so far today" value without double-counting it.
+        for item in result.discovered where Self.isWasteOfTime(item.group) {
+            recordWastedTime(item, on: result.usage.timestamp)
+        }
         let fresh = result.discovered.filter { item in
             let key = Self.dedupeKey(item.title)
             return !key.isEmpty && knownTitles.insert(key).inserted
@@ -735,6 +774,55 @@ final class AppStore {
 
     private static func dedupeKey(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Minutes Manas has identified as a time sink on `date`, summed across
+    /// distinct observed stretches. Manual todos in the Waste of time group do
+    /// not inflate this number because they carry no source-derived duration.
+    func wastedMinutes(on date: Date) -> Int {
+        let calendar = Calendar.current
+        return wastedTimeEntries
+            .filter { calendar.isDate($0.day, inSameDayAs: date) }
+            .reduce(0) { $0 + $1.minutes }
+    }
+
+    private func recordWastedTime(_ item: DiscoveredActivity, on day: Date) {
+        guard let minutes = item.estimatedMinutes, minutes > 0 else { return }
+        let normalizedDay = Calendar.current.startOfDay(for: day)
+        let key = Self.dedupeKey(item.title)
+        guard !key.isEmpty else { return }
+        if let index = wastedTimeEntries.firstIndex(where: {
+            Calendar.current.isDate($0.day, inSameDayAs: normalizedDay)
+                && Self.dedupeKey($0.title) == key
+        }) {
+            wastedTimeEntries[index].minutes = max(wastedTimeEntries[index].minutes, minutes)
+        } else {
+            wastedTimeEntries.append(WastedTimeEntry(day: normalizedDay, title: item.title, minutes: minutes))
+        }
+    }
+
+    private static func legacyWastedTimeEntries(from todos: [Todo]) -> [WastedTimeEntry] {
+        todos.compactMap { todo in
+            guard isWasteOfTime(todo.group),
+                  let evidence = todo.verdict?.evidence,
+                  let minutes = minutesMentioned(in: evidence)
+            else { return nil }
+            return WastedTimeEntry(day: todo.day, title: todo.text, minutes: minutes)
+        }
+    }
+
+    /// Old judge responses stated a duration only in the human-readable
+    /// evidence. This is a one-time compatibility read, not the source for
+    /// new totals: new entries always use `estimatedMinutes` above.
+    private static func minutesMentioned(in evidence: String) -> Int? {
+        let range = NSRange(evidence.startIndex..., in: evidence)
+        guard let match = try? NSRegularExpression(
+            pattern: #"(?i)\b(\d+)\s*(?:minutes?|mins?)\b"#
+        ).firstMatch(in: evidence, range: range),
+        let valueRange = Range(match.range(at: 1), in: evidence),
+        let minutes = Int(evidence[valueRange])
+        else { return nil }
+        return min(max(minutes, 0), 24 * 60)
     }
 
     // MARK: - Usage aggregates
@@ -781,6 +869,8 @@ final class AppStore {
         // cleanly instead of tripping the "start fresh" fallback.
         var groupEmojis: [String: String]?
         var customGroups: [String]?
+        var wastedTimeEntries: [WastedTimeEntry]?
+        var lastManuallyMovedDestination: TodoDestination?
         var sharedGroupRecords: [SharedGroupRecord]?
         var sharedMemberRecords: [SharedGroupMemberRecord]?
         var myDisplayName: String?
@@ -800,6 +890,8 @@ final class AppStore {
             dailyTokenBudget: dailyTokenBudget,
             groupEmojis: groupEmojis,
             customGroups: customGroups,
+            wastedTimeEntries: wastedTimeEntries,
+            lastManuallyMovedDestination: lastManuallyMovedDestination,
             sharedGroupRecords: sharedGroupRecords,
             sharedMemberRecords: sharedMemberRecords,
             myDisplayName: myDisplayName,

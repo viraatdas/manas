@@ -20,3 +20,4 @@ DerivedData/
 # token). Gitignored: the PostHog project token is write-only and public-ish,
 # but it still doesn't belong in the repo.
 release.env
+.rudder-workspaces/

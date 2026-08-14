@@ -243,7 +243,7 @@ enum MemberBadge {
 /// legitimately carry the same name (your private "Manas" and the "Manas" a
 /// coworker shared with you), and they must never pour into each other: the
 /// share id is what keeps a private todo private.
-struct TodoDestination: Hashable, Sendable {
+struct TodoDestination: Codable, Hashable, Sendable {
     var group: String?
     var shareID: UUID?
 

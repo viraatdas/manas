@@ -644,6 +644,76 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.todosToday.first { $0.id == looseID }?.group)
     }
 
+    func testManualMoveSetsTheNextTodoDestinationAndItSurvivesRelaunch() {
+        let url = tempStateURL()
+        let store = AppStore(fileURL: url)
+        let moved = store.addTodo("File me")!
+
+        store.setTodoGroup(moved.id, group: "Manas")
+
+        XCTAssertEqual(store.suggestedDestinationForNewTodo, TodoDestination(group: "Manas"))
+
+        // Adding a task into that suggestion does not change the preference;
+        // the preference represents a manual filing action only.
+        store.addTodo("Another task", destination: store.suggestedDestinationForNewTodo)
+        XCTAssertEqual(store.lastManuallyMovedDestination, TodoDestination(group: "Manas"))
+
+        store.saveNow()
+        let reloaded = AppStore(fileURL: url)
+        XCTAssertEqual(reloaded.suggestedDestinationForNewTodo, TodoDestination(group: "Manas"))
+    }
+
+    func testWasteOfTimeMinutesAccumulateDistinctStretchesAndRefreshWithoutDoubleCounting() {
+        let store = AppStore(fileURL: tempStateURL())
+        let usage = UsageRecord(timestamp: date, model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
+
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "Scrolled X", evidence: "X", source: .arc, group: "Waste of time", estimatedMinutes: 20),
+            DiscoveredActivity(title: "Watched YouTube", evidence: "YouTube", source: .screenTime, group: "Waste of time", estimatedMinutes: 15),
+        ], usage: usage))
+        XCTAssertEqual(store.wastedMinutes(on: date), 35)
+
+        store.applyJudgeResult(JudgeResult(discovered: [
+            DiscoveredActivity(title: "scrolled x", evidence: "X again", source: .arc, group: "Waste of time", estimatedMinutes: 27),
+        ], usage: usage))
+        XCTAssertEqual(store.wastedMinutes(on: date), 42)
+    }
+
+    func testExistingWasteOfTimeEvidenceSeedsTheMinutesTotalOnUpgrade() {
+        let url = tempStateURL()
+        let legacy = Todo(
+            text: "Scrolled X",
+            createdAt: date,
+            group: TodoGroupName.wasteOfTime,
+            isDone: true,
+            verdict: Verdict(status: .done, evidence: "Arc, 44 minutes", accepted: true)
+        )
+        let writingStore = AppStore(fileURL: url)
+        writingStore.todos = [legacy]
+        writingStore.saveNow()
+        var oldState = try! XCTUnwrap(
+            try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        )
+        oldState.removeValue(forKey: "wastedTimeEntries")
+        try! JSONSerialization.data(withJSONObject: oldState).write(to: url, options: .atomic)
+
+        let store = AppStore(fileURL: url)
+        XCTAssertEqual(store.wastedMinutes(on: date), 44)
+    }
+
+    func testClearingOrDeletingTheLastManualDestinationDoesNotSuggestIt() {
+        let store = AppStore(fileURL: tempStateURL())
+        _ = store.createGroup("Errands")
+        let moved = store.addTodo("File me")!
+        store.setTodoGroup(moved.id, group: "Errands")
+        store.setTodoGroup(moved.id, group: nil)
+
+        XCTAssertEqual(store.suggestedDestinationForNewTodo, TodoDestination(group: "Errands"))
+
+        store.deleteGroup("Errands")
+        XCTAssertEqual(store.suggestedDestinationForNewTodo, .ungrouped)
+    }
+
     func testJudgeDoesNotAssignGroupsGroupingIsManual() {
         let store = AppStore(fileURL: tempStateURL())
         store.addTodo("Baggage for Vancouver", group: "Personal")

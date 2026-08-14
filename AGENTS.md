@@ -6,6 +6,11 @@
 
 ## Execute: Discoveries
 
+- Sync must be kicked immediately on launch, foreground, and macOS wake — a
+  one-minute polling loop leaves a previously persisted todo list visibly stale
+  after sleep or restart. `SyncController.refreshInBackground()` is safe for
+  lifecycle notifications: its in-flight guard coalesces duplicate pulls, and
+  URLSession suspends instead of delaying SwiftUI's first frame.
 - `ContentView.selectedDate` previously updated only `MainHeaderView`; the todo and timeline sections remained hard-wired to today, so the header navigation was visually active but functionally disconnected.
 - The active Arc `Default/History` SQLite database can be locked while Arc is running; ingestion must query a temporary read-only snapshot of the database and its WAL sidecars rather than require Arc to quit.
 - The requested local stores exist on the development Mac at Arc `User Data/*/History`, Messages `~/Library/Messages/chat.db`, and Screen Time/CoreDuet `~/Library/Application Support/Knowledge/knowledgeC.db`; Messages and Screen Time access may require Full Disk Access for the installed app.

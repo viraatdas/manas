@@ -118,7 +118,8 @@ struct ClaudeCLIJudge: TodoJudge {
         let discovered = output.discovered.map { item in
             DiscoveredActivity(
                 title: item.title, evidence: item.evidence,
-                source: item.source, kind: item.kind, group: item.group
+                source: item.source, kind: item.kind, group: item.group,
+                estimatedMinutes: item.estimatedMinutes
             )
         }
         let usage = UsageRecord(

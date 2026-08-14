@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The day control panel. A fixed header and usage footer bracket one
@@ -62,12 +63,23 @@ struct ContentView: View {
         }
         // Cloud sync runs whenever a session exists (signed in from the gear
         // popover); signing out simply stops the overlay.
-        .task(id: sync.isSignedIn) {
+        .task(id: sync.isSignedIn, priority: .userInitiated) {
             if sync.isSignedIn {
                 sync.start(store: store)
             } else {
                 sync.stop()
             }
+        }
+        // Keep the first frame local and responsive, then pull in the
+        // background immediately. The steady loop alone can otherwise leave
+        // the last persisted list on screen for up to a minute after a wake.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            sync.refreshAuthState()
+            sync.refreshInBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            sync.refreshAuthState()
+            sync.refreshInBackground()
         }
         // Shared groups only know their people as phone numbers, so the app
         // asks the address book who they are — once, and only once there is

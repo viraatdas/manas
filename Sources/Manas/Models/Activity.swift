@@ -108,6 +108,9 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
     /// Automatic project/theme cluster from the judge, inherited by the todo
     /// if the user adds this discovery to their list. nil stays ungrouped.
     var group: String?
+    /// The observed duration for a time-sink discovery. Only Waste of time
+    /// uses this; it is intentionally absent for ordinary work discoveries.
+    var estimatedMinutes: Int?
 
     var isAdded: Bool { resolution == .added }
     var isDismissed: Bool { resolution == .dismissed }
@@ -119,7 +122,8 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         source: WorkSource,
         resolution: Resolution = .pending,
         kind: Kind = .done,
-        group: String? = nil
+        group: String? = nil,
+        estimatedMinutes: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -128,10 +132,11 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         self.resolution = resolution
         self.kind = kind
         self.group = TodoGroupName.normalized(group)
+        self.estimatedMinutes = estimatedMinutes.map { min(max($0, 0), 24 * 60) }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, evidence, source, resolution, kind, group
+        case id, title, evidence, source, resolution, kind, group, estimatedMinutes
     }
 
     init(from decoder: Decoder) throws {
@@ -147,6 +152,7 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         group = TodoGroupName.normalized(
             try container.decodeIfPresent(String.self, forKey: .group)
         )
+        estimatedMinutes = try container.decodeIfPresent(Int.self, forKey: .estimatedMinutes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -158,6 +164,22 @@ struct DiscoveredActivity: Identifiable, Codable, Hashable, Sendable {
         try container.encode(resolution, forKey: .resolution)
         try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(group, forKey: .group)
+        try container.encodeIfPresent(estimatedMinutes, forKey: .estimatedMinutes)
+    }
+}
+
+/// A locally stored observation that contributes to the Waste of time total.
+/// It contains only a generic discovery title and duration, never the raw
+/// browsing or Screen Time data it was derived from.
+struct WastedTimeEntry: Codable, Hashable, Sendable {
+    var day: Date
+    var title: String
+    var minutes: Int
+
+    init(day: Date, title: String, minutes: Int) {
+        self.day = Calendar.current.startOfDay(for: day)
+        self.title = title
+        self.minutes = min(max(minutes, 0), 24 * 60)
     }
 }
 
