@@ -10,6 +10,9 @@ struct MobileFeedHeader: View {
     @State private var confirmingSignOut = false
     @State private var accountAlert: AccountAlert?
     @State private var isDeletingAccount = false
+    /// Tapping the wordmark and date jumps the feed back to today. The feed
+    /// owns the scroll proxy, so the header just reports the tap upward.
+    var onTapToday: () -> Void = {}
 
     private enum AccountAlert: Identifiable {
         case analyticsConsent
@@ -27,12 +30,25 @@ struct MobileFeedHeader: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
+            // The wordmark and date are the way back to today from anywhere in
+            // the feed. The sync line sits outside the button: it is a status
+            // readout, and swallowing taps on it would make the target feel
+            // like it reached further than it looks.
             VStack(alignment: .leading, spacing: 3) {
-                Text("Manas")
-                    .font(.largeTitle.weight(.semibold))
-                Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day())
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Button(action: onTapToday) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Manas")
+                            .font(.largeTitle.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(Date(), format: .dateTime.weekday(.wide).month(.wide).day())
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Manas, \(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))")
+                .accessibilityHint("Scrolls the feed back to today")
                 syncStatus
                     .padding(.top, 1)
             }
@@ -238,6 +254,13 @@ struct MobileAddBar: View {
                 }
                 newGroupName = ""
             }
+        }
+        .task {
+            selection = store.suggestedDestinationForNewTodo
+        }
+        .onChange(of: store.lastManuallyMovedDestination) {
+            guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            selection = store.suggestedDestinationForNewTodo
         }
     }
 

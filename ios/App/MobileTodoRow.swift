@@ -13,12 +13,18 @@ struct MobileTodoRow: View {
     @Environment(AppStore.self) private var store
     let todo: Todo
     var mode: Mode = .today
-    /// Hoisted to the feed so the edit alert and reschedule sheet present from
-    /// a stable owner rather than from inside a row that may scroll away.
-    var onEdit: (Todo) -> Void
+    /// Hoisted to the feed so the reschedule sheet presents from a stable
+    /// owner rather than from inside a row that may scroll away. Editing does
+    /// not need this: it happens in the row itself, presenting nothing.
     var onReschedule: (Todo) -> Void
 
     @State private var checkBounce = false
+    /// Text editing happens in place. `isEditing` swaps the label for a field
+    /// and `fieldFocused` drives the keyboard — two flags rather than one
+    /// because the field has to exist before focus can land on it.
+    @State private var isEditing = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     private var isHistory: Bool { mode == .history }
     private var showsVerdict: Bool {
@@ -29,10 +35,7 @@ struct MobileTodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             checkbox
             VStack(alignment: .leading, spacing: 6) {
-                Text(todo.text)
-                    .font(.body)
-                    .strikethrough(todo.isDone)
-                    .foregroundStyle(todo.isDone || isHistory ? .secondary : .primary)
+                titleLine
                 if showsVerdict, let verdict = todo.verdict {
                     verdictSubRow(verdict)
                 }
@@ -45,6 +48,67 @@ struct MobileTodoRow: View {
         .swipeActions(edge: .leading, allowsFullSwipe: true) { leadingSwipe }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) { trailingSwipe }
         .contextMenu { contextMenu }
+    }
+
+    // MARK: - Title
+
+    /// The todo's own text, and the way to change it: tap it and it becomes a
+    /// field in place, keyboard up, caret waiting — no menu, no modal, no
+    /// hunting for a Save button. Return commits; tapping away commits too,
+    /// which is what "I'm done here" means on a phone. A past day is a record
+    /// rather than a draft, so history stays a plain label.
+    @ViewBuilder
+    private var titleLine: some View {
+        if isEditing {
+            TextField("Todo", text: $draft, axis: .vertical)
+                .font(.body)
+                .focused($fieldFocused)
+                .submitLabel(.done)
+                .onSubmit(commitEdit)
+                // Losing focus is a commit, not a cancel: the keyboard going
+                // away by any route should keep what was typed.
+                .onChange(of: fieldFocused) { _, focused in
+                    if !focused, isEditing { commitEdit() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(todo.text)
+                .font(.body)
+                .strikethrough(todo.isDone)
+                .foregroundStyle(todo.isDone || isHistory ? .secondary : .primary)
+                // The whole width of the line is the target, not just the
+                // glyphs — a two-word todo would otherwise be a tiny thing to
+                // hit. The verdict sub-row keeps its own taps: it sits outside
+                // this shape, so Accept and Dismiss are unaffected.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditing() }
+                .accessibilityAddTraits(isHistory ? [] : .isButton)
+                .accessibilityHint(isHistory ? "" : "Edit this todo")
+        }
+    }
+
+    private func beginEditing() {
+        guard !isHistory else { return }
+        Haptics.tap()
+        draft = todo.text
+        isEditing = true
+        // The field has to be in the tree before focus can reach it.
+        Task { @MainActor in
+            await Task.yield()
+            fieldFocused = true
+        }
+    }
+
+    /// Blank is not an edit — a cleared field restores the original rather
+    /// than leaving a nameless row behind. Deleting is the swipe, deliberately.
+    private func commitEdit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != todo.text {
+            _ = store.editTodoText(todo.id, to: trimmed)
+        }
+        isEditing = false
+        fieldFocused = false
     }
 
     // MARK: - Author
@@ -177,9 +241,11 @@ struct MobileTodoRow: View {
     @ViewBuilder
     private var contextMenu: some View {
         if !isHistory {
+            // Kept as the discoverable, spoken-out-loud route to the same
+            // in-place edit the tap starts — the menu is where someone looks
+            // when they don't yet know the text is tappable.
             Button {
-                Haptics.tap()
-                onEdit(todo)
+                beginEditing()
             } label: { Label("Edit", systemImage: "pencil") }
 
             // Somebody else's line in a shared group can be ticked off or

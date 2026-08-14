@@ -9,13 +9,18 @@ import SwiftUI
 /// in lockstep.
 struct MobileDayFeedView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Edit and reschedule present from the feed rather than from a row, so a
-    /// scroll that recycles the row can't tear down the sheet mid-interaction.
-    @State private var editingTodo: Todo?
-    @State private var editText = ""
+    /// Reschedule presents from the feed rather than from a row, so a scroll
+    /// that recycles the row can't tear down the sheet mid-interaction. Text
+    /// editing needs no such hoisting — it happens inside the row and presents
+    /// nothing, so it lives there.
     @State private var reschedulingTodo: Todo?
     @State private var sharingGroup: SharedGroupTarget?
+    /// Bumped by the header to ask the feed to return to today. A counter
+    /// rather than a flag so a second tap scrolls again instead of being
+    /// swallowed as "no change".
+    @State private var todayRequests = 0
 
     private let calendar = Calendar.current
     private var today: Date { calendar.startOfDay(for: Date()) }
@@ -32,20 +37,12 @@ struct MobileDayFeedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MobileFeedHeader()
+            MobileFeedHeader { todayRequests += 1 }
             feedList
         }
         .background(Color.manasBackground)
         .safeAreaInset(edge: .bottom) {
             MobileAddBar(day: today)
-        }
-        .alert("Edit todo", isPresented: editAlertPresented) {
-            TextField("Todo", text: $editText)
-            Button("Cancel", role: .cancel) { editingTodo = nil }
-            Button("Save") {
-                if let editingTodo { store.editTodoText(editingTodo.id, to: editText) }
-                editingTodo = nil
-            }
         }
         .sheet(item: $reschedulingTodo) { todo in
             RescheduleSheet(todo: todo)
@@ -65,7 +62,6 @@ struct MobileDayFeedView: View {
                     Section {
                         DaySectionBody(
                             feedDay: feedDay,
-                            onEdit: beginEdit,
                             onReschedule: { reschedulingTodo = $0 },
                             onShare: { sharingGroup = $0 }
                         )
@@ -84,6 +80,14 @@ struct MobileDayFeedView: View {
             .background(Color.manasBackground)
             .scrollDismissesKeyboard(.interactively)
             .onAppear { anchorToday(proxy) }
+            // A tap on the header glides rather than teleports: the launch
+            // anchor has to be invisible, but this one is a response to a
+            // deliberate tap, so the travel is what says it worked.
+            .onChange(of: todayRequests) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) {
+                    proxy.scrollTo(today, anchor: .top)
+                }
+            }
         }
     }
 
@@ -98,16 +102,6 @@ struct MobileDayFeedView: View {
         }
     }
 
-    // MARK: - Edit plumbing
-
-    private func beginEdit(_ todo: Todo) {
-        editText = todo.text
-        editingTodo = todo
-    }
-
-    private var editAlertPresented: Binding<Bool> {
-        Binding(get: { editingTodo != nil }, set: { if !$0 { editingTodo = nil } })
-    }
 }
 
 /// One day in the feed, tagged by where it sits relative to Today.
@@ -125,7 +119,6 @@ struct FeedDay: Identifiable, Hashable {
 private struct DaySectionBody: View {
     @Environment(AppStore.self) private var store
     let feedDay: FeedDay
-    var onEdit: (Todo) -> Void
     var onReschedule: (Todo) -> Void
     var onShare: (SharedGroupTarget) -> Void
 
@@ -152,6 +145,8 @@ private struct DaySectionBody: View {
                 if let label = group.group {
                     GroupHeaderRow(label: label, emoji: store.emoji(for: group.destination),
                                    done: group.todos.filter(\.isDone).count, total: group.todos.count,
+                                   wastedMinutes: TodoGroupName.key(for: label) == TodoGroupName.key(for: TodoGroupName.wasteOfTime)
+                                       ? store.wastedMinutes(on: feedDay.date) : nil,
                                    members: group.shareID.flatMap {
                                        store.sharedGroup(id: $0)?.members(excluding: store.currentPhone)
                                    } ?? [],
@@ -174,7 +169,7 @@ private struct DaySectionBody: View {
                 }
                 if !collapsed {
                     ForEach(group.todos) { todo in
-                        MobileTodoRow(todo: todo, mode: mode, onEdit: onEdit, onReschedule: onReschedule)
+                        MobileTodoRow(todo: todo, mode: mode, onReschedule: onReschedule)
                     }
                 }
             }
@@ -192,6 +187,7 @@ private struct GroupHeaderRow: View {
     let emoji: String
     let done: Int
     let total: Int
+    var wastedMinutes: Int?
     var members: [SharedGroupMember] = []
     let isCollapsed: Bool
     let toggle: () -> Void
@@ -208,6 +204,11 @@ private struct GroupHeaderRow: View {
                 Text("\(done)/\(total)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if let wastedMinutes {
+                    Text("\(wastedMinutes) min")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 0)
                 if !members.isEmpty {
                     MemberAvatarStack(members: members, size: 17)

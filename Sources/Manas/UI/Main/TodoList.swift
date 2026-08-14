@@ -212,9 +212,16 @@ struct AddTodoField: View {
             focusedField = .todo
         }
         .task {
+            selection = store.suggestedDestinationForNewTodo
             guard focusOnAppear else { return }
             await Task.yield()
             focusedField = .todo
+        }
+        .onChange(of: store.lastManuallyMovedDestination) {
+            // Do not replace a destination while a task is being composed.
+            // The next blank add field should, however, reflect the last move.
+            guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            selection = store.suggestedDestinationForNewTodo
         }
     }
 
@@ -254,7 +261,8 @@ struct AddTodoField: View {
     }
 
     /// The picked group sticks across adds so several todos can go into the
-    /// same group in a row.
+    /// same group in a row. A manual move elsewhere updates blank add fields
+    /// to that most recently used destination.
     private func submit() {
         guard store.addTodo(draft, on: day, destination: selection) != nil else { return }
         draft = ""
@@ -402,14 +410,16 @@ struct TodoListSection: View {
         }
     }
 
-    /// Today always shows Work and Personal as standing buckets so any todo can
-    /// be dragged into a category even before one exists — and every shared
-    /// group too, since a group somebody just shared has to be visible before
-    /// there is anything in it. Past and future days just render whatever
-    /// groups they already have.
+    /// Today can stand up Work, Personal, and every shared group as empty
+    /// buckets so a todo can be dragged into a category before one exists
+    /// there. But an empty bucket is *only* a drop target: it has no rows to
+    /// show, and its tally reads a hollow "0/0" above nothing. So it is stood
+    /// up while a drag is actually looking for somewhere to land, and stays
+    /// out of the way the rest of the time — today lists only the groups that
+    /// hold something. Past and future days just render what they already have.
     private var displayGroups: [TodoGroup] {
         var groups = store.todoGroups(on: day)
-        guard mode == .today else { return groups }
+        guard mode == .today, dragController.isActive else { return groups }
         for bucket in store.standingDestinations where !groups.contains(where: {
             $0.destination.key == bucket.key
         }) {
@@ -473,6 +483,11 @@ private struct TodoGroupBlock: View {
                             Text("\(doneCount)/\(group.todos.count)")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                            if isWasteOfTime {
+                                Text("\(store.wastedMinutes(on: day)) min")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer(minLength: 0)
                         }
                         .contentShape(Rectangle())
@@ -563,6 +578,10 @@ private struct TodoGroupBlock: View {
     private var isCollapsed: Bool {
         guard showsHeader, group.group != nil else { return false }
         return store.isCollapsed(SectionKey.group(destination, on: day))
+    }
+
+    private var isWasteOfTime: Bool {
+        TodoGroupName.key(for: group.group ?? "") == TodoGroupName.key(for: TodoGroupName.wasteOfTime)
     }
 
     /// The order to render: normally the group's todos, but while a card is
