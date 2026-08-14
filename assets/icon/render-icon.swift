@@ -1,25 +1,19 @@
 // Generates the Manas app icon artwork. Not part of the SPM package —
-// run it standalone with the system toolchain:
+// run it standalone with the system toolchain, then rebuild the .icns from
+// the two masters it writes:
 //
 //   swift assets/icon/render-icon.swift assets/icon
-//
-// then rebuild the .icns from the two masters it writes:
-//
-//   ICONSET=$(mktemp -d)/Manas.iconset && mkdir -p "$ICONSET"
-//   sips -z 16 16   assets/icon/manas-small-1024.png --out "$ICONSET/icon_16x16.png"
-//   sips -z 32 32   assets/icon/manas-small-1024.png --out "$ICONSET/icon_16x16@2x.png"
-//   sips -z 32 32   assets/icon/manas-small-1024.png --out "$ICONSET/icon_32x32.png"
-//   sips -z 64 64   assets/icon/manas-small-1024.png --out "$ICONSET/icon_32x32@2x.png"
-//   sips -z 128 128 assets/icon/manas-1024.png --out "$ICONSET/icon_128x128.png"
-//   sips -z 256 256 assets/icon/manas-1024.png --out "$ICONSET/icon_128x128@2x.png"
-//   sips -z 256 256 assets/icon/manas-1024.png --out "$ICONSET/icon_256x256.png"
-//   sips -z 512 512 assets/icon/manas-1024.png --out "$ICONSET/icon_256x256@2x.png"
-//   sips -z 512 512 assets/icon/manas-1024.png --out "$ICONSET/icon_512x512.png"
-//   cp assets/icon/manas-1024.png "$ICONSET/icon_512x512@2x.png"
-//   iconutil -c icns "$ICONSET" -o assets/icon/Manas.icns
+//   assets/icon/build-icns.sh
 //
 // The small master exists because the 40pt horizon line of the main mark
 // disappears when resampled to 16px; the 16/32/64 slots get chunkier art.
+//
+// The tile is off-white and the mark is the accent, matching the app's own
+// surfaces — an accent-flooded tile was tried (it survives a 20pt white
+// System Settings row better) and rejected: the light tile is the better
+// object everywhere the icon is actually looked at, and it is the one the iOS
+// AppIcon carries too. The warm hairline is what keeps it from bleeding into
+// white Finder and list backgrounds, so it is not optional here.
 
 import SwiftUI
 import AppKit
@@ -30,9 +24,22 @@ let accent = Color(red: 216 / 255, green: 90 / 255, blue: 48 / 255)      // #D85
 let offwhite = Color(red: 250 / 255, green: 248 / 255, blue: 245 / 255)  // #FAF8F5
 let edge = Color(red: 232 / 255, green: 227 / 255, blue: 219 / 255)      // warm hairline
 
-// macOS Big-Sur-onward canvas: 1024 canvas, 824pt continuous-corner squircle,
-// subtle baked-in shadow (convention), hairline edge so the light tile reads
-// against white Finder backgrounds.
+// macOS Big-Sur-onward canvas: 1024 canvas, 824pt continuous-corner squircle
+// in off-white with a hairline edge, and no baked-in shadow.
+//
+// Baking one is the pre-Tahoe convention, but macOS 26 draws its own shadow
+// under the art, so a baked shadow doubles up: a grey halo that rounds off the
+// tile edge and drags the mark's contrast down with it. Measured, not assumed —
+// a control bundle whose icns is a hard-edged full-bleed square (no shadow in
+// the art at all) still comes back from NSWorkspace with a shadow, and the
+// system rounds that square into a squircle by itself.
+//
+// That masking is also why full-bleed opaque art is the better shape on Tahoe:
+// it fills the tile and the system supplies the silhouette. It is deliberately
+// NOT what this draws. macOS 14 and 15 do no masking, and LSMinimumSystemVersion
+// is 14.0, so full-bleed art would ship as a hard square to everyone below 26.
+// Drawing our own squircle is correct on 14/15 and merely a little smaller than
+// a native Tahoe icon on 26; the reverse trade would be a visible regression.
 struct IconCanvas<Mark: View>: View {
     @ViewBuilder var mark: Mark
     var body: some View {
@@ -44,7 +51,6 @@ struct IconCanvas<Mark: View>: View {
                         .strokeBorder(edge, lineWidth: 2)
                 )
                 .frame(width: 824, height: 824)
-                .shadow(color: .black.opacity(0.14), radius: 14, x: 0, y: 7)
             mark
         }
         .frame(width: 1024, height: 1024)
@@ -67,16 +73,19 @@ struct Mark: View {
     }
 }
 
-// Same mark, chunkier proportions so the horizon survives 16/32/64px.
+// Same mark, chunkier proportions so the horizon survives 16/32/64px. Every
+// feature is sized off the 16px worst case (64 canvas units to the pixel):
+// a 352 bindu is 5.5px, the 88 horizon is 1.4px, and the 76 gap between them
+// holds 1.2px of off-white — under those the two shapes fuse into one blob.
 struct MarkSmall: View {
     var body: some View {
         ZStack {
             Circle().fill(accent)
-                .frame(width: 340, height: 340)
-                .position(x: 512, y: 430)
+                .frame(width: 352, height: 352)
+                .position(x: 512, y: 424)
             Capsule().fill(accent)
-                .frame(width: 490, height: 76)
-                .position(x: 512, y: 688)
+                .frame(width: 512, height: 88)
+                .position(x: 512, y: 720)
         }
         .frame(width: 1024, height: 1024)
     }
