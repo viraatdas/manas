@@ -3,6 +3,17 @@
     <channel>
         <title>Manas</title>
         <item>
+            <title>0.4.12</title>
+            <pubDate>Tue, 18 Aug 2026 15:42:34 -0700</pubDate>
+            <link>https://manas.viraat.dev</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/viraatdas/manas/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>34</sparkle:version>
+            <sparkle:shortVersionString>0.4.12</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/viraatdas/manas/releases/download/v0.4.12/Manas-0.4.12.dmg" length="2521269" type="application/octet-stream" sparkle:edSignature="Oiw4Vt0oJfTt79iyA2IOeioWkXcLylNBrxqiYxWm5/JPm6hTcNJKEpmsC5BeUT3fKCutq3aTRyonvWDReRIVBQ=="/>
+        </item>
+        <item>
             <title>0.4.10</title>
             <pubDate>Mon, 10 Aug 2026 13:38:49 -0700</pubDate>
             <link>https://manas.viraat.dev</link>
@@ -23,17 +34,6 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/viraatdas/manas/releases/download/v0.4.9/Manas-0.4.9.dmg" length="2529834" type="application/octet-stream" sparkle:edSignature="6ALb9I5qoaJ6JRl+5e7RqvD5P3nYfhVRrWLZA9geSz8uIW3Uyo1YhwuUhQq08mhfX/VO6ydTKrbLqGqRbVcbDg=="/>
-        </item>
-        <item>
-            <title>0.4.8</title>
-            <pubDate>Sun, 09 Aug 2026 17:54:36 -0700</pubDate>
-            <link>https://manas.viraat.dev</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/viraatdas/manas/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>30</sparkle:version>
-            <sparkle:shortVersionString>0.4.8</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/viraatdas/manas/releases/download/v0.4.8/Manas-0.4.8.dmg" length="2524572" type="application/octet-stream" sparkle:edSignature="r+fhmIW1Y/9i+YBhTHWJQOCxjwymO9xRjSOFzQZdCPuCHRILu9bNjV2fpuI+h8GyasKqgK0O47de9aGkbJHUAA=="/>
         </item>
     </channel>
 </rss>
