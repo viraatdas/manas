@@ -605,3 +605,6 @@ Shared, agent-authored log of cross-cutting decisions the fleet must honor. The 
 - **Delivery:** deployed; release; target=App Store - dev.viraat.manas.ios (ASC 6794079354); revision=33878de; verifiedAt=2026-08-18T15:10:00-07:00; checks=4
 - **By:** worker · 2026-08-18T22:07:58.450Z
 
+## appstore: create every future version with AFTER_APPROVAL (2026-08-19)
+- 2026-08-19 (appstore): 1.0.1 passed review overnight and was released; both 1.0 and 1.0.1 were created with `releaseType: MANUAL`, which parks an approved build at PENDING_DEVELOPER_RELEASE until somebody presses a button. That is exactly how 1.0 sat approved-but-invisible from 2026-07-28 to 2026-08-18. It cannot be fixed after the fact: PATCHing `releaseType` to `AFTER_APPROVAL` on an already-approved version returns 409 ENTITY_ERROR.ATTRIBUTE.INVALID, "cannot be 'AFTER_APPROVAL' if version state is 'PENDING_DEVELOPER_RELEASE'".
+- 2026-08-19 (appstore): so set it at creation. When POSTing to `v1/appStoreVersions`, send `attributes.releaseType = "AFTER_APPROVAL"` — never MANUAL — unless a release is being deliberately held for a launch date, in which case use SCHEDULED with `earliestReleaseDate`. Checking `appStoreState` after an approval is not a substitute; nobody was watching for three weeks.
