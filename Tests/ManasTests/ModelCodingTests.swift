@@ -172,7 +172,7 @@ final class ModelCodingTests: XCTestCase {
         XCTAssertEqual(Verdict.Status.allCases.map(\.rawValue), ["done", "inProgress", "notStarted", "unknown"])
         XCTAssertEqual(
             WorkSource.allCases.map(\.rawValue),
-            ["claude", "codex", "granola", "arc", "screen_time", "messages"]
+            ["claude", "codex", "granola", "browser", "screen_time", "messages"]
         )
         XCTAssertEqual(JudgeModel.allCases.map(\.rawValue), ["haiku", "sonnet"])
     }

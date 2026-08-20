@@ -243,7 +243,7 @@ private struct SourceSetupOnboardingPage: View {
     @Environment(AppStore.self) private var store
     var probesSources: Bool
 
-    private let sources: [WorkSource] = [.claude, .codex, .arc, .screenTime, .messages]
+    private let sources: [WorkSource] = [.claude, .codex, .browser, .screenTime, .messages]
 
     private var needsFullDiskAccess: Bool {
         store.sourceStatuses.contains { $0.state == .permissionRequired }

@@ -5,7 +5,7 @@ enum WorkSource: String, Codable, Hashable, Sendable, CaseIterable {
     case claude
     case codex
     case granola
-    case arc
+    case browser
     case screenTime = "screen_time"
     case messages
 
@@ -14,17 +14,39 @@ enum WorkSource: String, Codable, Hashable, Sendable, CaseIterable {
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .granola: "Granola"
-        case .arc: "Arc"
+        case .browser: "Browser"
         case .screenTime: "Screen Time"
         case .messages: "Messages"
         }
+    }
+
+    /// `arc` was this case's raw value while the browser reader only knew how
+    /// to read Arc. Stored discoveries and judge output still carry it, so it
+    /// decodes as `.browser` instead of failing the whole state file.
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if let known = WorkSource(rawValue: raw) {
+            self = known
+        } else if raw == "arc" {
+            self = .browser
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: try decoder.singleValueContainer(),
+                debugDescription: "Unrecognized work source \"\(raw)\""
+            )
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     var systemImage: String {
         switch self {
         case .claude, .codex: "terminal"
         case .granola: "person.2"
-        case .arc: "globe"
+        case .browser: "globe"
         case .screenTime: "hourglass"
         case .messages: "message"
         }

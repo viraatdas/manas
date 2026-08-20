@@ -107,11 +107,11 @@ final class JudgeTodayFlowTests: XCTestCase {
             summary: "fixed CI", startedAt: Date(), tokensUsed: 486_000
         )
         // Non-coding sources carry no token cost and must be dropped.
-        let arc = WorkActivity(source: .arc, summary: "read docs", startedAt: Date())
+        let arc = WorkActivity(source: .browser, summary: "read docs", startedAt: Date())
         let aggregator = ActivityAggregator(sources: [
             StubSource(name: "claude", activities: [claudeSmall, claudeBig]),
             StubSource(source: .codex, name: "codex", activities: [codex]),
-            StubSource(source: .arc, name: "arc", activities: [arc]),
+            StubSource(source: .browser, name: "arc", activities: [arc]),
         ])
         let judge = StubJudge { _, _, model in
             JudgeResult(usage: UsageRecord(model: model, tokensIn: 10, tokensOut: 5, costUSD: 0, summary: "judged"))
@@ -127,7 +127,7 @@ final class JudgeTodayFlowTests: XCTestCase {
         XCTAssertEqual(store.codingSessionsToday.map(\.source), [.claude, .codex, .claude])
         XCTAssertEqual(store.codingSessionsToday.map(\.totalTokens), [2_412_000, 486_000, 74_500])
         XCTAssertFalse(
-            store.codingSessionsToday.contains { $0.source == .arc },
+            store.codingSessionsToday.contains { $0.source == .browser },
             "non-coding sources never appear in the coding-sessions card"
         )
     }

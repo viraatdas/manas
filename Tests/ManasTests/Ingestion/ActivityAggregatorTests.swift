@@ -101,7 +101,7 @@ final class ActivityAggregatorTests: XCTestCase {
     func testStandardLineupCoversClaudeAndCodex() {
         XCTAssertEqual(
             ActivityAggregator.standard.sources.map(\.name),
-            ["Claude Code", "Codex", "Arc", "Screen Time", "Messages"]
+            ["Claude Code", "Codex", "Browser", "Screen Time", "Messages"]
         )
     }
 

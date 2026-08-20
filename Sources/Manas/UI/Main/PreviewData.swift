@@ -19,7 +19,7 @@ extension AppStore {
         store.sourceStatuses = [
             ActivitySourceStatus(source: .claude, state: .ready, activityCount: 2),
             ActivitySourceStatus(source: .codex, state: .ready, activityCount: 1),
-            ActivitySourceStatus(source: .arc, state: .ready, activityCount: 12),
+            ActivitySourceStatus(source: .browser, state: .ready, activityCount: 12),
             ActivitySourceStatus(source: .screenTime, state: .ready, activityCount: 8),
             ActivitySourceStatus(source: .messages, state: .ready, activityCount: 3),
         ]

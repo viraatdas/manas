@@ -167,7 +167,7 @@ private struct SourceStatusRow: View {
     store.sourceStatuses = [
         ActivitySourceStatus(source: .claude, state: .ready, activityCount: 3),
         ActivitySourceStatus(source: .codex, state: .ready, activityCount: 2),
-        ActivitySourceStatus(source: .arc, state: .ready, activityCount: 14),
+        ActivitySourceStatus(source: .browser, state: .ready, activityCount: 14),
         ActivitySourceStatus(source: .screenTime, state: .permissionRequired, activityCount: 0),
         ActivitySourceStatus(source: .messages, state: .permissionRequired, activityCount: 0),
     ]

@@ -483,8 +483,11 @@ private struct TodoGroupBlock: View {
                             Text("\(doneCount)/\(group.todos.count)")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                            if isWasteOfTime {
-                                Text("\(store.wastedMinutes(on: day)) min")
+                            if isWasteOfTime,
+                               let spent = AppStore.approximateDuration(
+                                   minutes: store.wastedMinutes(on: day)
+                               ) {
+                                Text(spent)
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }

@@ -668,13 +668,13 @@ final class AppStoreTests: XCTestCase {
         let usage = UsageRecord(timestamp: date, model: "sonnet", tokensIn: 1, tokensOut: 1, costUSD: 0, summary: "judged")
 
         store.applyJudgeResult(JudgeResult(discovered: [
-            DiscoveredActivity(title: "Scrolled X", evidence: "X", source: .arc, group: "Waste of time", estimatedMinutes: 20),
+            DiscoveredActivity(title: "Scrolled X", evidence: "X", source: .browser, group: "Waste of time", estimatedMinutes: 20),
             DiscoveredActivity(title: "Watched YouTube", evidence: "YouTube", source: .screenTime, group: "Waste of time", estimatedMinutes: 15),
         ], usage: usage))
         XCTAssertEqual(store.wastedMinutes(on: date), 35)
 
         store.applyJudgeResult(JudgeResult(discovered: [
-            DiscoveredActivity(title: "scrolled x", evidence: "X again", source: .arc, group: "Waste of time", estimatedMinutes: 27),
+            DiscoveredActivity(title: "scrolled x", evidence: "X again", source: .browser, group: "Waste of time", estimatedMinutes: 27),
         ], usage: usage))
         XCTAssertEqual(store.wastedMinutes(on: date), 42)
     }
@@ -938,7 +938,7 @@ final class AppStoreTests: XCTestCase {
         let usage = UsageRecord(timestamp: date, model: "haiku", tokensIn: 100, tokensOut: 10, costUSD: 0.001, summary: "judged")
 
         store.applyJudgeResult(JudgeResult(discovered: [
-            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "Arc, 44 minutes", source: .arc, group: "waste of time"),
+            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "Arc, 44 minutes", source: .browser, group: "waste of time"),
             DiscoveredActivity(title: "Reviewed PR #42", evidence: "claude session", source: .claude),
         ], usage: usage))
 
@@ -955,7 +955,7 @@ final class AppStoreTests: XCTestCase {
 
         // A later pass re-observing the same scrolling doesn't duplicate it.
         store.applyJudgeResult(JudgeResult(discovered: [
-            DiscoveredActivity(title: "scrolled x and instagram", evidence: "again", source: .arc, group: "Waste of time"),
+            DiscoveredActivity(title: "scrolled x and instagram", evidence: "again", source: .browser, group: "Waste of time"),
         ], usage: usage))
         XCTAssertEqual(store.todos.filter { $0.group == TodoGroupName.wasteOfTime }.count, 1)
 
@@ -963,7 +963,7 @@ final class AppStoreTests: XCTestCase {
         // next pass from resurrecting it.
         store.removeTodo(wasted[0].id)
         store.applyJudgeResult(JudgeResult(discovered: [
-            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "third pass", source: .arc, group: "Waste of time"),
+            DiscoveredActivity(title: "Scrolled X and Instagram", evidence: "third pass", source: .browser, group: "Waste of time"),
         ], usage: usage))
         XCTAssertTrue(
             store.todos.filter { $0.group == TodoGroupName.wasteOfTime }.isEmpty,
@@ -1041,5 +1041,59 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(reloaded.lastCheckedAt)
         XCTAssertNil(reloaded.lastAutomaticCheckAt)
         XCTAssertEqual(reloaded.syncedSourceCount, 0)
+    }
+}
+
+// MARK: - Wasted time merging
+
+extension AppStoreTests {
+    /// The real shape of the bug: one afternoon on X and Instagram, re-observed
+    /// and reworded by eleven judge passes, plus one unrelated rabbit hole.
+    /// Summing gave 420 minutes for a day that held about an hour.
+    private var rewordedDay: [WastedTimeEntry] {
+        let day = Date()
+        return [
+            ("X and Twitter scrolling", 50), ("X and Twitter browsing", 40),
+            ("Instagram feed and DMs scrolling", 40), ("Late-night X and Instagram scrolling", 39),
+            ("X/Twitter scrolling", 35), ("Scrolled X and Instagram", 35),
+            ("Social media scrolling on X and Instagram", 35), ("X and Instagram scrolling", 35),
+            ("X scrolling", 35), ("Instagram browsing", 35),
+            ("Instagram scrolling", 31), ("JEE topper rabbit hole", 10),
+        ].map { WastedTimeEntry(day: day, title: $0.0, minutes: $0.1) }
+    }
+
+    func testRewordedTimeSinksCountOnceAtTheirLargestObservation() {
+        let merged = AppStore.mergedWastedMinutes(rewordedDay)
+        XCTAssertEqual(rewordedDay.reduce(0) { $0 + $1.minutes }, 420, "the old summed value")
+        // The X/Instagram wordings collapse into one 50-minute sink; the
+        // unrelated rabbit hole still adds its own 10.
+        XCTAssertEqual(merged, 60)
+    }
+
+    func testUnrelatedTimeSinksStillAddUp() {
+        let day = Date()
+        let entries = [
+            WastedTimeEntry(day: day, title: "Instagram scrolling", minutes: 30),
+            WastedTimeEntry(day: day, title: "Hacker News reading", minutes: 20),
+            WastedTimeEntry(day: day, title: "YouTube videos", minutes: 25),
+        ]
+        XCTAssertEqual(AppStore.mergedWastedMinutes(entries), 75)
+    }
+
+    func testWasteTokensDropTheWordsTheJudgeRewords() {
+        XCTAssertEqual(AppStore.significantWasteTokens("X scrolling"), ["x"])
+        XCTAssertEqual(AppStore.significantWasteTokens("Late-night X and Instagram scrolling"),
+                       ["x", "instagram"])
+        XCTAssertEqual(AppStore.significantWasteTokens("Social media scrolling on X and Instagram"),
+                       ["x", "instagram"])
+    }
+
+    func testDurationsReadAsApproximations() {
+        XCTAssertNil(AppStore.approximateDuration(minutes: 0))
+        XCTAssertEqual(AppStore.approximateDuration(minutes: 4), "~5m")
+        XCTAssertEqual(AppStore.approximateDuration(minutes: 52), "~50m")
+        XCTAssertEqual(AppStore.approximateDuration(minutes: 60), "~1h")
+        XCTAssertEqual(AppStore.approximateDuration(minutes: 82), "~1h 15m")
+        XCTAssertEqual(AppStore.approximateDuration(minutes: 420), "~7h")
     }
 }

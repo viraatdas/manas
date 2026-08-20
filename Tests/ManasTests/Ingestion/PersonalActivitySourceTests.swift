@@ -19,13 +19,13 @@ final class PersonalActivitySourceTests: XCTestCase {
                 """)
         }
 
-        let activities = try await ArcHistorySource(
-            userDataDirectory: root,
+        let activities = try await BrowserHistorySource(
+            stores: [.init(browser: "Arc", flavor: .chromium, root: root)],
             calendar: IngestionFixtures.utcCalendar
         ).fetchActivities(for: IngestionFixtures.day)
 
         XCTAssertEqual(activities.count, 1)
-        XCTAssertEqual(activities.first?.source, .arc)
+        XCTAssertEqual(activities.first?.source, .browser)
         XCTAssertTrue(activities.first?.summary.contains("example.com") == true)
         XCTAssertFalse(activities.first?.summary.contains("secret") == true)
         XCTAssertEqual(activities.first?.features, ["Launch planning"])
@@ -43,8 +43,8 @@ final class PersonalActivitySourceTests: XCTestCase {
             INSERT INTO visits VALUES(1, 1, \(chromiumTime(IngestionFixtures.date("2026-07-10T10:00:00Z"))), 0);
             """)
 
-        let activities = try await ArcHistorySource(
-            userDataDirectory: root,
+        let activities = try await BrowserHistorySource(
+            stores: [.init(browser: "Arc", flavor: .chromium, root: root)],
             calendar: IngestionFixtures.utcCalendar
         ).fetchActivities(for: IngestionFixtures.day)
 

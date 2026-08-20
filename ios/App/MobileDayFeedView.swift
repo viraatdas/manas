@@ -204,8 +204,9 @@ private struct GroupHeaderRow: View {
                 Text("\(done)/\(total)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                if let wastedMinutes {
-                    Text("\(wastedMinutes) min")
+                if let wastedMinutes,
+                   let spent = AppStore.approximateDuration(minutes: wastedMinutes) {
+                    Text(spent)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }

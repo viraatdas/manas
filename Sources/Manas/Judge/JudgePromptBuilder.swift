@@ -98,7 +98,7 @@ enum JudgePromptBuilder {
         { "todoID": "<todo id copied verbatim>", "status": "done" | "in_progress" | "not_started" | "unknown", "evidence": "<one short line>", "group": "<short label>" | null }
       ],
       "discovered": [
-        { "title": "<short title>", "evidence": "<one short line>", "source": "claude" | "codex" | "granola" | "arc" | "screen_time" | "messages", "kind": "done" | "owed", "group": "Waste of time" | null, "estimated_minutes": <whole number> | null }
+        { "title": "<short title>", "evidence": "<one short line>", "source": "claude" | "codex" | "granola" | "browser" | "screen_time" | "messages", "kind": "done" | "owed", "group": "Waste of time" | null, "estimated_minutes": <whole number> | null }
       ]
     }
 

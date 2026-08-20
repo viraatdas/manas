@@ -109,7 +109,7 @@ final class JudgePromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("\"discovered\""))
         XCTAssertTrue(prompt.contains("sentence case"))
         XCTAssertTrue(prompt.contains("\"granola\""))
-        XCTAssertTrue(prompt.contains("\"arc\""))
+        XCTAssertTrue(prompt.contains("\"browser\""))
         XCTAssertTrue(prompt.contains("\"screen_time\""))
         XCTAssertTrue(prompt.contains("\"messages\""))
     }

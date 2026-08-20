@@ -102,7 +102,7 @@ final class AppStore {
     var sourceStatuses: [ActivitySourceStatus] = [
         .waiting(.claude),
         .waiting(.codex),
-        .waiting(.arc),
+        .waiting(.browser),
         .waiting(.screenTime),
         .waiting(.messages),
     ]
@@ -735,12 +735,7 @@ final class AppStore {
         let settled = discoveredActivities.filter { $0.resolution != .pending }
         var knownTitles = Set(todos.map { Self.dedupeKey($0.text) })
         knownTitles.formUnion(settled.map { Self.dedupeKey($0.title) })
-        // Update a detected stretch even when a later check-in names it again;
-        // the judge reports its current duration, so the largest observation
-        // is the best "so far today" value without double-counting it.
-        for item in result.discovered where Self.isWasteOfTime(item.group) {
-            recordWastedTime(item, on: result.usage.timestamp)
-        }
+        recordWastedTime(from: result.discovered, on: result.usage.timestamp)
         let fresh = result.discovered.filter { item in
             let key = Self.dedupeKey(item.title)
             return !key.isEmpty && knownTitles.insert(key).inserted
@@ -776,29 +771,114 @@ final class AppStore {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    /// Minutes Manas has identified as a time sink on `date`, summed across
-    /// distinct observed stretches. Manual todos in the Waste of time group do
-    /// not inflate this number because they carry no source-derived duration.
+    /// Minutes Manas has identified as a time sink on `date`.
+    ///
+    /// Emphatically NOT the sum of every entry. The judge re-observes the whole
+    /// day on each pass and renames what it sees, so one afternoon on X arrives
+    /// as "X scrolling", then "X/Twitter scrolling", then "Scrolled X and
+    /// Instagram" — eleven wordings of one session, which summed to 420 minutes
+    /// of a day that held closer to 60. Entries that share a significant word
+    /// describe the same sink and count once, at the largest observation of it;
+    /// unrelated sinks still add up. Merging happens here rather than at write
+    /// time so the rule can change without a migration, and so days recorded
+    /// before it existed read correctly too.
     func wastedMinutes(on date: Date) -> Int {
         let calendar = Calendar.current
-        return wastedTimeEntries
-            .filter { calendar.isDate($0.day, inSameDayAs: date) }
-            .reduce(0) { $0 + $1.minutes }
+        return Self.mergedWastedMinutes(
+            wastedTimeEntries.filter { calendar.isDate($0.day, inSameDayAs: date) }
+        )
     }
 
-    private func recordWastedTime(_ item: DiscoveredActivity, on day: Date) {
-        guard let minutes = item.estimatedMinutes, minutes > 0 else { return }
-        let normalizedDay = Calendar.current.startOfDay(for: day)
-        let key = Self.dedupeKey(item.title)
-        guard !key.isEmpty else { return }
-        if let index = wastedTimeEntries.firstIndex(where: {
-            Calendar.current.isDate($0.day, inSameDayAs: normalizedDay)
-                && Self.dedupeKey($0.title) == key
-        }) {
-            wastedTimeEntries[index].minutes = max(wastedTimeEntries[index].minutes, minutes)
-        } else {
-            wastedTimeEntries.append(WastedTimeEntry(day: normalizedDay, title: item.title, minutes: minutes))
+    /// Groups entries into connected components by shared significant word,
+    /// then takes each component's largest estimate. Overlap is the common
+    /// case and the durations are estimates of the same stretch, so the
+    /// biggest observation is the best single answer for it.
+    static func mergedWastedMinutes(_ entries: [WastedTimeEntry]) -> Int {
+        var components: [(tokens: Set<String>, minutes: Int)] = []
+        for entry in entries where entry.minutes > 0 {
+            let tokens = significantWasteTokens(entry.title)
+            // A title with nothing distinctive left can't be matched to
+            // anything, so it stands alone rather than absorbing the rest.
+            guard !tokens.isEmpty else {
+                components.append((tokens: [], minutes: entry.minutes))
+                continue
+            }
+            var merged = (tokens: tokens, minutes: entry.minutes)
+            var remaining: [(tokens: Set<String>, minutes: Int)] = []
+            for component in components {
+                if component.tokens.isDisjoint(with: merged.tokens) {
+                    remaining.append(component)
+                } else {
+                    merged.tokens.formUnion(component.tokens)
+                    merged.minutes = max(merged.minutes, component.minutes)
+                }
+            }
+            remaining.append(merged)
+            components = remaining
         }
+        return components.reduce(0) { $0 + $1.minutes }
+    }
+
+    /// The words in a time-sink title that identify *what* was being done.
+    /// Everything describing the doing of it is dropped, because that is the
+    /// part the judge rewords between passes.
+    static func significantWasteTokens(_ title: String) -> Set<String> {
+        let filler: Set<String> = [
+            "a", "an", "and", "the", "of", "on", "in", "to", "for", "with", "at", "by", "from",
+            "scroll", "scrolls", "scrolled", "scrolling", "browse", "browsed", "browsing",
+            "read", "reading", "watch", "watched", "watching", "check", "checks", "checking",
+            "feed", "feeds", "story", "stories", "reel", "reels", "short", "shorts",
+            "dm", "dms", "message", "messages", "post", "posts", "video", "videos", "clip", "clips",
+            "social", "media", "site", "sites", "app", "apps", "online", "web",
+            "late", "night", "morning", "afternoon", "evening", "early", "midnight",
+            "time", "spent", "session", "sessions", "spree", "across", "throughout", "intermittent",
+            "rabbit", "hole", "random", "misc", "general", "various", "some", "lots", "hour", "hours",
+            "minute", "minutes", "day", "today",
+        ]
+        let words = title.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        return Set(words.filter { !filler.contains($0) && !$0.allSatisfy(\.isNumber) })
+    }
+
+    /// A spoken-sounding, deliberately rounded duration. These numbers are
+    /// inferred from browsing history, so minute precision is false precision
+    /// and invites arithmetic the estimate cannot support.
+    static func approximateDuration(minutes: Int) -> String? {
+        guard minutes > 0 else { return nil }
+        if minutes < 10 { return "~5m" }
+        if minutes < 60 { return "~\(Int((Double(minutes) / 5).rounded()) * 5)m" }
+        let quarters = Int((Double(minutes) / 15).rounded())
+        let hours = quarters / 4, rest = (quarters % 4) * 15
+        return rest == 0 ? "~\(hours)h" : "~\(hours)h \(rest)m"
+    }
+
+    /// Folds one judge pass's time sinks into a day's record.
+    ///
+    /// A pass supersedes what it re-observed and leaves the rest alone. The
+    /// judge renames the same stretch every hour, so an entry naming the same
+    /// thing has to be replaced rather than added — that is what turned one
+    /// afternoon on X into eleven entries. But a pass that simply does not
+    /// mention yesterday's YouTube stretch is not evidence the stretch did not
+    /// happen, so anything the pass says nothing about survives untouched.
+    private func recordWastedTime(from items: [DiscoveredActivity], on day: Date) {
+        let normalizedDay = Calendar.current.startOfDay(for: day)
+        let observed = items.compactMap { item -> WastedTimeEntry? in
+            guard Self.isWasteOfTime(item.group),
+                  let minutes = item.estimatedMinutes, minutes > 0,
+                  !Self.dedupeKey(item.title).isEmpty
+            else { return nil }
+            return WastedTimeEntry(day: normalizedDay, title: item.title, minutes: minutes)
+        }
+        guard !observed.isEmpty else { return }
+        let observedTokens = observed.reduce(into: Set<String>()) {
+            $0.formUnion(Self.significantWasteTokens($1.title))
+        }
+        wastedTimeEntries.removeAll { entry in
+            Calendar.current.isDate(entry.day, inSameDayAs: normalizedDay)
+                && !Self.significantWasteTokens(entry.title).isDisjoint(with: observedTokens)
+        }
+        wastedTimeEntries.append(contentsOf: observed)
     }
 
     private static func legacyWastedTimeEntries(from todos: [Todo]) -> [WastedTimeEntry] {

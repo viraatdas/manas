@@ -28,7 +28,7 @@ struct ActivityAggregator: Sendable {
         ActivityAggregator(sources: [
             ClaudeCodeSource(),
             CodexSource(),
-            ArcHistorySource(),
+            BrowserHistorySource(),
             ScreenTimeSource(),
             MessagesSource(),
         ])
