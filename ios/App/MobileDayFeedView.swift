@@ -17,6 +17,9 @@ struct MobileDayFeedView: View {
     /// nothing, so it lives there.
     @State private var reschedulingTodo: Todo?
     @State private var sharingGroup: SharedGroupTarget?
+    /// Backs the menu's fallback editor; see `MobileTodoRow.onEdit`.
+    @State private var editingTodo: Todo?
+    @State private var editText = ""
     /// Bumped by the header to ask the feed to return to today. A counter
     /// rather than a flag so a second tap scrolls again instead of being
     /// swallowed as "no change".
@@ -44,6 +47,14 @@ struct MobileDayFeedView: View {
         .safeAreaInset(edge: .bottom) {
             MobileAddBar(day: today)
         }
+        .alert("Edit todo", isPresented: editAlertPresented) {
+            TextField("Todo", text: $editText)
+            Button("Cancel", role: .cancel) { editingTodo = nil }
+            Button("Save") {
+                if let editingTodo { _ = store.editTodoText(editingTodo.id, to: editText) }
+                editingTodo = nil
+            }
+        }
         .sheet(item: $reschedulingTodo) { todo in
             RescheduleSheet(todo: todo)
                 .presentationDetents([.medium])
@@ -62,6 +73,7 @@ struct MobileDayFeedView: View {
                     Section {
                         DaySectionBody(
                             feedDay: feedDay,
+                            onEdit: beginEdit,
                             onReschedule: { reschedulingTodo = $0 },
                             onShare: { sharingGroup = $0 }
                         )
@@ -89,6 +101,15 @@ struct MobileDayFeedView: View {
                 }
             }
         }
+    }
+
+    private func beginEdit(_ todo: Todo) {
+        editText = todo.text
+        editingTodo = todo
+    }
+
+    private var editAlertPresented: Binding<Bool> {
+        Binding(get: { editingTodo != nil }, set: { if !$0 { editingTodo = nil } })
     }
 
     /// Opens the feed already scrolled to Today, without a visible jump from
@@ -119,6 +140,7 @@ struct FeedDay: Identifiable, Hashable {
 private struct DaySectionBody: View {
     @Environment(AppStore.self) private var store
     let feedDay: FeedDay
+    var onEdit: (Todo) -> Void
     var onReschedule: (Todo) -> Void
     var onShare: (SharedGroupTarget) -> Void
 
@@ -169,7 +191,7 @@ private struct DaySectionBody: View {
                 }
                 if !collapsed {
                     ForEach(group.todos) { todo in
-                        MobileTodoRow(todo: todo, mode: mode, onReschedule: onReschedule)
+                        MobileTodoRow(todo: todo, mode: mode, onReschedule: onReschedule, onEdit: onEdit)
                     }
                 }
             }

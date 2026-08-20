@@ -14,9 +14,13 @@ struct MobileTodoRow: View {
     let todo: Todo
     var mode: Mode = .today
     /// Hoisted to the feed so the reschedule sheet presents from a stable
-    /// owner rather than from inside a row that may scroll away. Editing does
-    /// not need this: it happens in the row itself, presenting nothing.
+    /// owner rather than from inside a row that may scroll away.
     var onReschedule: (Todo) -> Void
+    /// The menu's fallback editor. Tapping the text edits in place and needs
+    /// nothing presented, but that path could not be exercised on a real
+    /// device before shipping, so the long-press menu keeps the proven sheet.
+    /// If in-place editing ever fails, editing a todo still works.
+    var onEdit: (Todo) -> Void
 
     @State private var checkBounce = false
     /// Text editing happens in place. `isEditing` swaps the label for a field
@@ -241,11 +245,12 @@ struct MobileTodoRow: View {
     @ViewBuilder
     private var contextMenu: some View {
         if !isHistory {
-            // Kept as the discoverable, spoken-out-loud route to the same
-            // in-place edit the tap starts — the menu is where someone looks
-            // when they don't yet know the text is tappable.
+            // Deliberately the sheet rather than `beginEditing()`: this is the
+            // route that is known to work, and it is the one somebody reaches
+            // for when tapping the text did not do what they expected.
             Button {
-                beginEditing()
+                Haptics.tap()
+                onEdit(todo)
             } label: { Label("Edit", systemImage: "pencil") }
 
             // Somebody else's line in a shared group can be ticked off or

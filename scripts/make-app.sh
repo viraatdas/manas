@@ -22,8 +22,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Manas"
 BUNDLE_ID="dev.viraat.manas"
-VERSION="0.4.12"
-BUILD="34"
+VERSION="1.0.0"
+BUILD="35"
 # Where installed copies look for new versions, and the public half of the
 # EdDSA key their Sparkle verifies the feed with. The private half lives in the
 # login keychain (Sparkle's generate_keys); scripts/release.sh signs with it.
