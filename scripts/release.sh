@@ -47,8 +47,15 @@ SPARKLE_BIN="$(dirname "$(find "$REPO_ROOT/.build/artifacts" -type f -name gener
   echo "error: Sparkle tools not found — run swift build first" >&2; exit 1
 }
 
+# The branded installer window is built here, not by the notarize script: the
+# icon positions have to match the seats drawn into the backdrop, and that is a
+# Manas design decision. The notarize script signs, notarizes and staples
+# whatever image it is handed.
+echo "==> Building the installer disk image"
+"$REPO_ROOT/scripts/make-dmg.sh" "$APP" "$DMG" "Manas"
+
 echo "==> Notarizing and publishing $TAG"
-"$NOTARIZE" --app "$APP" --version "$VERSION" --repo "$REPO" --notes "$NOTES"
+"$NOTARIZE" --app "$APP" --version "$VERSION" --repo "$REPO" --notes "$NOTES" --dmg "$DMG"
 
 echo "==> Mirroring the versioned DMG as Manas.dmg (the site's download link)"
 cp "$DMG" "$REPO_ROOT/dist/Manas.dmg"

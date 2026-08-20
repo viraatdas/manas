@@ -137,19 +137,12 @@ struct RootView: View {
             }
             #endif
         }
-        .alert("Help improve Manas?", isPresented: $showingAnalyticsConsent) {
-            Button("Not now", role: .cancel) {
-                analytics.setEnabled(false)
+        .sheet(isPresented: $showingAnalyticsConsent) {
+            AnalyticsConsentView { shared in
+                analytics.setEnabled(shared)
+                showingAnalyticsConsent = false
             }
-            Button("Share anonymous usage") {
-                analytics.setEnabled(true)
-            }
-        } message: {
-            Text(
-                "Manas can send anonymous feature events and success counts. "
-                + "It never sends todo text, messages, browsing, phone numbers, "
-                + "keystrokes, or screen recordings. You can turn this off anytime."
-            )
+            .presentationDetents([.height(520)])
         }
     }
 

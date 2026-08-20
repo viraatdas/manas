@@ -10,18 +10,17 @@ struct MobileFeedHeader: View {
     @State private var confirmingSignOut = false
     @State private var accountAlert: AccountAlert?
     @State private var isDeletingAccount = false
+    @State private var showingAnalyticsConsent = false
     /// Tapping the wordmark and date jumps the feed back to today. The feed
     /// owns the scroll proxy, so the header just reports the tap upward.
     var onTapToday: () -> Void = {}
 
     private enum AccountAlert: Identifiable {
-        case analyticsConsent
         case confirmDeletion
         case failure(String)
 
         var id: String {
             switch self {
-            case .analyticsConsent: "analytics"
             case .confirmDeletion: "confirm"
             case .failure: "failure"
             }
@@ -97,7 +96,7 @@ struct MobileFeedHeader: View {
                 if analytics.isEnabled {
                     analytics.setEnabled(false)
                 } else {
-                    accountAlert = .analyticsConsent
+                    showingAnalyticsConsent = true
                 }
             } label: {
                 Label(
@@ -143,20 +142,15 @@ struct MobileFeedHeader: View {
         } message: {
             Text("Your todos stay on this device. Sync stops until you sign back in.")
         }
+        .sheet(isPresented: $showingAnalyticsConsent) {
+            AnalyticsConsentView { shared in
+                analytics.setEnabled(shared)
+                showingAnalyticsConsent = false
+            }
+            .presentationDetents([.height(520)])
+        }
         .alert(item: $accountAlert) { alert in
             switch alert {
-            case .analyticsConsent:
-                Alert(
-                    title: Text("Share anonymous usage?"),
-                    message: Text(
-                        "Manas sends feature events and success counts—never todo text, "
-                        + "messages, browsing, phone numbers, keystrokes, or screen recordings."
-                    ),
-                    primaryButton: .default(Text("Share usage")) {
-                        analytics.setEnabled(true)
-                    },
-                    secondaryButton: .cancel()
-                )
             case .confirmDeletion:
                 Alert(
                     title: Text("Delete your account?"),
