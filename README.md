@@ -2,9 +2,18 @@
 
 The control panel for your day. Manas is a native macOS app: you write your
 todo list, and it quietly checks in on your day by itself — reading your
-local Claude Code and Codex sessions, Arc history, Screen Time, and Messages, having Claude judge how
+local Claude Code and Codex sessions, browser history, Screen Time, and Messages, having Claude judge how
 each todo is actually going, and surfacing work you did but never wrote
 down. Every token a check-in costs is on display in the usage strip.
+
+There is an iPhone companion too, on the
+[App Store](https://apps.apple.com/us/app/manas-context-aware-todos/id6794079354).
+The phone carries the list and syncs it; the Mac is what reads your day and
+judges it, so the two together are the whole product.
+
+**Download:** [macOS](https://github.com/viraatdas/manas/releases/latest/download/Manas.dmg)
+· [iPhone](https://apps.apple.com/us/app/manas-context-aware-todos/id6794079354)
+· [manas.viraat.dev](https://manas.viraat.dev)
 
 No API key and no third-party dependencies: judging shells out to your
 installed `claude` CLI (subscription auth), and everything else is SwiftUI,
