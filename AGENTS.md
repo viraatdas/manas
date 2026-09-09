@@ -309,9 +309,13 @@ Run in this order. Do not skip a step because the previous one "obviously" worke
   saw it" class. `SyncMerge.nextWatermark` takes only stamps the server
   handed back (clamped to this device's `now`, so a fast clock elsewhere
   cannot push it into the future), and `SupabaseTodoAPI.changes` starts
-  `SyncMerge.pullOverlap` (10 min) behind it and reads *every* page. The
-  overlap re-delivers recent rows each minute; they merge to no-ops. Do not
-  "optimize" either half away.
+  `SyncMerge.pullOverlap` (10 min) behind it and reads *every* page, keyed
+  on the last row's (updated_at, id) rather than an offset — a row edited
+  elsewhere between two page fetches shifts every later row up a slot and
+  an offset skips one. The overlap re-delivers recent rows each minute; they
+  merge to no-ops. Do not "optimize" either half away. Known limit: a device
+  whose clock is off by more than the overlap still misses the other's rows;
+  the real fix is a server-assigned stamp (a migration), not a wider window.
 - **One refused row must not wedge the pass.** PostgREST applies a batch as
   one statement, so one row the server rejects (policy, FK, unique) failed
   every other row with it, and the controller applied nothing it had pulled
@@ -327,7 +331,11 @@ Run in this order. Do not skip a step because the previous one "obviously" worke
   `SyncController.start` drops a non-empty snapshot when it sees it —
   otherwise the next pass would tombstone every row the snapshot remembers,
   on the server and therefore on every other device. A genuinely empty list
-  read from disk keeps its snapshot so the last deletion still travels.
+  read from disk keeps its snapshot so the last deletion still travels. The
+  check is latched to once per process: `start` re-runs whenever the root
+  view re-appears, and on a fresh install `loadedFromDisk` stays false for
+  the whole process, so an unlatched check would discard the snapshot on
+  every re-show of the window after the first sync.
 - **A shared group's name is not a private group.** `groupNamesInUse`,
   `availableTodoGroups`, and the judge's "groups already in use" list are
   built from private todos only. Counting shared todos' labels stood up a

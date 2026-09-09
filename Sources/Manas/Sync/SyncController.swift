@@ -39,6 +39,13 @@ final class SyncController {
     @ObservationIgnored private var isApplyingMerge = false
     @ObservationIgnored private var isObservingStore = false
     @ObservationIgnored private var syncInFlight = false
+    /// The lost-list check below runs once per process. `start` is called
+    /// again whenever the root view re-appears, and `loadedFromDisk` stays
+    /// false for the whole life of a fresh-install process, so without this
+    /// latch every re-show of the window after the first sync would throw the
+    /// snapshot away and let the next pull resurrect what had just been
+    /// deleted.
+    @ObservationIgnored private var hasCheckedForLostList = false
     /// Set when a pass is asked for while one is running, so the request is
     /// honoured as soon as the running pass ends instead of being dropped
     /// until the next minute tick.
@@ -189,11 +196,14 @@ final class SyncController {
         // would tombstone every row the snapshot remembers, on every other
         // device too. Start over as a fresh device instead: the server's rows
         // come back down, nothing goes up.
-        if !store.loadedFromDisk, !snapshot.isEmpty {
-            logger.error("State file missing but \(self.snapshot.count) rows in the sync snapshot; resetting sync state rather than deleting them everywhere")
-            watermark = nil
-            snapshot = [:]
-            persistSyncState()
+        if !hasCheckedForLostList {
+            hasCheckedForLostList = true
+            if !store.loadedFromDisk, !snapshot.isEmpty {
+                logger.error("State file missing but \(self.snapshot.count) rows in the sync snapshot; resetting sync state rather than deleting them everywhere")
+                watermark = nil
+                snapshot = [:]
+                persistSyncState()
+            }
         }
         guard !Self.isDisabledByEnvironment else { return }
         startLoopIfPossible()

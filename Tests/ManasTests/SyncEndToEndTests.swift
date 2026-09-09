@@ -182,7 +182,19 @@ final class SyncEndToEndTests: XCTestCase {
         XCTAssertTrue(reinstalled.todos.isEmpty, "the deletion must propagate as a tombstone")
         phoneDevice = reinstalled
 
-        // 8. Quiescence: another pass on both sides pushes nothing.
+        // 8. Paging against the real PostgREST: five rows pulled two at a
+        //    time must all arrive, through the (updated_at, id) cursor.
+        let batch = (0..<5).map { Todo(text: "E2E: page \($0)") }
+        try await api.upsert(batch.map { TodoRecord(todo: $0, position: 0, updatedAt: Date()) }, accessToken: token)
+        var tiny = api
+        tiny.pageSize = 2
+        let paged = try await tiny.changes(since: nil, accessToken: token)
+        XCTAssertTrue(Set(batch.map(\.id)).isSubset(of: Set(paged.map(\.id))), "every row arrives across pages")
+        try await wipeUserRows(token: token)
+        try await sync(&mac, api: api, token: token)
+        try await sync(&phoneDevice, api: api, token: token)
+
+        // 9. Quiescence: another pass on both sides pushes nothing.
         let remoteForMac = try await api.changes(since: mac.watermark, accessToken: token)
         let settled = SyncMerge.merge(
             local: mac.todos,
