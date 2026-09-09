@@ -52,4 +52,20 @@ struct SupabaseShareAPI: Sendable {
             headers: ["Prefer": "resolution=merge-duplicates,return=minimal"]
         )
     }
+
+    /// The push the sync loop uses: what the server refuses is reported, not
+    /// thrown, so a single bad roster row cannot stop the todos behind it.
+    func pushGroups(_ records: [SharedGroupRecord], accessToken: String) async throws -> PushOutcome {
+        try await client.upsertIsolatingRejections(
+            records, path: "rest/v1/shared_groups",
+            accessToken: accessToken, encoder: TodoRecord.makeEncoder()
+        )
+    }
+
+    func pushMembers(_ records: [SharedGroupMemberRecord], accessToken: String) async throws -> PushOutcome {
+        try await client.upsertIsolatingRejections(
+            records, path: "rest/v1/shared_group_members",
+            accessToken: accessToken, encoder: TodoRecord.makeEncoder()
+        )
+    }
 }

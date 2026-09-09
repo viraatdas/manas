@@ -55,11 +55,14 @@ enum JudgePromptBuilder {
 
     /// The labels the judge should prefer: whatever today already uses, plus
     /// the two standing buckets. "Waste of time" is deliberately absent — it is
-    /// the discovered-time-sink label, not somewhere a todo belongs.
-    private static func existingGroups(in todos: [Todo]) -> [String] {
+    /// the discovered-time-sink label, not somewhere a todo belongs. So are
+    /// shared groups' names: the judge may only ever set a private label, and
+    /// offering a share's name led it to file todos into a private twin of
+    /// the share, sitting under the same title on the same day.
+    static func existingGroups(in todos: [Todo]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for label in todos.compactMap(\.group) + ["Work", "Personal"]
+        for label in todos.filter({ $0.shareID == nil }).compactMap(\.group) + ["Work", "Personal"]
         where label != TodoGroupName.wasteOfTime
             && seen.insert(TodoGroupName.key(for: label)).inserted {
             result.append(label)

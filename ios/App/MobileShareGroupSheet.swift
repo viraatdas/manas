@@ -40,8 +40,9 @@ struct MobileShareGroupSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     }
-                } else if isOwner {
-                    inviteSection
+                } else {
+                    twinSection
+                    if isOwner { inviteSection }
                 }
 
                 if let share, !share.members.isEmpty {
@@ -102,6 +103,56 @@ struct MobileShareGroupSheet: View {
         phone = number
         inviteeName = name ?? ""
         invite()
+    }
+
+    /// Two buckets carrying one name, and the way to make it one again. From
+    /// a shared group: the private todos filed under the same label on this
+    /// phone can move in. From a private group: a shared group of this name
+    /// already exists, and these todos can join it instead of standing up a
+    /// second one beside it. Nothing moves into a share without this tap.
+    @ViewBuilder
+    private var twinSection: some View {
+        if let share {
+            let stranded = store.privateTwinTodos(named: share.name)
+            if !stranded.isEmpty {
+                Section {
+                    Button {
+                        Haptics.bump()
+                        store.mergePrivateGroup(share.name, into: share.id)
+                    } label: {
+                        Label("Move them into this group", systemImage: "arrow.right.doc.on.clipboard")
+                    }
+                    .tint(.manasAccent)
+                } footer: {
+                    Text("You also have a private \u{201C}\(share.name)\u{201D} with \(stranded.count) "
+                        + (stranded.count == 1 ? "todo" : "todos")
+                        + ". Moving them here shares them with everyone in the group.")
+                }
+            }
+        } else if let twin = store.sharedTwin(named: target.label) {
+            let mine = store.privateTwinTodos(named: target.label)
+            Section {
+                if !mine.isEmpty {
+                    Button {
+                        Haptics.bump()
+                        store.mergePrivateGroup(target.label, into: twin.id)
+                        dismiss()
+                    } label: {
+                        Label(
+                            "Move these \(mine.count) into it",
+                            systemImage: "arrow.right.doc.on.clipboard"
+                        )
+                    }
+                    .tint(.manasAccent)
+                }
+            } header: {
+                Text("Same name, already shared")
+            } footer: {
+                Text("\u{201C}\(twin.name)\u{201D} is already a shared group "
+                    + (store.shareCaption(for: twin) ?? "")
+                    + ". Sharing this one too would make a second group with the same name.")
+            }
+        }
     }
 
     private var inviteSection: some View {
@@ -262,34 +313,15 @@ struct MobileShareGroupSheet: View {
 
     private func invite() {
         errorText = nil
-        // Sharing needs this device to know its own number: that is what an
-        // invite's missing country code is resolved against.
-        guard store.currentPhone != nil else {
-            errorText = "Sign in with your phone number first."
-            return
-        }
-        // The stored identity, not the digits as typed: a number written the
-        // way people say it carries no country code, and the account it has to
-        // reach is keyed by the international form.
-        guard let identity = store.canonicalPhone(phone) else {
-            errorText = PhoneIdentity.normalized(phone) == nil
-                ? "That doesn't look like a phone number."
-                : "Add the country code, like +1, so this reaches their account."
-            return
-        }
-        if PhoneIdentity.matches(identity, store.currentPhone) {
-            errorText = "That's your own number."
-            return
-        }
-        let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let added: Bool
-        if let shareID = target.shareID, let share = share, store.isOwner(of: share) {
-            added = store.addMember(to: shareID, phone: phone, name: name) != nil
-        } else {
-            added = store.shareGroup(target.label, withPhone: phone, memberName: name) != nil
-        }
-        guard added else {
-            errorText = "They're already in this group."
+        // The store resolves a number typed the way people say it to the
+        // identity the server matches on, and says exactly why when it
+        // cannot — a missing country code, your own number, someone already
+        // in the group.
+        do {
+            let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
+            try store.invite(phone, name: name, toGroup: target.label, shareID: target.shareID)
+        } catch {
+            errorText = error.localizedDescription
             return
         }
         Haptics.bump()

@@ -172,6 +172,14 @@ private struct TodoGroupPickerPopover: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                // Whose bucket, so a shared "Manas" and a private "Manas"
+                // read differently before the avatars are even noticed.
+                if let caption = store.shareCaption(for: destination) {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 8)
                 // The people already in a shared bucket, so picking it is an
                 // informed choice about who will see the todo.
@@ -193,7 +201,9 @@ private struct TodoGroupPickerPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(GroupOptionButtonStyle())
-        .accessibilityLabel(share == nil ? title : "\(title), shared")
+        .accessibilityLabel(
+            store.shareCaption(for: destination).map { "\(title), \($0)" } ?? title
+        )
         .accessibilityAddTraits(selection.key == destination.key ? .isSelected : [])
     }
 

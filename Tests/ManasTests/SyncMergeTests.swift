@@ -29,7 +29,7 @@ final class SyncMergeTests: XCTestCase {
         XCTAssertEqual(Set(outcome.toPush.map(\.id)), [a.id, b.id])
         XCTAssertEqual(outcome.toPush.map(\.updatedAt), [now, now])
         XCTAssertEqual(outcome.snapshot.count, 2)
-        XCTAssertEqual(outcome.watermark, now)
+        XCTAssertNil(outcome.watermark, "our own pushes never move the watermark; only what the server hands back does")
     }
 
     func testRemoteNewRowsArriveAndNothingEchoesBack() {
@@ -154,7 +154,7 @@ final class SyncMergeTests: XCTestCase {
         XCTAssertTrue(outcome.toPush.isEmpty)
     }
 
-    func testConcurrentRemoteEditResurrectsLocalDeletion() {
+    func testLocalDeletionWinsOverConcurrentRemoteEdit() {
         let contested = Todo(text: "Edited there, deleted here")
         let synced = record(contested, position: 0, updatedAt: now.addingTimeInterval(-100))
         var remoteVersion = synced
@@ -168,7 +168,167 @@ final class SyncMergeTests: XCTestCase {
             previousWatermark: now.addingTimeInterval(-100),
             now: now
         )
-        XCTAssertEqual(outcome.todos.first?.text, "Edited there", "a concurrent edit outweighs a deletion")
+        XCTAssertTrue(outcome.todos.isEmpty, "deleting is the deliberate act; an edit elsewhere does not bring it back")
+        XCTAssertEqual(outcome.toPush.map(\.deleted), [true])
+    }
+
+    func testRemoteTombstoneWinsOverALocalEdit() {
+        // The Mac's judge writes a verdict on a todo every hour. That used to
+        // count as "a local edit in hand", and it resurrected todos the phone
+        // had deleted minutes earlier.
+        var judged = Todo(text: "Deleted on the phone")
+        let synced = record(judged, position: 0, updatedAt: now.addingTimeInterval(-100))
+        judged.verdict = Verdict(status: .inProgress, evidence: "Seen in a session", judgedAt: now)
+        var tombstone = synced
+        tombstone.deleted = true
+        tombstone.updatedAt = now.addingTimeInterval(-5)
+
+        let outcome = SyncMerge.merge(
+            local: [judged],
+            snapshot: [judged.id: synced],
+            remote: [tombstone],
+            previousWatermark: now.addingTimeInterval(-100),
+            now: now
+        )
+        XCTAssertTrue(outcome.todos.isEmpty)
+        XCTAssertTrue(outcome.toPush.isEmpty)
+        XCTAssertNil(outcome.snapshot[judged.id])
+    }
+
+    func testARowBroughtBackAfterOurTombstoneLandedComesBack() {
+        // Our deletion reached the server (the snapshot holds the tombstone)
+        // and the server now shows a live row: somebody re-created it on
+        // purpose, so it is theirs to keep.
+        let revived = Todo(text: "Back by request")
+        var ourTombstone = record(revived, position: 0, updatedAt: now.addingTimeInterval(-50))
+        ourTombstone.deleted = true
+        let theirs = record(revived, position: 0, updatedAt: now.addingTimeInterval(-5))
+
+        let outcome = SyncMerge.merge(
+            local: [],
+            snapshot: [revived.id: ourTombstone],
+            remote: [theirs],
+            previousWatermark: now.addingTimeInterval(-100),
+            now: now
+        )
+        XCTAssertEqual(outcome.todos.map(\.text), ["Back by request"])
+        XCTAssertTrue(outcome.toPush.isEmpty)
+    }
+
+    func testBothSidesEditingDifferentFieldsKeepsBoth() {
+        // The phone ticks the box while the Mac writes a verdict. Neither
+        // device should lose its change to the other.
+        var local = Todo(text: "Ship it", group: "Work")
+        let synced = record(local, position: 0, updatedAt: now.addingTimeInterval(-100))
+        local.verdict = Verdict(status: .done, evidence: "Shipped in the 2 PM session", judgedAt: now)
+        var remoteVersion = synced
+        remoteVersion.isDone = true
+        remoteVersion.updatedAt = now.addingTimeInterval(-5)
+
+        let outcome = SyncMerge.merge(
+            local: [local],
+            snapshot: [local.id: synced],
+            remote: [remoteVersion],
+            previousWatermark: now.addingTimeInterval(-100),
+            now: now
+        )
+        let merged = outcome.todos.first
+        XCTAssertEqual(merged?.isDone, true, "the phone's completion survives")
+        XCTAssertEqual(merged?.verdict?.status, .done, "and so does the Mac's verdict")
+        XCTAssertEqual(outcome.toPush.count, 1, "the combined row goes back up")
+        XCTAssertEqual(outcome.toPush.first?.isDone, true)
+        XCTAssertEqual(outcome.toPush.first?.verdict?.status, .done)
+    }
+
+    func testBothSidesEditingTheSameFieldGoesToThisDevice() {
+        var local = Todo(text: "Original")
+        let synced = record(local, position: 0, updatedAt: now.addingTimeInterval(-100))
+        local.text = "Edited here"
+        var remoteVersion = synced
+        remoteVersion.text = "Edited there"
+        remoteVersion.isDone = true
+        remoteVersion.updatedAt = now.addingTimeInterval(-5)
+
+        let outcome = SyncMerge.merge(
+            local: [local],
+            snapshot: [local.id: synced],
+            remote: [remoteVersion],
+            previousWatermark: now.addingTimeInterval(-100),
+            now: now
+        )
+        XCTAssertEqual(outcome.todos.first?.text, "Edited here", "a tie goes to the edit the person can still see")
+        XCTAssertEqual(outcome.todos.first?.isDone, true, "while the field only they touched still lands")
+    }
+
+    func testARowThisDeviceHasNoMemoryOfTakesTheServersCopy() {
+        // A Mac signed out and back in, or a lost sync-state.json: the disk
+        // still holds an old copy of a row the server has since moved on
+        // from. Pushing the old copy would undo a completion made elsewhere.
+        let stale = Todo(text: "Stale on disk")
+        var current = record(stale, position: 0, updatedAt: now.addingTimeInterval(-5))
+        current.isDone = true
+
+        let outcome = SyncMerge.merge(
+            local: [stale],
+            snapshot: [:],
+            remote: [current],
+            previousWatermark: nil,
+            now: now
+        )
+        XCTAssertEqual(outcome.todos.first?.isDone, true)
+        XCTAssertTrue(outcome.toPush.isEmpty, "nothing on this device outranks the server for a row it never synced")
+    }
+
+    func testARowThisDeviceHasNoMemoryOfDoesNotResurrectATombstone() {
+        let gone = Todo(text: "Deleted while signed out elsewhere")
+        var tombstone = record(gone, position: 0, updatedAt: now.addingTimeInterval(-5))
+        tombstone.deleted = true
+
+        let outcome = SyncMerge.merge(
+            local: [gone],
+            snapshot: [:],
+            remote: [tombstone],
+            previousWatermark: nil,
+            now: now
+        )
+        XCTAssertTrue(outcome.todos.isEmpty)
+        XCTAssertTrue(outcome.toPush.isEmpty)
+    }
+
+    func testReReadingTheOverlapWindowIsANoOp() {
+        // Every pull starts ten minutes behind the watermark, so rows this
+        // device already applied come back on every pass. They must merge
+        // to nothing — no push, no change.
+        let todo = Todo(text: "Seen before")
+        let remoteRecord = record(todo, position: 0, updatedAt: now.addingTimeInterval(-30))
+        let first = SyncMerge.merge(
+            local: [], snapshot: [:], remote: [remoteRecord], previousWatermark: nil, now: now
+        )
+        let second = SyncMerge.merge(
+            local: first.todos,
+            snapshot: first.snapshot,
+            remote: [remoteRecord],
+            previousWatermark: first.watermark,
+            now: now.addingTimeInterval(60)
+        )
+        XCTAssertTrue(second.toPush.isEmpty)
+        XCTAssertEqual(second.todos, first.todos)
+        XCTAssertEqual(second.watermark, first.watermark)
+    }
+
+    func testWatermarkNeverRunsAheadOfThisDevicesClock() {
+        // A device whose clock runs fast stamps rows in the future. Taking
+        // that stamp as the watermark would skip every other device's rows
+        // until the future arrived; instead the stamp is clamped and the row
+        // is simply re-read until then.
+        let todo = Todo(text: "From a fast clock")
+        let ahead = record(todo, position: 0, updatedAt: now.addingTimeInterval(3600))
+        let outcome = SyncMerge.merge(
+            local: [], snapshot: [:], remote: [ahead], previousWatermark: nil, now: now
+        )
+        XCTAssertEqual(outcome.watermark, now)
+        XCTAssertEqual(SyncMerge.pullFloor(for: now), now.addingTimeInterval(-SyncMerge.pullOverlap))
+        XCTAssertNil(SyncMerge.pullFloor(for: nil))
     }
 
     func testVerdictSurvivesTheWireModel() {

@@ -83,9 +83,21 @@ struct MobileFeedHeader: View {
                 .lineLimit(1)
         case .idle, .signedOut:
             if let lastSyncedAt = sync.lastSyncedAt {
-                Label(Self.syncedText(lastSyncedAt), systemImage: "checkmark.circle.fill")
+                let refused = sync.rejectedRows.count
+                if refused > 0 {
+                    // Everything else synced; these did not, and saying so
+                    // beats looking identical to a clean pass.
+                    Label(
+                        "\(refused) \(refused == 1 ? "change" : "changes") refused by the server",
+                        systemImage: "exclamationmark.circle"
+                    )
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.manasAccent)
+                } else {
+                    Label(Self.syncedText(lastSyncedAt), systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -271,13 +283,13 @@ struct MobileAddBar: View {
                     Haptics.tap()
                     selection = destination
                 } label: {
-                    // Shared buckets say so: two entries can carry the same
-                    // name, and only one of them is visible to someone else.
-                    let name = destination.group ?? ""
-                    let title = destination.isShared
-                        ? "\(store.emoji(for: destination)) \(name) · shared"
-                        : "\(store.emoji(for: destination)) \(name)"
-                    Label(title, systemImage: selection.key == destination.key ? "checkmark" : "")
+                    // Shared buckets say whose they are: two entries can
+                    // carry the same name, and only one is visible to
+                    // someone else.
+                    Label(
+                        store.pickerTitle(for: destination),
+                        systemImage: selection.key == destination.key ? "checkmark" : ""
+                    )
                 }
             }
             Divider()

@@ -4,7 +4,7 @@ import Foundation
 /// server needs: a stable per-day `position` (the flat array's display order),
 /// an `updatedAt` for last-write-wins merging, and a `deleted` tombstone so
 /// removals propagate instead of resurrecting.
-struct TodoRecord: Codable, Hashable, Sendable {
+struct TodoRecord: Codable, Hashable, Sendable, Identifiable {
     var id: UUID
     var text: String
     /// The semantic calendar day as "yyyy-MM-dd" — a label, not an instant,

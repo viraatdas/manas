@@ -644,7 +644,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.todosToday.first { $0.id == looseID }?.group)
     }
 
-    func testManualMoveSetsTheNextTodoDestinationAndItSurvivesRelaunch() {
+    func testManualMoveSetsTheNextTodoDestinationForThisSessionOnly() {
         let url = tempStateURL()
         let store = AppStore(fileURL: url)
         let moved = store.addTodo("File me")!
@@ -658,9 +658,25 @@ final class AppStoreTests: XCTestCase {
         store.addTodo("Another task", destination: store.suggestedDestinationForNewTodo)
         XCTAssertEqual(store.lastManuallyMovedDestination, TodoDestination(group: "Manas"))
 
+        // Across a relaunch the compose bar starts clean. Persisting this
+        // meant the bar opened pre-set to a group chosen days ago, and a todo
+        // typed without looking went there.
         store.saveNow()
         let reloaded = AppStore(fileURL: url)
-        XCTAssertEqual(reloaded.suggestedDestinationForNewTodo, TodoDestination(group: "Manas"))
+        XCTAssertEqual(reloaded.suggestedDestinationForNewTodo, .ungrouped)
+        XCTAssertNil(reloaded.lastManuallyMovedDestination)
+    }
+
+    func testLoadedFromDiskDistinguishesAnEmptyListFromNoList() {
+        let url = tempStateURL()
+        let fresh = AppStore(fileURL: url)
+        XCTAssertFalse(fresh.loadedFromDisk, "nothing to read yet")
+
+        fresh.saveNow()
+        XCTAssertTrue(AppStore(fileURL: url).loadedFromDisk, "an empty list read from disk is still a list")
+
+        try! Data("not json".utf8).write(to: url)
+        XCTAssertFalse(AppStore(fileURL: url).loadedFromDisk, "a file that fails to decode is a lost list, not an empty one")
     }
 
     func testWasteOfTimeMinutesAccumulateDistinctStretchesAndRefreshWithoutDoubleCounting() {

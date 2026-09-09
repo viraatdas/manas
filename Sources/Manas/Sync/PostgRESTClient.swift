@@ -16,6 +16,21 @@ struct PostgRESTClient: Sendable {
                 "Sync couldn’t finish. Manas will retry automatically."
             }
         }
+
+        /// True for a refusal — a policy, constraint, or shape the server will
+        /// keep refusing — as opposed to a transport or server fault that a
+        /// retry could clear.
+        var isRejection: Bool {
+            switch self {
+            case .server(let status, _): (400..<500).contains(status) && status != 401 && status != 429
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .server(let status, let body): "\(status) \(body.prefix(200))"
+            }
+        }
     }
 
     @discardableResult
@@ -56,5 +71,57 @@ struct PostgRESTClient: Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+    }
+}
+
+/// What came of a push: the rows the server took, and the ones it refused
+/// along with what it said about each.
+struct PushOutcome: Sendable {
+    var accepted: Set<UUID> = []
+    var rejected: [UUID: String] = [:]
+
+    static let nothing = PushOutcome()
+}
+
+extension PostgRESTClient {
+    /// Upserts the batch by primary key. PostgREST applies a batch as one
+    /// statement, so a single row the server refuses — a policy, a foreign
+    /// key, a uniqueness clash — fails every other row with it, and a client
+    /// that keeps sending the same batch never syncs anything again. So a
+    /// refused batch is retried one row at a time: what the server will take
+    /// lands, and only the row it will not is reported back, by id, with the
+    /// server's reason. Transport faults and server errors still throw, since
+    /// a retry can clear those and splitting the batch would not help.
+    func upsertIsolatingRejections<Record: Encodable & Identifiable & Sendable>(
+        _ records: [Record],
+        path: String,
+        accessToken: String,
+        encoder: JSONEncoder
+    ) async throws -> PushOutcome where Record.ID == UUID {
+        guard !records.isEmpty else { return .nothing }
+        let headers = ["Prefer": "resolution=merge-duplicates,return=minimal"]
+        do {
+            try await request(
+                method: "POST", path: path, accessToken: accessToken,
+                body: try encoder.encode(records), headers: headers
+            )
+            return PushOutcome(accepted: Set(records.map(\.id)))
+        } catch let error as APIError where error.isRejection && records.count > 1 {
+            var outcome = PushOutcome()
+            for record in records {
+                do {
+                    try await request(
+                        method: "POST", path: path, accessToken: accessToken,
+                        body: try encoder.encode([record]), headers: headers
+                    )
+                    outcome.accepted.insert(record.id)
+                } catch let error as APIError where error.isRejection {
+                    outcome.rejected[record.id] = error.detail
+                }
+            }
+            return outcome
+        } catch let error as APIError where error.isRejection {
+            return PushOutcome(rejected: [records[0].id: error.detail])
+        }
     }
 }

@@ -480,6 +480,15 @@ private struct TodoGroupBlock: View {
                             Text(label)
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
+                            // Whose group this is, when it isn't yours: the
+                            // one thing that tells a "Manas" somebody shared
+                            // apart from a "Manas" of your own on the same day.
+                            if let headerCaption {
+                                Text(headerCaption)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                             Text("\(doneCount)/\(group.todos.count)")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -497,7 +506,10 @@ private struct TodoGroupBlock: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(label), \(doneCount) of \(group.todos.count) done")
+                    .accessibilityLabel(
+                        [label, headerCaption, "\(doneCount) of \(group.todos.count) done"]
+                            .compactMap { $0 }.joined(separator: ", ")
+                    )
                     .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
 
                     shareControl(label)
@@ -565,6 +577,13 @@ private struct TodoGroupBlock: View {
         .animation(.easeOut(duration: 0.12), value: isHeaderHovered)
         .help(shareHelp)
         .accessibilityLabel(shareHelp)
+    }
+
+    /// "from Krithik" on a group somebody else shared. Your own shares wear
+    /// their members' avatars instead, so they need no words.
+    private var headerCaption: String? {
+        guard let share, !store.isOwner(of: share) else { return nil }
+        return store.shareCaption(for: share)
     }
 
     private var shareHelp: String {
@@ -1108,12 +1127,11 @@ struct TodoRow: View {
                 Button {
                     move(to: destination)
                 } label: {
-                    // A shared destination says so: two entries can carry the
-                    // same name, and the only difference that matters is
-                    // whether the move publishes the todo to somebody else.
-                    let title = destination.isShared
-                        ? "\(store.emoji(for: destination)) \(destination.group ?? "") · shared"
-                        : "\(store.emoji(for: destination)) \(destination.group ?? "")"
+                    // A shared destination says whose it is: two entries can
+                    // carry the same name, and the only difference that
+                    // matters is whether the move publishes the todo, and to
+                    // whom.
+                    let title = store.pickerTitle(for: destination)
                     if destination == todo.destination {
                         Label(title, systemImage: "checkmark")
                     } else {

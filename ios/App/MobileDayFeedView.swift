@@ -165,13 +165,18 @@ private struct DaySectionBody: View {
                 let key = SectionKey.group(group.destination, on: feedDay.date)
                 let collapsed = group.group != nil && store.isCollapsed(key)
                 if let label = group.group {
+                    let share = group.shareID.flatMap { store.sharedGroup(id: $0) }
                     GroupHeaderRow(label: label, emoji: store.emoji(for: group.destination),
+                                   // Whose group, when it isn't yours: what
+                                   // tells a "Manas" somebody shared apart
+                                   // from a "Manas" of your own on the day.
+                                   caption: share.flatMap {
+                                       store.isOwner(of: $0) ? nil : store.shareCaption(for: $0)
+                                   },
                                    done: group.todos.filter(\.isDone).count, total: group.todos.count,
                                    wastedMinutes: TodoGroupName.key(for: label) == TodoGroupName.key(for: TodoGroupName.wasteOfTime)
                                        ? store.wastedMinutes(on: feedDay.date) : nil,
-                                   members: group.shareID.flatMap {
-                                       store.sharedGroup(id: $0)?.members(excluding: store.currentPhone)
-                                   } ?? [],
+                                   members: share?.members(excluding: store.currentPhone) ?? [],
                                    isCollapsed: collapsed) {
                         withAnimation(.easeOut(duration: 0.18)) {
                             store.toggleCollapsed(key)
@@ -207,6 +212,7 @@ private struct DaySectionBody: View {
 private struct GroupHeaderRow: View {
     let label: String
     let emoji: String
+    var caption: String?
     let done: Int
     let total: Int
     var wastedMinutes: Int?
@@ -223,6 +229,12 @@ private struct GroupHeaderRow: View {
                     .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                 Text(emoji).font(.subheadline)
                 Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Text("\(done)/\(total)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -244,9 +256,8 @@ private struct GroupHeaderRow: View {
         .listRowSeparator(.hidden)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            members.isEmpty
-                ? "\(label), \(done) of \(total) done"
-                : "\(label), shared with \(members.count), \(done) of \(total) done"
+            [label, caption ?? (members.isEmpty ? nil : "shared with \(members.count)"), "\(done) of \(total) done"]
+                .compactMap { $0 }.joined(separator: ", ")
         )
         .accessibilityHint(isCollapsed ? "Expand group" : "Collapse group")
     }

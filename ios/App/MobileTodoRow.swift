@@ -292,12 +292,12 @@ struct MobileTodoRow: View {
                     store.setTodoGroup(todo.id, to: destination)
                 } label: {
                     // Moving into a shared bucket publishes the todo to the
-                    // other members, so the menu says which entries do that.
-                    let name = destination.group ?? ""
-                    let title = destination.isShared
-                        ? "\(store.emoji(for: destination)) \(name) · shared"
-                        : "\(store.emoji(for: destination)) \(name)"
-                    Label(title, systemImage: todo.destination == destination ? "checkmark" : "")
+                    // other members, so the menu says which entries do that,
+                    // and to whom.
+                    Label(
+                        store.pickerTitle(for: destination),
+                        systemImage: todo.destination == destination ? "checkmark" : ""
+                    )
                 }
             }
         } label: {

@@ -292,7 +292,7 @@ final class SharedGroupStoreTests: XCTestCase {
         XCTAssertNotEqual(shared?.id, unshared?.id, "two buckets, two identities")
     }
 
-    func testTheJudgeNeverFilesATodoIntoASharedGroup() {
+    func testTheJudgeNeverFilesATodoIntoASharedGroupNorIntoATwinOfIt() {
         let store = signedInStore()
         let share = store.shareGroup("Manas", withPhone: theirs, now: now)!
         let todo = store.addTodo("Unfiled work")!
@@ -306,12 +306,160 @@ final class SharedGroupStoreTests: XCTestCase {
             )
         ))
         let judged = store.todos.first { $0.id == todo.id }
-        XCTAssertEqual(judged?.group, "Manas")
         XCTAssertNil(
             judged?.shareID,
             "auto-grouping guesses labels; it must never guess private work into someone else's view"
         )
+        // And it must not stand up a private "Manas" beside the shared one
+        // either — that is how two identically named buckets ended up on the
+        // same day with nothing to say which was which.
+        XCTAssertNil(judged?.group, "a label that names only a shared group is left alone")
         XCTAssertNotEqual(judged?.destination.key, TodoDestination(group: "Manas", shareID: share.id).key)
+
+        // Once a private "Manas" genuinely exists, the judge may use it.
+        store.createGroup("Manas")
+        store.applyJudgeResult(JudgeResult(
+            verdicts: [:],
+            groups: [todo.id: "Manas"],
+            discovered: [],
+            usage: UsageRecord(
+                timestamp: now, model: "sonnet", tokensIn: 1, tokensOut: 1,
+                costUSD: 0, summary: "test"
+            )
+        ))
+        XCTAssertEqual(store.todos.first { $0.id == todo.id }?.destination, TodoDestination(group: "Manas"))
+    }
+
+    func testASharedGroupsNameIsNotOfferedAsAPrivateGroup() {
+        // Being shared a "Manas" used to put a private "Manas" in the picker
+        // next to it, and in the judge's list of groups to reuse.
+        let store = signedInStore()
+        store.addTodo("Their thing", group: "Manas")
+        let share = store.shareGroup("Manas", withPhone: theirs, now: now)!
+
+        XCTAssertFalse(store.groupNamesInUse.contains("Manas"))
+        XCTAssertEqual(
+            store.availableDestinations.filter { $0.group == "Manas" },
+            [TodoDestination(group: "Manas", shareID: share.id)],
+            "one Manas in the picker, and it is the shared one"
+        )
+        XCTAssertTrue(store.isSharedOnly(label: "Manas"))
+        XCTAssertFalse(store.isSharedOnly(label: "Work"))
+        XCTAssertFalse(
+            JudgePromptBuilder.existingGroups(in: store.todos).contains("Manas"),
+            "the judge is not invited to reuse a label it may never set"
+        )
+    }
+
+    func testAPrivateTwinCanBeFoldedIntoTheShare() {
+        let store = signedInStore()
+        let share = store.shareGroup("Manas", withPhone: theirs, now: now)!
+        store.createGroup("Manas")
+        store.addTodo("Private one", destination: TodoDestination(group: "Manas"))
+        store.addTodo("Private two", destination: TodoDestination(group: "Manas"))
+        store.addTodo("Elsewhere", destination: TodoDestination(group: "Work"))
+        XCTAssertEqual(store.privateTwinTodos(named: "Manas").count, 2)
+        XCTAssertEqual(store.sharedTwin(named: "manas")?.id, share.id)
+
+        XCTAssertEqual(store.mergePrivateGroup("Manas", into: share.id), 2)
+
+        XCTAssertTrue(store.privateTwinTodos(named: "Manas").isEmpty)
+        XCTAssertEqual(store.todos.filter { $0.shareID == share.id }.count, 2)
+        XCTAssertTrue(store.todos.filter { $0.shareID == share.id }.allSatisfy { $0.authorPhone == mine })
+        XCTAssertFalse(store.customGroups.contains("Manas"), "the standing private bucket stands down")
+        XCTAssertNil(store.todos.first { $0.text == "Elsewhere" }?.shareID, "another group is untouched")
+    }
+
+    func testSharingYourOwnGroupWorksWhileYouAreInSomebodyElsesOfTheSameName() {
+        // A "Manas" somebody else shared used to be found by name, fail the
+        // ownership check, and make sharing your own "Manas" silently
+        // impossible for as long as you were in theirs.
+        let store = signedInStore()
+        let theirShare = UUID()
+        store.applyShareMerge(
+            groups: [SharedGroupRecord(
+                id: theirShare, name: "Manas", emoji: nil, ownerID: theirs,
+                createdAt: now, updatedAt: now, deleted: false
+            )],
+            members: [
+                SharedGroupMemberRecord(
+                    id: UUID(), shareID: theirShare, phone: theirs, displayName: nil,
+                    createdAt: now, updatedAt: now, deleted: false
+                ),
+                SharedGroupMemberRecord(
+                    id: UUID(), shareID: theirShare, phone: mine, displayName: nil,
+                    createdAt: now, updatedAt: now, deleted: false
+                ),
+            ]
+        )
+        store.addTodo("My own Manas work", destination: TodoDestination(group: "Manas"))
+
+        let mineShared = store.shareGroup("Manas", withPhone: "+1 309 826 4765", now: now)
+        XCTAssertNotNil(mineShared)
+        XCTAssertNotEqual(mineShared?.id, theirShare)
+        XCTAssertEqual(mineShared?.ownerPhone, mine)
+        XCTAssertEqual(store.sharedGroups.count, 2)
+    }
+
+    func testInviteSaysWhyItCouldNot() {
+        let store = signedInStore()
+        store.addTodo("Ship 0.4", group: "Manas")
+        XCTAssertThrowsError(try store.invite("12345", toGroup: "Manas")) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .notANumber)
+        }
+        XCTAssertThrowsError(try store.invite("+1 415 555 0137", toGroup: "Manas")) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .ownNumber)
+        }
+        let share = try? store.invite(theirs, toGroup: "Manas")
+        XCTAssertNotNil(share)
+        XCTAssertThrowsError(try store.invite("+1 (555) 555-0100", toGroup: "Manas", shareID: share?.id)) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .alreadyMember)
+        }
+
+        _ = try? store.invite("+1 309 826 4765", toGroup: "Manas", shareID: share?.id)
+        store.currentPhone = "13098264765" // a member, but not the owner
+        XCTAssertThrowsError(try store.invite("+1 555 000 0000", toGroup: "Manas", shareID: share?.id)) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .notOwner)
+        }
+        XCTAssertThrowsError(try store.invite("+1 555 000 0000", toGroup: "Manas", shareID: UUID())) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .shareEnded)
+        }
+        XCTAssertEqual(store.sharedGroups.count, 1, "no second share was started under the same name")
+        let signedOut = AppStore(fileURL: tempStateURL())
+        XCTAssertThrowsError(try signedOut.invite(theirs, toGroup: "Manas")) {
+            XCTAssertEqual($0 as? AppStore.ShareError, .notSignedIn)
+        }
+    }
+
+    func testCaptionsSayWhoseASharedBucketIs() {
+        let store = signedInStore()
+        let owned = store.shareGroup("Manas", withPhone: theirs, memberName: "Ada", now: now)!
+        XCTAssertEqual(store.shareCaption(for: owned), "shared with Ada")
+        XCTAssertEqual(
+            store.pickerTitle(for: TodoDestination(group: "Manas", shareID: owned.id)),
+            "📁 Manas · shared with Ada"
+        )
+        XCTAssertEqual(store.pickerTitle(for: TodoDestination(group: "Work")), "💼 Work")
+        XCTAssertNil(store.shareCaption(for: TodoDestination(group: "Work")))
+
+        let theirShare = UUID()
+        store.applyShareMerge(
+            groups: store.sharedGroupRecords + [SharedGroupRecord(
+                id: theirShare, name: "Apartment", emoji: "🏠", ownerID: theirs,
+                createdAt: now, updatedAt: now, deleted: false
+            )],
+            members: store.sharedMemberRecords + [
+                SharedGroupMemberRecord(
+                    id: UUID(), shareID: theirShare, phone: theirs, displayName: "Ada",
+                    createdAt: now, updatedAt: now, deleted: false
+                ),
+                SharedGroupMemberRecord(
+                    id: UUID(), shareID: theirShare, phone: mine, displayName: nil,
+                    createdAt: now, updatedAt: now, deleted: false
+                ),
+            ]
+        )
+        XCTAssertEqual(store.shareCaption(for: store.sharedGroup(id: theirShare)!), "from Ada")
     }
 
     // MARK: - Moving in and out

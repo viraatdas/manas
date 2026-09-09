@@ -110,6 +110,12 @@ struct SyncSettingsSection: View {
         default:
             if let last = sync.lastSyncedAt {
                 let time = last.formatted(date: .omitted, time: .shortened).lowercased()
+                // A refused row used to be indistinguishable from a synced
+                // one. It still syncs everything else; it just says so.
+                let refused = sync.rejectedRows.count
+                if refused > 0 {
+                    return "Synced \(time) · \(refused) \(refused == 1 ? "change" : "changes") refused by the server"
+                }
                 return "Synced \(time) · changes appear on your iPhone"
             }
             return "Waiting for the first sync"

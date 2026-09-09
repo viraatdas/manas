@@ -31,6 +31,7 @@ struct ShareGroupPopover: View {
             if !sync.isSignedIn {
                 signedOutNotice
             } else {
+                twinNotice
                 if isOwner { inviteField }
                 if let share, !share.members.isEmpty {
                     memberList(share)
@@ -90,6 +91,59 @@ struct ShareGroupPopover: View {
             : "Shared with \(others) people. Everything in this group is visible to them."
     }
 
+    /// Two buckets carrying one name, and the way to make it one again.
+    ///
+    /// From a shared group: the private todos filed under the same label
+    /// on this device can move in. From a private group: a shared group of
+    /// this name already exists (yours, or one shared with you), and these
+    /// todos can join it instead of standing up a second "Manas" beside it.
+    /// Either way the choice is the user's — nothing is ever moved into a
+    /// share by anything but a deliberate click.
+    @ViewBuilder
+    private var twinNotice: some View {
+        if let share {
+            let stranded = store.privateTwinTodos(named: share.name)
+            if !stranded.isEmpty {
+                twinRow(
+                    text: "You also have a private \u{201C}\(share.name)\u{201D} with \(stranded.count) "
+                        + (stranded.count == 1 ? "todo." : "todos."),
+                    action: "Move them here"
+                ) {
+                    store.mergePrivateGroup(share.name, into: share.id)
+                }
+            }
+        } else if let twin = store.sharedTwin(named: label) {
+            let mine = store.privateTwinTodos(named: label)
+            twinRow(
+                text: "\u{201C}\(twin.name)\u{201D} is already a shared group "
+                    + (store.shareCaption(for: twin) ?? "") + ".",
+                action: mine.isEmpty ? nil : "Move these \(mine.count) into it"
+            ) {
+                store.mergePrivateGroup(label, into: twin.id)
+                close()
+            }
+        }
+    }
+
+    private func twinRow(text: String, action: String?, perform: @escaping () -> Void) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "rectangle.on.rectangle")
+                .font(.caption)
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            if let action {
+                Button(action, action: perform)
+                    .buttonStyle(.ghost)
+                    .controlSize(.small)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(8)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
     private var signedOutNotice: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "iphone.badge.exclamationmark")
@@ -132,33 +186,18 @@ struct ShareGroupPopover: View {
         errorText = nil
         // Both halves matter: sharing needs a session, and it needs this
         // device to know its own number — that is what an invite's missing
-        // country code is resolved against.
-        guard sync.isSignedIn, store.currentPhone != nil else {
-            errorText = "Sign in with your phone number first."
+        // country code is resolved against. The store resolves the number
+        // typed the way people say it to the identity the server matches on,
+        // and says exactly why when it cannot.
+        guard sync.isSignedIn else {
+            errorText = AppStore.ShareError.notSignedIn.errorDescription
             return
         }
-        // The stored identity, not the digits as typed: a number written the
-        // way people say it carries no country code, and the account it has to
-        // reach is keyed by the international form.
-        guard let identity = store.canonicalPhone(phone) else {
-            errorText = PhoneIdentity.normalized(phone) == nil
-                ? "That doesn't look like a phone number."
-                : "Add the country code, like +1, so this reaches their account."
-            return
-        }
-        if PhoneIdentity.matches(identity, store.currentPhone) {
-            errorText = "That's your own number."
-            return
-        }
-        let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let result: SharedGroup?
-        if let shareID, let share = store.sharedGroup(id: shareID), store.isOwner(of: share) {
-            result = store.addMember(to: shareID, phone: phone, name: name).map { _ in share }
-        } else {
-            result = store.shareGroup(label, withPhone: phone, memberName: name)
-        }
-        guard result != nil else {
-            errorText = "They're already in this group."
+        do {
+            let name = inviteeName.trimmingCharacters(in: .whitespacesAndNewlines)
+            try store.invite(phone, name: name, toGroup: label, shareID: shareID)
+        } catch {
+            errorText = error.localizedDescription
             return
         }
         phone = ""

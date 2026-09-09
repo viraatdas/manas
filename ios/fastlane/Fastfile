@@ -1017,4 +1017,140 @@ platform :ios do
       UI.important("No build on App Store Connect yet")
     end
   end
+
+  desc "What App Store Connect currently holds: versions, recent builds, review contact."
+  lane :store_state do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    _, versions = asc_raw(:get, "v1/apps/#{app.id}/appStoreVersions?filter%5Bplatform%5D=IOS&limit=6")
+    (versions["data"] || []).each do |v|
+      a = v["attributes"]
+      UI.message("version=#{a["versionString"]} state=#{a["appStoreState"] || a["appVersionState"]} release=#{a["releaseType"]} id=#{v["id"]}")
+    end
+    Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 5).each do |b|
+      UI.message("build=#{b.version} marketing=#{b.app_version} state=#{b.processing_state}")
+    end
+    _, details = asc_raw(:get, "v1/betaAppReviewDetails?filter%5Bapp%5D=#{app.id}&limit=1")
+    contact = (details["data"] || []).first
+    UI.message("reviewContactPhone=#{contact&.dig("attributes", "contactPhone").inspect}")
+    _, subs = asc_raw(:get, "v1/apps/#{app.id}/reviewSubmissions?filter%5Bplatform%5D=IOS&limit=5")
+    (subs["data"] || []).each do |r|
+      UI.message("reviewSubmission=#{r["id"]} state=#{r.dig("attributes", "state")} submitted=#{r.dig("attributes", "submittedDate")}")
+    end
+  end
+
+  desc "Create App Store version STORE_VERSION (AFTER_APPROVAL), attach TF_BUILD_NUMBER, set What's New from STORE_NOTES, submit for review."
+  # Every version is created AFTER_APPROVAL on purpose: MANUAL parks an approved
+  # build at Pending Developer Release until somebody presses a button, which
+  # is how 1.0 sat approved and invisible for three weeks. Idempotent where it
+  # can be: an existing version of the same string is reused, an existing
+  # open review submission is reused.
+  lane :submit_store_version do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    version_string = ENV["STORE_VERSION"] || UI.user_error!("Set STORE_VERSION")
+    build_number = ENV["TF_BUILD_NUMBER"] || UI.user_error!("Set TF_BUILD_NUMBER")
+    notes_path = ENV["STORE_NOTES"] || UI.user_error!("Set STORE_NOTES to the release notes file")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+      .find { |candidate| candidate.version == build_number }
+    UI.user_error!("Build #{build_number} not found") unless build
+    UI.user_error!("Build #{build_number} is #{build.processing_state}") unless build.processing_state == "VALID"
+    UI.user_error!("Build #{build_number} is marketing #{build.app_version}, not #{version_string}") unless build.app_version == version_string
+
+    _, versions = asc_raw(
+      :get,
+      "v1/apps/#{app.id}/appStoreVersions?filter%5Bplatform%5D=IOS&filter%5BversionString%5D=#{version_string}&limit=1"
+    )
+    version = (versions["data"] || []).first
+    if version
+      UI.message("App Store version #{version_string} exists (#{version.dig("attributes", "appStoreState") || version.dig("attributes", "appVersionState")})")
+    else
+      code, created = asc_raw(:post, "v1/appStoreVersions", {
+        data: {
+          type: "appStoreVersions",
+          attributes: { platform: "IOS", versionString: version_string, releaseType: "AFTER_APPROVAL" },
+          relationships: { app: { data: { type: "apps", id: app.id } } },
+        },
+      })
+      UI.user_error!("Create version failed (#{code}): #{created.inspect[0, 400]}") unless (200..299).include?(code)
+      version = created["data"]
+      UI.success("Created App Store version #{version_string} (AFTER_APPROVAL)")
+    end
+
+    code, response = asc_raw(
+      :patch,
+      "v1/appStoreVersions/#{version["id"]}/relationships/build",
+      { data: { type: "builds", id: build.id } }
+    )
+    UI.user_error!("Attach build failed (#{code}): #{response.inspect[0, 400]}") unless (200..299).include?(code)
+    UI.success("Attached build #{build_number} to #{version_string}")
+
+    # What's New: the release notes file minus its markdown, one line per bullet.
+    whats_new = File.read(notes_path).lines
+      .map { |l| l.strip.sub(/^##\s*/, "").sub(/^-\s*/, "") }
+      .reject(&:empty?)
+      .join("\n")[0, 3900]
+    _, localizations = asc_raw(:get, "v1/appStoreVersions/#{version["id"]}/appStoreVersionLocalizations?limit=10")
+    localization = (localizations["data"] || []).find { |l| l.dig("attributes", "locale") == "en-US" }
+    if localization
+      code, response = asc_raw(:patch, "v1/appStoreVersionLocalizations/#{localization["id"]}", {
+        data: { type: "appStoreVersionLocalizations", id: localization["id"], attributes: { whatsNew: whats_new } },
+      })
+    else
+      code, response = asc_raw(:post, "v1/appStoreVersionLocalizations", {
+        data: {
+          type: "appStoreVersionLocalizations",
+          attributes: { locale: "en-US", whatsNew: whats_new },
+          relationships: { appStoreVersion: { data: { type: "appStoreVersions", id: version["id"] } } },
+        },
+      })
+    end
+    UI.user_error!("What's New failed (#{code}): #{response.inspect[0, 400]}") unless (200..299).include?(code)
+    UI.success("What's New set (#{whats_new.lines.count} lines)")
+
+    _, subs = asc_raw(:get, "v1/apps/#{app.id}/reviewSubmissions?filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW%2CWAITING_FOR_REVIEW%2CIN_REVIEW%2CUNRESOLVED_ISSUES&limit=5")
+    open_submission = (subs["data"] || []).first
+    if open_submission && open_submission.dig("attributes", "state") != "READY_FOR_REVIEW"
+      UI.important("A review submission is already #{open_submission.dig("attributes", "state")} (#{open_submission["id"]}); not creating another")
+      next
+    end
+    submission = open_submission
+    unless submission
+      code, created = asc_raw(:post, "v1/reviewSubmissions", {
+        data: {
+          type: "reviewSubmissions",
+          attributes: { platform: "IOS" },
+          relationships: { app: { data: { type: "apps", id: app.id } } },
+        },
+      })
+      UI.user_error!("Create review submission failed (#{code}): #{created.inspect[0, 400]}") unless (200..299).include?(code)
+      submission = created["data"]
+    end
+    code, item = asc_raw(:post, "v1/reviewSubmissionItems", {
+      data: {
+        type: "reviewSubmissionItems",
+        relationships: {
+          reviewSubmission: { data: { type: "reviewSubmissions", id: submission["id"] } },
+          appStoreVersion: { data: { type: "appStoreVersions", id: version["id"] } },
+        },
+      },
+    })
+    # 409 here means the version is already an item of this submission.
+    unless (200..299).include?(code) || code == 409
+      UI.user_error!("Add submission item failed (#{code}): #{item.inspect[0, 400]}")
+    end
+    code, submitted = asc_raw(:patch, "v1/reviewSubmissions/#{submission["id"]}", {
+      data: { type: "reviewSubmissions", id: submission["id"], attributes: { submitted: true } },
+    })
+    UI.user_error!("Submit failed (#{code}): #{submitted.inspect[0, 400]}") unless (200..299).include?(code)
+    UI.success("#{version_string} (build #{build_number}) submitted for App Review: #{submission["id"]} state=#{submitted.dig("data", "attributes", "state")}")
+  end
 end

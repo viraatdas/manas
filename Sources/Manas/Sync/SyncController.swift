@@ -23,6 +23,11 @@ final class SyncController {
     private(set) var phoneNumber: String?
     private(set) var phase: Phase = .signedOut
     private(set) var lastSyncedAt: Date?
+    /// Rows the server refused on the most recent pass, by id, with what it
+    /// said. Not persisted: a relaunch retries them, and a later edit to the
+    /// row retries it at once. Surfaced so "it didn't sync" has a number on
+    /// it instead of being indistinguishable from "it synced".
+    private(set) var rejectedRows: [UUID: String] = [:]
 
     @ObservationIgnored private let auth: any SyncAuth
     @ObservationIgnored private let api = SupabaseTodoAPI()
@@ -32,7 +37,21 @@ final class SyncController {
     @ObservationIgnored private var loopTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSync: Task<Void, Never>?
     @ObservationIgnored private var isApplyingMerge = false
+    @ObservationIgnored private var isObservingStore = false
     @ObservationIgnored private var syncInFlight = false
+    /// Set when a pass is asked for while one is running, so the request is
+    /// honoured as soon as the running pass ends instead of being dropped
+    /// until the next minute tick.
+    @ObservationIgnored private var needsAnotherPass = false
+    /// What each refused row looked like when it was refused, and why. The
+    /// row is left out of later batches while it still looks like that —
+    /// sending the same rejected row every minute helps nobody — and goes
+    /// straight back in the moment it changes.
+    private struct Rejection {
+        var content: String
+        var reason: String
+    }
+    @ObservationIgnored private var rejections: [UUID: Rejection] = [:]
     @ObservationIgnored private let logger = Logger(subsystem: "Manas", category: "Sync")
 
     /// On-disk sync bookkeeping, next to the state file.
@@ -116,10 +135,7 @@ final class SyncController {
         phoneNumber = nil
         store?.currentPhone = nil
         phase = .signedOut
-        watermark = nil
-        snapshot = [:]
-        lastSyncedAt = nil
-        try? FileManager.default.removeItem(at: stateURL)
+        forgetSyncState()
     }
 
     /// Deletes the authenticated server account, then removes every local
@@ -141,9 +157,15 @@ final class SyncController {
         isSignedIn = false
         phoneNumber = nil
         phase = .signedOut
+        forgetSyncState()
+    }
+
+    private func forgetSyncState() {
         watermark = nil
         snapshot = [:]
         lastSyncedAt = nil
+        rejectedRows = [:]
+        rejections = [:]
         try? FileManager.default.removeItem(at: stateURL)
     }
 
@@ -161,6 +183,18 @@ final class SyncController {
         // resolved against. The loop below is what actually talks to the
         // network, and it stays off.
         publishIdentity()
+        // A snapshot with no state file behind it is a device that has lost
+        // its list — a state.json that failed to decode, or was removed —
+        // not a device whose user deleted every todo. Syncing from that pair
+        // would tombstone every row the snapshot remembers, on every other
+        // device too. Start over as a fresh device instead: the server's rows
+        // come back down, nothing goes up.
+        if !store.loadedFromDisk, !snapshot.isEmpty {
+            logger.error("State file missing but \(self.snapshot.count) rows in the sync snapshot; resetting sync state rather than deleting them everywhere")
+            watermark = nil
+            snapshot = [:]
+            persistSyncState()
+        }
         guard !Self.isDisabledByEnvironment else { return }
         startLoopIfPossible()
     }
@@ -194,23 +228,36 @@ final class SyncController {
         }
     }
 
-    /// Re-arms observation of the synced state; every change (except our own
-    /// merge application) schedules a short-debounce push. Share rows are
+    /// Arms observation of the synced state, once; every change (except our
+    /// own merge application) schedules a short-debounce push. Share rows are
     /// watched alongside the todos so inviting someone reaches them in seconds
     /// rather than at the next minute tick.
     private func observeStore() {
+        guard !isObservingStore else { return }
+        isObservingStore = true
+        observeStoreOnce()
+    }
+
+    private func observeStoreOnce() {
         guard let store else { return }
         withObservationTracking {
             _ = store.todos
             _ = store.sharedGroupRecords
             _ = store.sharedMemberRecords
         } onChange: { [weak self] in
+            // Read the flag *now*, on the mutating actor: the merge sets it,
+            // assigns, and clears it in one synchronous stretch, so by the
+            // time a hop to the main actor runs the flag is already false and
+            // every applied merge used to schedule a needless pass.
+            let isOurOwnWrite = Thread.isMainThread
+                ? MainActor.assumeIsolated { self?.isApplyingMerge ?? false }
+                : false
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if !self.isApplyingMerge {
+                if !isOurOwnWrite {
                     self.scheduleSync(after: .seconds(2))
                 }
-                self.observeStore()
+                self.observeStoreOnce()
             }
         }
     }
@@ -227,14 +274,26 @@ final class SyncController {
     }
 
     /// One full pass: refresh the token if needed, pull, merge, apply, push.
+    /// A request that arrives mid-pass runs another pass straight after.
     func syncNow() async {
         // The offline seam is absolute: `MANAS_PROBE_SIGNED_IN_AS` makes
         // `isSignedIn` true so the sharing UI is drivable, and this is what
         // keeps that identity from ever reaching the network.
         guard !Self.isDisabledByEnvironment else { return }
-        guard SupabaseConfig.isConfigured, isSignedIn, let store, !syncInFlight else { return }
+        guard SupabaseConfig.isConfigured, isSignedIn, let store else { return }
+        guard !syncInFlight else {
+            needsAnotherPass = true
+            return
+        }
         syncInFlight = true
         defer { syncInFlight = false }
+        repeat {
+            needsAnotherPass = false
+            await runPass(store: store)
+        } while needsAnotherPass && isSignedIn
+    }
+
+    private func runPass(store: AppStore) async {
         phase = .syncing
         do {
             let token = try await auth.bearerToken()
@@ -251,14 +310,46 @@ final class SyncController {
                 currentPhone: PhoneIdentity.normalized(phoneNumber),
                 liveShareIDs: Set(store.sharedGroups.map(\.id))
             )
-            try await api.upsert(outcome.toPush, accessToken: token)
-            if outcome.todos != store.todos {
-                isApplyingMerge = true
-                store.todos = outcome.todos
-                isApplyingMerge = false
-            }
+            // What the server said is applied before anything is sent back.
+            // Applying only after a successful push meant a push the server
+            // kept refusing also kept every remote change off the screen —
+            // the list looked frozen, with nothing anywhere saying why.
+            apply(outcome.todos, to: store)
             watermark = outcome.watermark
-            snapshot = outcome.snapshot
+
+            let previousSnapshot = snapshot
+            // A row the server refused last time, unchanged since, sits the
+            // batch out; anything else the merge wants sent goes.
+            let batch = outcome.toPush.filter { rejections[$0.id]?.content != $0.contentKey }
+            let pushed: PushOutcome
+            do {
+                pushed = try await api.push(batch, accessToken: token)
+            } catch {
+                // Nothing landed. Keep every pushed row dirty against its old
+                // baseline so the next pass sends it again, but keep what
+                // was pulled: that part of the pass did happen.
+                snapshot = Self.reconcile(
+                    outcome.snapshot, pushed: .nothing, attempted: outcome.toPush, previous: previousSnapshot
+                )
+                persistSyncState()
+                throw error
+            }
+            snapshot = Self.reconcile(
+                outcome.snapshot, pushed: pushed, attempted: outcome.toPush, previous: previousSnapshot
+            )
+            for record in batch {
+                if let reason = pushed.rejected[record.id] {
+                    rejections[record.id] = Rejection(content: record.contentKey, reason: reason)
+                    logger.error("Server refused todo \(record.id.uuidString): \(reason)")
+                } else if pushed.accepted.contains(record.id) {
+                    rejections[record.id] = nil
+                }
+            }
+            // A refusal is only worth remembering while the merge still
+            // wants that row sent.
+            let stillOffered = Set(outcome.toPush.map(\.id))
+            rejections = rejections.filter { stillOffered.contains($0.key) }
+            rejectedRows = rejections.mapValues(\.reason)
             persistSyncState()
             lastSyncedAt = Date()
             phase = .idle
@@ -267,6 +358,29 @@ final class SyncController {
             logger.error("Sync failed: \(error.localizedDescription)")
             phase = .error(error.localizedDescription)
         }
+    }
+
+    private func apply(_ todos: [Todo], to store: AppStore) {
+        guard todos != store.todos else { return }
+        isApplyingMerge = true
+        store.todos = todos
+        isApplyingMerge = false
+    }
+
+    /// The snapshot after a push that may not have taken every row: accepted
+    /// rows move to their pushed state, refused or unsent ones stay at the
+    /// baseline the merge saw, so they remain dirty and are tried again.
+    static func reconcile(
+        _ next: [UUID: TodoRecord],
+        pushed: PushOutcome,
+        attempted: [TodoRecord],
+        previous: [UUID: TodoRecord]
+    ) -> [UUID: TodoRecord] {
+        var snapshot = next
+        for record in attempted where !pushed.accepted.contains(record.id) {
+            snapshot[record.id] = previous[record.id]
+        }
+        return snapshot
     }
 
     /// One pass over the share tables. They are small enough to pull whole,
@@ -292,8 +406,17 @@ final class SyncController {
             knownGroups: store.sharedGroupRecords,
             currentPhone: store.currentPhone
         )
-        try await shareAPI.upsertGroups(pushable.groups, accessToken: token)
-        try await shareAPI.upsertMembers(pushable.members, accessToken: token)
+        // A refused roster row is logged and left behind, not thrown: the
+        // todos behind it still have to sync. The guard above is what keeps
+        // this path rare; this is what keeps it harmless.
+        let groupPush = try await shareAPI.pushGroups(pushable.groups, accessToken: token)
+        let memberPush = try await shareAPI.pushMembers(pushable.members, accessToken: token)
+        for (id, reason) in groupPush.rejected {
+            logger.error("Server refused shared group \(id.uuidString): \(reason)")
+        }
+        for (id, reason) in memberPush.rejected {
+            logger.error("Server refused membership \(id.uuidString): \(reason)")
+        }
         isApplyingMerge = true
         store.applyShareMerge(groups: groups.records, members: members.records)
         isApplyingMerge = false

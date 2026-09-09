@@ -198,7 +198,146 @@ extension AppStore {
         return PhoneIdentity.canonical(rawPhone, signedInAs: currentPhone)
     }
 
+    // MARK: - Two buckets, one name
+
+    /// Whether a label names a shared group and nothing private on this
+    /// device: no standing group and no private todo carries it. The judge
+    /// and the picker use this to avoid standing up a private twin of a
+    /// share.
+    func isSharedOnly(label: String) -> Bool {
+        let key = TodoGroupName.key(for: label)
+        guard sharedGroups.contains(where: { TodoGroupName.key(for: $0.name) == key }) else { return false }
+        return !availableTodoGroups.contains { TodoGroupName.key(for: $0) == key }
+    }
+
+    /// A shared group carrying the same name as a private label. When the
+    /// user owns one, that one; otherwise whichever arrived first.
+    func sharedTwin(named label: String) -> SharedGroup? {
+        let key = TodoGroupName.key(for: label)
+        let matches = sharedGroups.filter { TodoGroupName.key(for: $0.name) == key }
+        return matches.first { isOwner(of: $0) } ?? matches.first
+    }
+
+    /// The private todos filed under a shared group's name — the other half
+    /// of a twin. These are what "move them into the shared group" moves.
+    func privateTwinTodos(named label: String) -> [Todo] {
+        let key = TodoGroupName.key(for: label)
+        return todos.filter { $0.shareID == nil && $0.group.map { TodoGroupName.key(for: $0) } == key }
+    }
+
+    /// Folds a private group into the shared group of the same name: every
+    /// private todo under the label joins the share, and the standing bucket
+    /// (if the user had created one) stands down, so one name means one
+    /// bucket again. Returns how many todos moved.
+    @discardableResult
+    func mergePrivateGroup(_ label: String, into shareID: UUID) -> Int {
+        guard let share = sharedGroup(id: shareID) else { return 0 }
+        let key = TodoGroupName.key(for: label)
+        var moved = 0
+        for index in todos.indices
+        where todos[index].shareID == nil
+            && todos[index].group.map({ TodoGroupName.key(for: $0) }) == key {
+            todos[index].group = share.name
+            todos[index].shareID = shareID
+            if todos[index].authorPhone == nil { todos[index].authorPhone = currentPhone }
+            moved += 1
+        }
+        customGroups.removeAll { TodoGroupName.key(for: $0) == key }
+        if moved > 0 { UsageAnalytics.shared.capture(.sharedTodoAdded) }
+        return moved
+    }
+
+    /// One line that says whose a shared bucket is, for a header or a picker
+    /// row. A group somebody else shared reads "from Krithik"; one you share
+    /// reads who it is shared with. Nil for a private destination.
+    func shareCaption(for destination: TodoDestination) -> String? {
+        guard let shareID = destination.shareID, let share = sharedGroup(id: shareID) else { return nil }
+        return shareCaption(for: share)
+    }
+
+    /// A picker or menu row for a destination: badge and name, and for a
+    /// shared bucket whose it is — so two rows called "Manas" read as
+    /// "Manas · from Krithik" and "Manas", never as a coin toss.
+    func pickerTitle(for destination: TodoDestination) -> String {
+        let name = destination.group ?? ""
+        let base = "\(emoji(for: destination)) \(name)"
+        guard let caption = shareCaption(for: destination) else { return base }
+        return "\(base) · \(caption)"
+    }
+
+    func shareCaption(for share: SharedGroup) -> String? {
+        if isOwner(of: share) {
+            let others = share.members(excluding: currentPhone)
+            guard let first = others.first else { return "shared" }
+            return others.count == 1
+                ? "shared with \(memberLabel(first))"
+                : "shared with \(others.count) people"
+        }
+        let owner = share.members.first { $0.phone == share.ownerPhone }
+        let name = owner.map(memberLabel) ?? PhoneIdentity.display(share.ownerPhone)
+        return "from \(name)"
+    }
+
     // MARK: - Writing
+
+    /// Why an invite did not go through, in words the person can act on.
+    enum ShareError: LocalizedError, Equatable {
+        case notSignedIn
+        case notANumber
+        case missingCountryCode
+        case ownNumber
+        case alreadyMember
+        case notOwner
+        case shareEnded
+
+        var errorDescription: String? {
+            switch self {
+            case .notSignedIn: "Sign in with your phone number first."
+            case .notANumber: "That doesn't look like a phone number."
+            case .missingCountryCode: "Add the country code, like +1, so this reaches their account."
+            case .ownNumber: "That's your own number."
+            case .alreadyMember: "They're already in this group."
+            case .notOwner: "Only the person who shared this group can invite people to it."
+            case .shareEnded: "This group isn't shared any more."
+            }
+        }
+    }
+
+    /// The one entry point both share sheets use: adds a person to the
+    /// group, creating the share if the group is still private. Throws with
+    /// the reason when it cannot, so the sheet can say something truer than
+    /// "they're already in this group" for every failure.
+    @discardableResult
+    func invite(
+        _ rawPhone: String,
+        name: String? = nil,
+        toGroup label: String,
+        shareID: UUID? = nil,
+        now: Date = Date()
+    ) throws -> SharedGroup {
+        guard let owner = PhoneIdentity.normalized(currentPhone) else { throw ShareError.notSignedIn }
+        guard let invitee = canonicalPhone(rawPhone) else {
+            throw PhoneIdentity.normalized(rawPhone) == nil
+                ? ShareError.notANumber
+                : ShareError.missingCountryCode
+        }
+        guard invitee != owner else { throw ShareError.ownNumber }
+
+        if let shareID {
+            // A share id that no longer resolves is a sheet open on a group
+            // whose share ended underneath it. Say so, rather than quietly
+            // starting a second share under the same name.
+            guard let share = sharedGroup(id: shareID) else { throw ShareError.shareEnded }
+            guard isOwner(of: share) else { throw ShareError.notOwner }
+            guard share.member(withPhone: invitee) == nil else { throw ShareError.alreadyMember }
+            _ = addMember(to: shareID, phone: invitee, name: name, now: now)
+            return sharedGroup(id: shareID) ?? share
+        }
+        guard let share = shareGroup(label, withPhone: rawPhone, memberName: name, now: now) else {
+            throw ShareError.alreadyMember
+        }
+        return share
+    }
 
     /// Opens a group up to a phone number, creating the share the first time.
     ///
@@ -219,8 +358,8 @@ extension AppStore {
               invitee != owner
         else { return nil }
 
-        let share = existingShare(named: group) ?? createShare(named: group, owner: owner, now: now)
-        guard share.isOwned(by: owner) else { return nil }
+        let share = existingShare(named: group, ownedBy: owner)
+            ?? createShare(named: group, owner: owner, now: now)
         guard addMember(to: share.id, phone: invitee, name: memberName, now: now) != nil else {
             return nil
         }
@@ -392,9 +531,13 @@ extension AppStore {
 
     // MARK: - Internals
 
-    private func existingShare(named group: String) -> SharedGroup? {
+    /// A share of this name that the caller owns. Only owned ones count: a
+    /// group somebody *else* shared under the same name used to be found
+    /// here, fail the ownership check a line later, and make sharing your
+    /// own "Manas" silently impossible for as long as you were in theirs.
+    private func existingShare(named group: String, ownedBy owner: String) -> SharedGroup? {
         let key = TodoGroupName.key(for: group)
-        return sharedGroups.first { TodoGroupName.key(for: $0.name) == key }
+        return sharedGroups.first { TodoGroupName.key(for: $0.name) == key && $0.isOwned(by: owner) }
     }
 
     private func createShare(named group: String, owner: String, now: Date) -> SharedGroup {

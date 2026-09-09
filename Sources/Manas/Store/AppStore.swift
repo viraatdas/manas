@@ -26,10 +26,16 @@ final class AppStore {
     /// Like discoveries, these never sync or include raw source activity.
     var wastedTimeEntries: [WastedTimeEntry] = [] { didSet { scheduleSave() } }
     /// The destination most recently chosen while manually filing a todo.
-    /// Add bars use it as their next default, so creating a task and then
-    /// filing it once teaches Manas where subsequent tasks should begin.
-    /// This remains local state: it must not be synced to other devices.
-    var lastManuallyMovedDestination: TodoDestination? { didSet { scheduleSave() } }
+    /// Add bars use it as their next default, so filing one task teaches
+    /// Manas where the next few should begin.
+    ///
+    /// Deliberately not persisted, and never synced. It used to survive
+    /// relaunch, and the effect was that the compose bar opened pre-set to
+    /// whatever group a todo had been dragged into days earlier — a new
+    /// todo typed without looking landed there. A default that follows what
+    /// you just did is helpful for the next few minutes; across a relaunch
+    /// it is just a stale choice nobody remembers making.
+    var lastManuallyMovedDestination: TodoDestination?
     /// Shared groups, stored as the rows that go over the wire rather than as
     /// assembled models. Keeping the tombstone and the stamp in hand is what
     /// lets a share be created or revoked offline and still converge:
@@ -64,6 +70,15 @@ final class AppStore {
     /// static "Manas" over somebody else's Tuesday. Transient: it describes
     /// where the scroll is, which is not worth persisting.
     var visibleFeedDay: Date = Calendar.current.startOfDay(for: Date())
+
+    /// Whether a state file was read at startup. False for a first launch —
+    /// and, importantly, for a state file that was there but failed to
+    /// decode, which `init` treats as "start fresh". `SyncController` needs
+    /// the distinction: an empty list read from disk means the user deleted
+    /// everything, while an empty list because there was nothing to read
+    /// means this device has lost its memory and must not tell the server
+    /// to delete anything.
+    private(set) var loadedFromDisk = false
 
     /// The signed-in phone number as digits, pushed in by `SyncController`.
     /// It is who "you" are in a shared group: the author stamped onto new
@@ -144,7 +159,6 @@ final class AppStore {
             // so this feature is useful as soon as the app updates.
             wastedTimeEntries = state.wastedTimeEntries
                 ?? Self.legacyWastedTimeEntries(from: state.todos)
-            lastManuallyMovedDestination = state.lastManuallyMovedDestination
             sharedGroupRecords = state.sharedGroupRecords ?? []
             sharedMemberRecords = state.sharedMemberRecords ?? []
             myDisplayName = state.myDisplayName
@@ -155,6 +169,7 @@ final class AppStore {
             lastCheckedAt = state.lastCheckedAt
             lastAutomaticCheckAt = state.lastAutomaticCheckAt
             syncedSourceCount = state.syncedSourceCount
+            loadedFromDisk = true
         }
         suppressAutosave = false
     }
@@ -181,13 +196,21 @@ final class AppStore {
 
     // MARK: - Todos
 
-    /// The distinct group labels currently in use across all days, in
-    /// first-appearance order — the stable set the judge is asked to reuse so
-    /// clusters don't churn between hourly re-checks.
+    /// The distinct *private* group labels currently in use across all days,
+    /// in first-appearance order — the stable set the judge is asked to reuse
+    /// so clusters don't churn between hourly re-checks.
+    ///
+    /// Shared groups are left out on purpose. Their todos carry the share's
+    /// name as their label too, and counting it here made "Manas" look like a
+    /// private group the moment somebody shared a "Manas" with you: the
+    /// picker offered a private "Manas" next to the shared one, and the
+    /// judge — which may never file anything into a share by guessing — put
+    /// your own todos into that phantom private twin, so two identically
+    /// named buckets sat on the day with nothing to say which was which.
     var groupNamesInUse: [String] {
         var seen = Set<String>()
         var labels: [String] = []
-        for todo in todos {
+        for todo in todos where todo.shareID == nil {
             guard let group = todo.group else { continue }
             if seen.insert(TodoGroupName.key(for: group)).inserted {
                 labels.append(group)
@@ -722,9 +745,15 @@ final class AppStore {
             // reshuffled hand-sorted todos every hour would be worse than no
             // grouping at all. Canonicalizing reuses an existing spelling so a
             // re-check can't fork "Manas" and "manas" into two piles.
+            //
+            // A label that names a shared group and nothing else is left
+            // alone. The judge only ever sets a private label — a guess must
+            // never publish work to somebody else — and a private bucket
+            // conjured under a share's name is a twin nobody asked for.
             if todos[index].group == nil,
                let suggested = canonicalTodoGroup(result.groups[todos[index].id]),
-               suggested != TodoGroupName.wasteOfTime {
+               suggested != TodoGroupName.wasteOfTime,
+               !isSharedOnly(label: suggested) {
                 todos[index].group = suggested
             }
         }
@@ -971,7 +1000,9 @@ final class AppStore {
             groupEmojis: groupEmojis,
             customGroups: customGroups,
             wastedTimeEntries: wastedTimeEntries,
-            lastManuallyMovedDestination: lastManuallyMovedDestination,
+            // Session-only; the key stays in the schema so files written by
+            // builds that stored it still decode.
+            lastManuallyMovedDestination: nil,
             sharedGroupRecords: sharedGroupRecords,
             sharedMemberRecords: sharedMemberRecords,
             myDisplayName: myDisplayName,

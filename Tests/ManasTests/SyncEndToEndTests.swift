@@ -137,13 +137,52 @@ final class SyncEndToEndTests: XCTestCase {
         try await sync(&mac, api: api, token: token)
         XCTAssertEqual(mac.todos.first?.isDone, true, "the Mac must see the phone's completion")
 
-        // 4. The Mac deletes it; the iPhone converges to empty.
-        mac.todos = []
+        // 4. Both devices edit different fields before either syncs: the Mac's
+        //    judge writes a verdict while the phone reopens the todo. Neither
+        //    change may clobber the other.
+        mac.todos[0].verdict = Verdict(status: .inProgress, evidence: "E2E: seen in a session")
+        phoneDevice.todos[0].isDone = false
         try await sync(&mac, api: api, token: token)
         try await sync(&phoneDevice, api: api, token: token)
-        XCTAssertTrue(phoneDevice.todos.isEmpty, "the deletion must propagate as a tombstone")
+        try await sync(&mac, api: api, token: token)
+        XCTAssertEqual(mac.todos.first?.isDone, false, "the phone's reopen reaches the Mac")
+        XCTAssertEqual(mac.todos.first?.verdict?.status, .inProgress, "without losing the Mac's verdict")
+        XCTAssertEqual(phoneDevice.todos.first?.verdict?.status, .inProgress, "and the phone sees the verdict")
 
-        // 5. Quiescence: another pass on both sides pushes nothing.
+        // 5. The phone deletes it while the Mac holds a fresh, unsynced
+        //    verdict. The deletion wins on both sides — the Mac's hourly
+        //    judge used to resurrect exactly this.
+        mac.todos[0].verdict = Verdict(status: .done, evidence: "E2E: shipped")
+        phoneDevice.todos = []
+        try await sync(&phoneDevice, api: api, token: token)
+        try await sync(&mac, api: api, token: token)
+        XCTAssertTrue(mac.todos.isEmpty, "a deletion elsewhere beats an edit in hand")
+        try await sync(&phoneDevice, api: api, token: token)
+        XCTAssertTrue(phoneDevice.todos.isEmpty, "and nothing brings it back")
+
+        // 6. A device with no memory of a row takes the server's copy: the
+        //    Mac plans again, the phone signs in fresh with a stale copy on
+        //    disk from before a completion, and the completion survives.
+        let replanned = Todo(text: "E2E: stale on disk")
+        mac.todos = [replanned]
+        try await sync(&mac, api: api, token: token)
+        mac.todos[0].isDone = true
+        try await sync(&mac, api: api, token: token)
+        var reinstalled = Device()
+        reinstalled.todos = [replanned] // unfinished, as it was before sign-out
+        try await sync(&reinstalled, api: api, token: token)
+        XCTAssertEqual(reinstalled.todos.first?.isDone, true, "the server's completion is not undone by a stale disk copy")
+        let afterReinstall = try await api.changes(since: nil, accessToken: token)
+        XCTAssertEqual(afterReinstall.first { $0.id == replanned.id }?.isDone, true)
+
+        // 7. The Mac deletes it; the iPhone converges to empty.
+        mac.todos = []
+        try await sync(&mac, api: api, token: token)
+        try await sync(&reinstalled, api: api, token: token)
+        XCTAssertTrue(reinstalled.todos.isEmpty, "the deletion must propagate as a tombstone")
+        phoneDevice = reinstalled
+
+        // 8. Quiescence: another pass on both sides pushes nothing.
         let remoteForMac = try await api.changes(since: mac.watermark, accessToken: token)
         let settled = SyncMerge.merge(
             local: mac.todos,

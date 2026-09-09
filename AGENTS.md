@@ -289,3 +289,71 @@ Run in this order. Do not skip a step because the previous one "obviously" worke
 - **CI runs on `macos-26`** and asserts Swift 6.x. macos-15's Xcode 16.4 crashes
   in SILGen on `UsageAnalytics.shared`; a green local build proves nothing about
   a CI that compiles with a different toolchain.
+- **Sync merges by field, and a deletion wins.** `SyncMerge` used to let any
+  local edit in hand beat a concurrent remote change, whole-row. The Mac's
+  judge writes a verdict onto every one of today's todos every hour, so the
+  Mac nearly always had "an edit in hand", and the phone's check-off, edit,
+  or *deletion* of that todo was overwritten on the next pass — deleted todos
+  came back, ticked todos unticked. Now: a tombstone on either side beats an
+  edit on the other; when both sides edited a live row, each field the local
+  device changed since its snapshot wins and every other field takes the
+  server's; and a row this device has no snapshot for (signed out and back
+  in, lost `sync-state.json`) takes the server's copy rather than pushing a
+  stale one. `SyncMergeTests` pins each rule; step 4–6 of the live
+  `SyncEndToEndTests` prove them through the real backend.
+- **The watermark is the server's, and every pull overlaps.** Rows are
+  stamped with the pushing device's clock. Including our own push stamps in
+  the watermark meant a row the other device committed a moment earlier —
+  with a slightly smaller stamp — sat below the watermark forever and was
+  never pulled; that is the "I changed it on the phone and the Mac never
+  saw it" class. `SyncMerge.nextWatermark` takes only stamps the server
+  handed back (clamped to this device's `now`, so a fast clock elsewhere
+  cannot push it into the future), and `SupabaseTodoAPI.changes` starts
+  `SyncMerge.pullOverlap` (10 min) behind it and reads *every* page. The
+  overlap re-delivers recent rows each minute; they merge to no-ops. Do not
+  "optimize" either half away.
+- **One refused row must not wedge the pass.** PostgREST applies a batch as
+  one statement, so one row the server rejects (policy, FK, unique) failed
+  every other row with it, and the controller applied nothing it had pulled
+  either, because the apply step came after the push. `runPass` now applies
+  the merge before pushing, `PostgRESTClient.upsertIsolatingRejections`
+  retries a refused batch row by row, refused rows stay dirty against their
+  old baseline (`SyncController.reconcile`) and sit out further batches until
+  they change, and `SyncController.rejectedRows` surfaces the count in both
+  sync status lines. Share pushes go through the same path and no longer
+  abort the todo pass.
+- **A state file that is missing or fails to decode is a lost list, not an
+  empty one.** `AppStore.loadedFromDisk` is false in that case, and
+  `SyncController.start` drops a non-empty snapshot when it sees it —
+  otherwise the next pass would tombstone every row the snapshot remembers,
+  on the server and therefore on every other device. A genuinely empty list
+  read from disk keeps its snapshot so the last deletion still travels.
+- **A shared group's name is not a private group.** `groupNamesInUse`,
+  `availableTodoGroups`, and the judge's "groups already in use" list are
+  built from private todos only. Counting shared todos' labels stood up a
+  phantom private "Manas" beside the shared one in every picker, and the
+  judge — which may never file into a share by guessing — put todos into that
+  twin every hour. `applyJudgeResult` also refuses a label that names only a
+  shared group (`isSharedOnly(label:)`). Two buckets with one name can still
+  exist when the user makes them; then the shared one says whose it is
+  (`shareCaption(for:)` → "from Krithik" / "shared with Ada", in headers and
+  `pickerTitle(for:)`), and both share sheets offer to fold the private twin
+  into the share (`privateTwinTodos(named:)`, `mergePrivateGroup(_:into:)`).
+  Nothing moves into a share without that click.
+- **`existingShare(named:)` must be owner-scoped.** It matched a share
+  somebody *else* had made under the same name, failed the ownership check a
+  line later, and made sharing your own "Manas" silently return nil for as
+  long as you were in theirs. Both share sheets now go through the throwing
+  `AppStore.invite(_:name:toGroup:shareID:)`, whose `ShareError` says which of
+  the six reasons applied instead of "they're already in this group" for all.
+- **The compose bar's sticky group is session-only.** `lastManuallyMovedDestination`
+  was persisted, so after every relaunch the add bar opened pre-set to a group
+  chosen days earlier and a todo typed without looking landed there. It is no
+  longer written to `state.json` (the key stays in `PersistedState` so old
+  files decode) and is nil on launch.
+- **An observation `onChange` closure must read its guard synchronously.**
+  `SyncController` set `isApplyingMerge`, assigned, and cleared it in one
+  synchronous stretch, but checked the flag inside a `Task` hopped onto the
+  main actor — by which time it was already false, so every applied merge
+  scheduled a needless pass two seconds later. Read the flag in the closure
+  itself (`MainActor.assumeIsolated`, guarded by `Thread.isMainThread`).
