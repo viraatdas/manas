@@ -126,3 +126,9 @@ never written to `state.json` or application logs.
 
 Tests run without the CLI. A few opt-in live tests spend real tokens:
 `MANAS_CLAUDE_INTEGRATION=1 swift test --filter Integration`.
+
+## License
+
+Manas is source-available under the [Elastic License 2.0](LICENSE.md): you can
+read, use, modify, and redistribute it, but not offer it to others as a hosted
+or managed service.
