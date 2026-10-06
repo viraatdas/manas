@@ -57,6 +57,8 @@ final class SyncControllerTests: XCTestCase {
         XCTAssertFalse(PostgRESTClient.APIError.server(429, "slow down").isRejection)
         XCTAssertFalse(PostgRESTClient.APIError.server(500, "boom").isRejection)
         XCTAssertFalse(PostgRESTClient.APIError.server(0, "no response").isRejection)
+        XCTAssertTrue(PostgRESTClient.APIError.server(401, "JWT expired").isUnauthorized, "a 401 is the token, and buys a refresh")
+        XCTAssertFalse(PostgRESTClient.APIError.server(403, "policy").isUnauthorized)
     }
 
     // MARK: - A device that lost its list
@@ -215,5 +217,149 @@ final class SyncControllerTests: XCTestCase {
         reopened.start(store: store)   // the window re-shown: must not
         let after = try TodoRecord.makeDecoder().decode(SyncState.self, from: Data(contentsOf: syncStateURL))
         XCTAssertEqual(after.snapshot.count, 1)
+    }
+
+    // MARK: - A session the server ended
+
+    /// The refresh refusals that mean the session is gone, as opposed to a
+    /// moment's trouble the next attempt clears.
+    func testOnlyARefusedRefreshTokenEndsTheSession() {
+        for status in [400, 401, 403, 404] {
+            XCTAssertTrue(SupabaseAuthClient.endsSession(status: status), "\(status)")
+        }
+        for status in [408, 429, 500, 502, 503] {
+            XCTAssertFalse(SupabaseAuthClient.endsSession(status: status), "\(status)")
+        }
+    }
+
+    private struct OwnedSyncState: Codable {
+        var watermark: Date?
+        var snapshot: [UUID: TodoRecord]
+        var owner: String?
+    }
+
+    /// A device holding a session the server has deleted — exactly where the
+    /// iPhone and the Mac sat from 2026-09-11, retrying a dead refresh token
+    /// every minute under "Invalid Refresh Token: Refresh Token Not Found".
+    func testARefusedRefreshSignsOutButKeepsWhatThisDeviceHasNotSent() async throws {
+        let directory = tempDirectory()
+        let stateURL = directory.appendingPathComponent("state.json")
+        let syncStateURL = directory.appendingPathComponent("sync-state.json")
+        var edited = Todo(text: "Synced before the session died")
+        let row = record(edited)
+        try TodoRecord.makeEncoder().encode(
+            SyncState(watermark: now, snapshot: [row.id: row])
+        ).write(to: syncStateURL)
+        edited.isDone = true   // a change the server never saw
+        let earlier = AppStore(fileURL: stateURL)
+        earlier.todos = [edited]
+        earlier.saveNow()
+        let store = AppStore(fileURL: stateURL)
+        XCTAssertTrue(store.loadedFromDisk)
+
+        let auth = StubAuth(signedInAs: "+13042164370")
+        auth.refreshEnds = true
+        let sync = SyncController(auth: auth, stateURL: syncStateURL)
+        sync.start(store: store)
+        await sync.syncNow()
+
+        XCTAssertFalse(sync.isSignedIn, "a dead session reads as signed out, so the app asks to sign in")
+        XCTAssertEqual(sync.phase, .signedOut, "not an error repeated every minute")
+        XCTAssertEqual(sync.endedSessionPhone, "+13042164370")
+        XCTAssertTrue(auth.didSignOut, "the dead session is dropped from the keychain")
+        let kept = try TodoRecord.makeDecoder().decode(OwnedSyncState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertEqual(kept.snapshot[row.id]?.isDone, false, "the baseline survives, so the tick still reads as a change")
+        XCTAssertEqual(kept.watermark, now)
+        XCTAssertEqual(kept.owner, "13042164370")
+        XCTAssertEqual(store.todos.first?.isDone, true, "and nothing on the device was touched")
+
+        // Relaunched later, still signed out: the app still knows why.
+        let relaunched = SyncController(auth: StubAuth(signedInAs: nil), stateURL: syncStateURL)
+        XCTAssertEqual(relaunched.endedSessionPhone, "+13042164370")
+    }
+
+    func testSigningBackInWithTheSameNumberResumesFromTheKeptSnapshot() async throws {
+        let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
+        let row = record(Todo(text: "Kept"))
+        try TodoRecord.makeEncoder().encode(
+            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370")
+        ).write(to: syncStateURL)
+
+        let auth = StubAuth(signedInAs: nil)
+        let sync = SyncController(auth: auth, stateURL: syncStateURL)
+        XCTAssertEqual(sync.endedSessionPhone, "+13042164370")
+        try await sync.verifyCode(phone: "+13042164370", code: "123456")
+        sync.stop()
+
+        XCTAssertNil(sync.endedSessionPhone)
+        let after = try TodoRecord.makeDecoder().decode(OwnedSyncState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertEqual(Array(after.snapshot.keys), [row.id], "the same account picks up where it stopped")
+        XCTAssertEqual(after.watermark, now)
+    }
+
+    func testStateFromBeforeOwnersExistedIsKeptAtSignIn() async throws {
+        // Every sync-state.json written before 1.0.3 has no owner. Signing in
+        // used to keep it; throwing it away would trade this device's unsent
+        // edits for the server's copies.
+        let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
+        let row = record(Todo(text: "Legacy"))
+        try TodoRecord.makeEncoder().encode(
+            SyncState(watermark: now, snapshot: [row.id: row])
+        ).write(to: syncStateURL)
+
+        let sync = SyncController(auth: StubAuth(signedInAs: nil), stateURL: syncStateURL)
+        try await sync.verifyCode(phone: "+13042164370", code: "123456")
+        sync.stop()
+
+        let after = try TodoRecord.makeDecoder().decode(OwnedSyncState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertEqual(Array(after.snapshot.keys), [row.id])
+        XCTAssertEqual(after.owner, "13042164370", "and from now on it has one")
+    }
+
+    func testADifferentNumberSigningInStartsClean() async throws {
+        let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
+        let row = record(Todo(text: "Somebody else's history"))
+        try TodoRecord.makeEncoder().encode(
+            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370")
+        ).write(to: syncStateURL)
+
+        let sync = SyncController(auth: StubAuth(signedInAs: nil), stateURL: syncStateURL)
+        try await sync.verifyCode(phone: "+14155550137", code: "123456")
+        sync.stop()
+
+        let after = try TodoRecord.makeDecoder().decode(OwnedSyncState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertTrue(after.snapshot.isEmpty, "one account's rows are never another's history")
+        XCTAssertNil(after.watermark)
+        XCTAssertEqual(after.owner, "14155550137")
+    }
+}
+
+/// Auth with no keychain and no network. `bearerToken()` never hands out a
+/// token — so no pass in these tests can reach the live backend — and either
+/// ends the session or fails like a dropped connection.
+@MainActor
+private final class StubAuth: SyncAuth {
+    private(set) var phone: String?
+    var refreshEnds = false
+    private(set) var didSignOut = false
+
+    init(signedInAs phone: String?) { self.phone = phone }
+
+    struct Offline: Error {}
+
+    var isSignedIn: Bool { phone != nil }
+    func requestCode(phone: String) async throws {}
+    func verifyCode(phone: String, code: String) async throws { self.phone = phone }
+    func bearerToken() async throws -> String {
+        if refreshEnds {
+            throw SessionEndedError(reason: "Invalid Refresh Token: Refresh Token Not Found")
+        }
+        throw Offline()
+    }
+    func expireAccessToken() {}
+    func deleteAccount() async throws {}
+    func signOut() {
+        phone = nil
+        didSignOut = true
     }
 }

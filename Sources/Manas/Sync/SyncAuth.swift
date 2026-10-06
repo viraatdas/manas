@@ -16,10 +16,27 @@ protocol SyncAuth: AnyObject {
     /// Redeems the code, establishing a session.
     func verifyCode(phone: String, code: String) async throws
     /// A currently-valid bearer token for PostgREST (refreshed as needed).
+    /// Throws `SessionEndedError` when the server will no longer refresh it.
     func bearerToken() async throws -> String
+    /// Treats the current access token as expired, so the next
+    /// `bearerToken()` refreshes it. For a 401 on a token this device still
+    /// believed was good.
+    func expireAccessToken()
     /// Permanently removes the remote account and all server-side data.
     func deleteAccount() async throws
     func signOut()
+}
+
+/// The server will not refresh this device's session any more: it was
+/// deleted (setting an account's password signs every device out), revoked as
+/// reused, or its account is gone. No retry can fix that — only signing in
+/// again can — so `SyncController` treats it as the session ending rather than
+/// as one more failed pass. Before this existed, a dead session read as
+/// "signed in" forever and showed "Invalid Refresh Token" every minute.
+struct SessionEndedError: LocalizedError {
+    var reason: String
+
+    var errorDescription: String? { reason }
 }
 
 /// A backend that never reaches the keychain or the network. Stands in for the
@@ -56,6 +73,7 @@ final class SignedOutSyncAuth: SyncAuth {
     func requestCode(phone: String) async throws { throw Disabled() }
     func verifyCode(phone: String, code: String) async throws { throw Disabled() }
     func bearerToken() async throws -> String { throw Disabled() }
+    func expireAccessToken() {}
     func deleteAccount() async throws { throw Disabled() }
     func signOut() {}
 }

@@ -86,6 +86,7 @@ private final class SignedOutTestAuth: SyncAuth {
     func requestCode(phone: String) async throws {}
     func verifyCode(phone: String, code: String) async throws {}
     func bearerToken() async throws -> String { "" }
+    func expireAccessToken() {}
     func deleteAccount() async throws {}
     func signOut() {}
 }

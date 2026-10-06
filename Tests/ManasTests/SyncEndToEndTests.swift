@@ -68,6 +68,85 @@ final class SyncEndToEndTests: XCTestCase {
         }
     }
 
+    /// The 2026-09-11 incident, live: a device holds a session the server has
+    /// since deleted (an admin password change deletes every session an
+    /// account has). The real controller, refreshing through the real
+    /// endpoint, must land on "sign in again" with its sync state intact —
+    /// not report "Invalid Refresh Token" every minute while still claiming
+    /// to be signed in.
+    func testASessionTheServerDeletedEndsInSignInWithStateKept() async throws {
+        try requireE2E()
+        let client = SupabaseAuthClient()
+        let phone = "+15555550100"
+        try await requestCodeTolerantly(client, phone: phone)
+        let session = try await client.verifyCode(phone: phone, code: Self.testCode)
+
+        // Delete the session server-side, the way the password reset did.
+        var logout = URLRequest(url: URL(string: "\(SupabaseConfig.projectURL.absoluteString)/auth/v1/logout?scope=local")!)
+        logout.httpMethod = "POST"
+        logout.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
+        logout.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: logout)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 204)
+
+        do {
+            _ = try await client.refresh(session)
+            XCTFail("a deleted session must not refresh")
+        } catch let ended as SessionEndedError {
+            XCTAssertTrue(ended.reason.contains("Refresh Token"), ended.reason)
+        }
+        try await Self.endDeadSessionThroughController(session, client: client)
+    }
+
+    @MainActor
+    private static func endDeadSessionThroughController(
+        _ session: SupabaseSession, client: SupabaseAuthClient
+    ) async throws {
+        let phone = session.phone
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManasE2E-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stateURL = directory.appendingPathComponent("state.json")
+        let syncStateURL = directory.appendingPathComponent("sync-state.json")
+        let todo = Todo(text: "Made while the session was dead")
+        let seeded = AppStore(fileURL: stateURL)
+        seeded.todos = [todo]
+        seeded.saveNow()
+        let baseline = TodoRecord(todo: todo, position: 0, updatedAt: Date(), deleted: false)
+        try TodoRecord.makeEncoder().encode(
+            KeptState(watermark: Date(), snapshot: [baseline.id: baseline], owner: nil)
+        ).write(to: syncStateURL)
+
+        var expired = session
+        expired.expiresAt = .distantPast
+        let auth = InMemoryAuth(session: expired, client: client)
+        let sync = SyncController(auth: auth, stateURL: syncStateURL)
+        // `start` runs the first pass itself; wait for it to reach the server
+        // and come back, rather than racing it with a second one.
+        let store = AppStore(fileURL: stateURL)   // the controller holds it weakly
+        sync.start(store: store)
+        let deadline = Date().addingTimeInterval(20)
+        while sync.isSignedIn, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        XCTAssertFalse(sync.isSignedIn)
+        XCTAssertEqual(sync.phase, .signedOut)
+        XCTAssertEqual(sync.endedSessionPhone, phone)
+        let kept = try TodoRecord.makeDecoder().decode(KeptState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertEqual(Array(kept.snapshot.keys), [baseline.id], "the baseline survives the ended session")
+        XCTAssertNotNil(kept.watermark)
+        XCTAssertEqual(kept.owner, "15555550100")
+        XCTAssertEqual(store.todos.map(\.id), [todo.id], "the list is untouched")
+    }
+
+    /// `SyncController`'s on-disk bookkeeping, as written.
+    private struct KeptState: Codable {
+        var watermark: Date?
+        var snapshot: [UUID: TodoRecord]
+        var owner: String?
+    }
+
     // MARK: - Two-device sync conversation
 
     /// One "device" = the state a real SyncController persists.
@@ -206,4 +285,33 @@ final class SyncEndToEndTests: XCTestCase {
 
         try await wipeUserRows(token: token)
     }
+}
+
+/// The real refresh path with the session held in memory, so a live test
+/// never reads or writes the installed app's keychain item.
+@MainActor
+private final class InMemoryAuth: SyncAuth {
+    private var session: SupabaseSession?
+    private let client: SupabaseAuthClient
+
+    init(session: SupabaseSession, client: SupabaseAuthClient) {
+        self.session = session
+        self.client = client
+    }
+
+    var isSignedIn: Bool { session != nil }
+    var phone: String? { session?.phone }
+    func requestCode(phone: String) async throws {}
+    func verifyCode(phone: String, code: String) async throws {}
+    func bearerToken() async throws -> String {
+        guard var current = session else { throw SessionEndedError(reason: "Signed out.") }
+        if current.needsRefresh {
+            current = try await client.refresh(current)
+            session = current
+        }
+        return current.accessToken
+    }
+    func expireAccessToken() { session?.expiresAt = .distantPast }
+    func deleteAccount() async throws {}
+    func signOut() { session = nil }
 }

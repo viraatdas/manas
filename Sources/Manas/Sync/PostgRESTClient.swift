@@ -26,6 +26,13 @@ struct PostgRESTClient: Sendable {
             }
         }
 
+        /// The server refused the bearer token, not the request.
+        var isUnauthorized: Bool {
+            switch self {
+            case .server(let status, _): status == 401
+            }
+        }
+
         var detail: String {
             switch self {
             case .server(let status, let body): "\(status) \(body.prefix(200))"

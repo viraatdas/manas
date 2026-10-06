@@ -182,6 +182,25 @@
   that one comes first in tree order.
 - UI geometry claims are checkable without touching the user's screen: drive a scratch bundle through the accessibility API (`AXUIElementPerformAction` presses buttons in a background window; ScreenCaptureKit captures it un-raised — see the screenshot rule below, `screencapture -l` no longer works) and compare element `AXPosition` before and after. That is how the scroll jump was quantified, and how the fix was confirmed at exactly +0.0pt. Note `kAXWindowsAttribute` on this app hands back the application element — walk the app element's children for the `AXWindow` instead, and guard the walk against cycles.
 
+- **Setting an existing account's password through the admin API signs it
+  out of every device.** GoTrue's `PUT /admin/users/{id}` with `password`
+  calls `UpdatePassword(tx, nil)` → `Logout(tx, userID)`, deleting every
+  session. `stytch-auth` used that as its fallback whenever the password grant
+  failed for *any* reason, and on 2026-09-11 22:47 UTC one sign-in did it to
+  the real account: the Mac and the iPhone both kept refreshing a session that
+  no longer existed and showed "Invalid Refresh Token: Refresh Token Not
+  Found" every minute for weeks, still claiming to be signed in. The fallback
+  now runs only on `invalid_credentials`/`phone_not_confirmed`; a refused
+  refresh (any 4xx but 408/429) is `SessionEndedError`, which signs the device
+  out *keeping* its sync snapshot for the same number (`SyncState.owner`), so
+  signing back in merges the offline edits instead of letting rule 2 replace
+  them with the server's copies. `SyncController.signOut()` still forgets
+  everything — only a server-ended session keeps state. To see what the
+  server holds, query `auth.sessions` through the Management API
+  (`POST /v1/projects/<ref>/database/query` with the CLI's token from the
+  "Supabase CLI" keychain item) and decode the device's JWT `session_id`; the
+  analytics logs endpoint returned "Backend error" on 2026-10-06.
+
 ## Execute: Dead-ends tried
 
 - SwiftUI `scrollPosition(id:anchor:)` was tried with both lazy and eager variable-height vertical day stacks, plus `defaultScrollAnchor`; live checks showed the binding and the actual top page could disagree by one or more days. The current vertical feed uses `ScrollViewReader` only for explicit Today jumps and derives Today visibility from measured geometry.

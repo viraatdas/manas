@@ -68,6 +68,12 @@ final class StytchSyncAuth: SyncAuth {
         return current.accessToken
     }
 
+    func expireAccessToken() {
+        guard session != nil else { return }
+        session?.expiresAt = .distantPast
+        persist()
+    }
+
     func deleteAccount() async throws {
         let token = try await bearerToken()
         try await AccountDeletionClient().delete(accessToken: token)

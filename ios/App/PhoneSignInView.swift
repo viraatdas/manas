@@ -85,8 +85,33 @@ struct PhoneSignInView: View {
 
     // MARK: - Step 1 · phone
 
+    /// Shown when the server ended the session rather than the person signing
+    /// out. Without it this screen reads as "you were never signed in", and
+    /// the obvious worry is that the list went with the session.
+    private var sessionEndedNotice: some View {
+        Label {
+            Text("Your session ended, so sync paused. Sign in again to pick up where you left off. Nothing on this iPhone was lost.")
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "exclamationmark.arrow.circlepath")
+                .foregroundStyle(Color.manasAccent)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.hairline, lineWidth: 0.5)
+        )
+    }
+
     private var phoneStep: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if sync.endedSessionPhone != nil {
+                sessionEndedNotice
+            }
             Text("Enter your phone number")
                 .font(.headline)
             HStack(spacing: 10) {
@@ -141,6 +166,11 @@ struct PhoneSignInView: View {
             .preferredColorScheme(.light)
         }
         .task {
+            // A session the server ended offers its own number back, so
+            // signing in again is a code away rather than a retyped number.
+            if nationalDigits.isEmpty, let phone = sync.endedSessionPhone {
+                nationalField.wrappedValue = phone
+            }
             // Land focus on the field the first time the phone step appears so
             // the number pad is ready without a tap.
             try? await Task.sleep(for: .milliseconds(350))

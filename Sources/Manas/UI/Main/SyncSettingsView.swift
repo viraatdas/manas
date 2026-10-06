@@ -124,10 +124,24 @@ struct SyncSettingsSection: View {
 
     @ViewBuilder
     private var signedOutBody: some View {
-        Text("Sign in with your phone number to mirror this feed in the iPhone app.")
+        if let endedPhone = sync.endedSessionPhone {
+            // The server ended the session; this person did not sign out.
+            Label(
+                "Your session ended, so sync paused. Sign in again to pick up where you left off. Nothing on this Mac was lost.",
+                systemImage: "exclamationmark.arrow.circlepath"
+            )
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            .onAppear {
+                if phone == "+1" { phone = endedPhone }
+            }
+        } else {
+            Text("Sign in with your phone number to mirror this feed in the iPhone app.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
 
         if step == .idle || step == .sendingCode {
             HStack(spacing: 6) {

@@ -38,6 +38,12 @@ final class SupabaseSyncAuth: SyncAuth {
         return current.accessToken
     }
 
+    func expireAccessToken() {
+        guard var current = session else { return }
+        current.expiresAt = .distantPast
+        store(current)
+    }
+
     func deleteAccount() async throws {
         let token = try await bearerToken()
         try await AccountDeletionClient().delete(accessToken: token)

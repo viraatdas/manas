@@ -157,6 +157,7 @@ private final class SignedInStubAuth: SyncAuth {
     func requestCode(phone: String) async throws {}
     func verifyCode(phone: String, code: String) async throws {}
     func bearerToken() async throws -> String { "stub" }
+    func expireAccessToken() {}
     func deleteAccount() async throws {}
     func signOut() {}
 }

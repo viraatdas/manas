@@ -8,10 +8,12 @@ struct SupabaseAuthClient: Sendable {
 
     enum AuthError: LocalizedError {
         case server(String)
+        /// The server answered, and said no.
+        case rejected(status: Int, message: String)
 
         var errorDescription: String? {
             switch self {
-            case .server(let message): message
+            case .server(let message), .rejected(_, let message): message
             }
         }
     }
@@ -30,14 +32,28 @@ struct SupabaseAuthClient: Sendable {
         return try Self.session(from: data, fallbackPhone: phone)
     }
 
-    /// Trades the refresh token for a fresh session.
+    /// Trades the refresh token for a fresh session. Throws
+    /// `SessionEndedError` when the server refuses the token itself.
     func refresh(_ session: SupabaseSession) async throws -> SupabaseSession {
-        let data = try await post(
-            path: "auth/v1/token",
-            query: "grant_type=refresh_token",
-            body: ["refresh_token": session.refreshToken]
-        )
+        let data: Data
+        do {
+            data = try await post(
+                path: "auth/v1/token",
+                query: "grant_type=refresh_token",
+                body: ["refresh_token": session.refreshToken]
+            )
+        } catch AuthError.rejected(let status, let message) where Self.endsSession(status: status) {
+            throw SessionEndedError(reason: message)
+        }
         return try Self.session(from: data, fallbackPhone: session.phone)
+    }
+
+    /// Whether a refused refresh means the session is gone. Every 4xx from the
+    /// refresh grant is about the token it was handed — not found, already
+    /// used, its user deleted — except a rate limit or a timeout, which the
+    /// next attempt can clear.
+    static func endsSession(status: Int) -> Bool {
+        (400..<500).contains(status) && status != 408 && status != 429
     }
 
     // MARK: - Wire format
@@ -89,7 +105,10 @@ struct SupabaseAuthClient: Sendable {
             throw AuthError.server("No response from the sync server.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw AuthError.server(Self.errorMessage(from: data, status: http.statusCode))
+            throw AuthError.rejected(
+                status: http.statusCode,
+                message: Self.errorMessage(from: data, status: http.statusCode)
+            )
         }
         return data
     }

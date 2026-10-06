@@ -102,6 +102,13 @@ async function passwordSession(
   });
 }
 
+// Password-grant failures that provisioning can fix. Supabase Auth reports a
+// missing account and a wrong password alike as `invalid_credentials`.
+const PROVISIONABLE_FAILURES = new Set([
+  "invalid_credentials",
+  "phone_not_confirmed",
+]);
+
 async function supabaseSessionFor(
   phone: string,
 ): Promise<Record<string, unknown>> {
@@ -112,6 +119,20 @@ async function supabaseSessionFor(
   let signIn = await passwordSession(resolvedPhone, password);
   let session = await signIn.json();
   if (signIn.ok && session.access_token) return session;
+
+  // Provisioning below is for an account that has no password yet, or not
+  // this one. It must not run for any other failure: setting an existing
+  // account's password through the admin API is a password change, and
+  // Supabase Auth answers it by deleting every session the account holds —
+  // every other device is signed out on the spot. That is what signed the
+  // Mac and the iPhone out on 2026-09-11, and both went on refreshing a
+  // session that no longer existed. A rate limit or a server fault is retried
+  // by the person, not repaired by resetting their password.
+  if (!PROVISIONABLE_FAILURES.has(session.error_code)) {
+    throw new Error(
+      `Supabase sign-in failed (${signIn.status} ${session.error_code}).`,
+    );
+  }
 
   const existing = await findSupabaseUser(resolvedPhone);
   const path = existing
