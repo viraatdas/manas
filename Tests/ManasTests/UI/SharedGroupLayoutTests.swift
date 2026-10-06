@@ -153,6 +153,7 @@ final class SharedGroupLayoutTests: XCTestCase {
 private final class SignedInStubAuth: SyncAuth {
     var isSignedIn: Bool { true }
     var phone: String? { "+\(AppStore.previewMyPhone)" }
+    var accountID: String? { nil }
 
     func requestCode(phone: String) async throws {}
     func verifyCode(phone: String, code: String) async throws {}

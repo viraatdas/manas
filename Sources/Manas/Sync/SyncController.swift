@@ -74,9 +74,11 @@ final class SyncController {
     private struct SyncState: Codable {
         var watermark: Date?
         var snapshot: [UUID: TodoRecord]
-        /// The phone identity (digits) the snapshot belongs to. Optional so
-        /// files written before it existed still decode.
+        /// The phone identity (digits) the snapshot belongs to, and the
+        /// server account behind it. Optional so files written before they
+        /// existed still decode.
         var owner: String?
+        var ownerAccount: String?
     }
 
     @ObservationIgnored private var watermark: Date?
@@ -85,6 +87,12 @@ final class SyncController {
     /// number may resume from them; anybody else signing in starts clean, or
     /// the merge would treat one account's rows as the other's history.
     @ObservationIgnored private var owner: String?
+    @ObservationIgnored private var ownerAccount: String?
+    /// Bumped whenever the session changes hands — sign-in, sign-out, a
+    /// session ending, an account deleted. A pass that started under an older
+    /// generation stops at its next step instead of writing its snapshot and
+    /// list back over whatever the change just cleared.
+    @ObservationIgnored private var sessionGeneration = 0
 
     /// - Parameters:
     ///   - auth: the phone-auth backend. Both platforms default to the same
@@ -107,15 +115,17 @@ final class SyncController {
             watermark = saved.watermark
             snapshot = saved.snapshot
             owner = saved.owner
+            ownerAccount = saved.ownerAccount
         }
         if isSignedIn {
             let identity = PhoneIdentity.normalized(phoneNumber)
-            if let owner, owner != identity {
+            if !keptStateBelongs(to: identity, account: self.auth.accountID) {
                 // Bookkeeping for a different account than the one signed in.
                 watermark = nil
                 snapshot = [:]
             }
             owner = identity
+            ownerAccount = self.auth.accountID ?? ownerAccount
         } else if let owner, watermark != nil || !snapshot.isEmpty {
             // Signed out with sync state still on disk: an explicit sign-out
             // deletes the file, so this is a session that ended underneath
@@ -154,15 +164,13 @@ final class SyncController {
         try await auth.verifyCode(phone: phone, code: code)
         isSignedIn = auth.isSignedIn
         phoneNumber = auth.phone
+        sessionGeneration += 1
         let identity = PhoneIdentity.normalized(phoneNumber)
-        if let owner, owner != identity {
-            // The kept state is another number's: start this account fresh.
-            // State with no owner predates the field and is kept, as it always
-            // was — discarding it would let rule 2 replace this device's
-            // unsent edits with the server's copies.
+        if !keptStateBelongs(to: identity, account: auth.accountID) {
             forgetSyncState()
         }
         owner = identity
+        ownerAccount = auth.accountID
         endedSessionPhone = nil
         persistSyncState()
         publishIdentity()
@@ -178,6 +186,7 @@ final class SyncController {
     }
 
     func signOut() {
+        sessionGeneration += 1
         stop()
         auth.signOut()
         isSignedIn = false
@@ -205,6 +214,7 @@ final class SyncController {
             throw error
         }
 
+        sessionGeneration += 1
         store?.resetUserData()
         store?.saveNow()
         UsageAnalytics.shared.resetAfterAccountDeletion()
@@ -212,6 +222,19 @@ final class SyncController {
         phoneNumber = nil
         phase = .signedOut
         forgetSyncState()
+    }
+
+    /// Whether kept sync state may be resumed by this account. Another number
+    /// starts clean, and so does the same number whose server account was
+    /// deleted and made again: the new account holds none of the rows the
+    /// snapshot says the server has, so resuming would never push them. State
+    /// with no owner predates the field and is kept, as it always was —
+    /// discarding it would let rule 2 replace this device's unsent edits with
+    /// the server's copies.
+    private func keptStateBelongs(to identity: String?, account: String?) -> Bool {
+        if let owner, owner != identity { return false }
+        if let ownerAccount, let account, ownerAccount != account { return false }
+        return true
     }
 
     /// The server ended this device's session. Unlike `signOut()`, the sync
@@ -223,6 +246,8 @@ final class SyncController {
     private func sessionEnded(_ error: SessionEndedError) {
         logger.error("Session ended by the server: \(error.reason)")
         let phone = phoneNumber
+        if ownerAccount == nil { ownerAccount = auth.accountID }
+        sessionGeneration += 1
         stop()
         auth.signOut()
         isSignedIn = false
@@ -236,6 +261,7 @@ final class SyncController {
 
     private func forgetSyncState() {
         owner = nil
+        ownerAccount = nil
         endedSessionPhone = nil
         watermark = nil
         snapshot = [:]
@@ -372,15 +398,26 @@ final class SyncController {
         } while needsAnotherPass && isSignedIn
     }
 
+    /// Thrown inside a pass whose session changed hands while it was waiting
+    /// on the network; the pass ends without writing anything.
+    private struct Superseded: Error {}
+
+    private func ensureCurrent(_ generation: Int) throws {
+        guard generation == sessionGeneration else { throw Superseded() }
+    }
+
     private func runPass(store: AppStore) async {
+        let generation = sessionGeneration
         phase = .syncing
         do {
             let token = try await auth.bearerToken()
+            try ensureCurrent(generation)
             // Shares go first, and their push lands before any todo does: a
             // todo carries its share id as a foreign key, so the group has to
             // exist on the server before a row can point at it.
-            try await syncShares(store: store, token: token)
+            try await syncShares(store: store, token: token, generation: generation)
             let remote = try await api.changes(since: watermark, accessToken: token)
+            try ensureCurrent(generation)
             let outcome = SyncMerge.merge(
                 local: store.todos,
                 snapshot: snapshot,
@@ -404,6 +441,7 @@ final class SyncController {
             do {
                 pushed = try await api.push(batch, accessToken: token)
             } catch {
+                try ensureCurrent(generation)
                 // Nothing landed. Keep every pushed row dirty against its old
                 // baseline so the next pass sends it again, but keep what
                 // was pulled: that part of the pass did happen.
@@ -413,6 +451,7 @@ final class SyncController {
                 persistSyncState()
                 throw error
             }
+            try ensureCurrent(generation)
             snapshot = Self.reconcile(
                 outcome.snapshot, pushed: pushed, attempted: outcome.toPush, previous: previousSnapshot
             )
@@ -434,7 +473,10 @@ final class SyncController {
             phase = .idle
             retriedUnauthorized = false
             reloadWidgets()
+        } catch is Superseded {
+            // Whatever ended this session has already set the phase.
         } catch let ended as SessionEndedError {
+            guard generation == sessionGeneration else { return }
             sessionEnded(ended)
         } catch let error as PostgRESTClient.APIError where error.isUnauthorized {
             // The server turned down a token this device thought was current:
@@ -442,6 +484,7 @@ final class SyncController {
             // suspended past the token's expiry. Sending the same token every
             // minute never heals, so refresh it — and go again at once, the
             // first time.
+            guard generation == sessionGeneration else { return }
             logger.error("Sync unauthorized: \(error.detail)")
             auth.expireAccessToken()
             if !retriedUnauthorized {
@@ -450,6 +493,7 @@ final class SyncController {
             }
             phase = .error(error.localizedDescription)
         } catch {
+            guard generation == sessionGeneration else { return }
             logger.error("Sync failed: \(error.localizedDescription)")
             phase = .error(error.localizedDescription)
         }
@@ -481,7 +525,7 @@ final class SyncController {
     /// One pass over the share tables. They are small enough to pull whole,
     /// which is also what makes a revoked share disappear: the row simply
     /// stops coming back, and `applyShareMerge` releases its todos.
-    private func syncShares(store: AppStore, token: String) async throws {
+    private func syncShares(store: AppStore, token: String, generation: Int) async throws {
         let remoteGroups = try await shareAPI.groups(accessToken: token)
         let remoteMembers = try await shareAPI.members(accessToken: token)
         let groups = ShareMerge.merge(local: store.sharedGroupRecords, remote: remoteGroups)
@@ -512,13 +556,14 @@ final class SyncController {
         for (id, reason) in memberPush.rejected {
             logger.error("Server refused membership \(id.uuidString): \(reason)")
         }
+        try ensureCurrent(generation)
         isApplyingMerge = true
         store.applyShareMerge(groups: groups.records, members: members.records)
         isApplyingMerge = false
     }
 
     private func persistSyncState() {
-        let state = SyncState(watermark: watermark, snapshot: snapshot, owner: owner)
+        let state = SyncState(watermark: watermark, snapshot: snapshot, owner: owner, ownerAccount: ownerAccount)
         if let data = try? TodoRecord.makeEncoder().encode(state) {
             try? data.write(to: stateURL, options: .atomic)
         }

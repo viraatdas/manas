@@ -82,6 +82,7 @@ final class SettingsPopoverLayoutTests: XCTestCase {
 private final class SignedOutTestAuth: SyncAuth {
     let isSignedIn = false
     let phone: String? = nil
+    let accountID: String? = nil
 
     func requestCode(phone: String) async throws {}
     func verifyCode(phone: String, code: String) async throws {}

@@ -18,6 +18,7 @@ final class SupabaseSyncAuth: SyncAuth {
 
     var isSignedIn: Bool { session != nil }
     var phone: String? { session?.phone }
+    var accountID: String? { session.flatMap { $0.userID.isEmpty ? nil : $0.userID } }
 
     func requestCode(phone: String) async throws {
         try await client.requestCode(phone: phone)

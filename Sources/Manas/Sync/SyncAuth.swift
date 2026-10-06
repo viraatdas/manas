@@ -10,6 +10,9 @@ protocol SyncAuth: AnyObject {
     var isSignedIn: Bool { get }
     /// The signed-in phone number, for display.
     var phone: String? { get }
+    /// The server's id for the signed-in account. A number whose account was
+    /// deleted and made again keeps the number but not this.
+    var accountID: String? { get }
 
     /// Sends the one-time code.
     func requestCode(phone: String) async throws
@@ -69,6 +72,7 @@ final class SignedOutSyncAuth: SyncAuth {
 
     var isSignedIn: Bool { Self.probePhone != nil }
     var phone: String? { Self.probePhone }
+    var accountID: String? { nil }
 
     func requestCode(phone: String) async throws { throw Disabled() }
     func verifyCode(phone: String, code: String) async throws { throw Disabled() }

@@ -109,6 +109,47 @@ const PROVISIONABLE_FAILURES = new Set([
   "phone_not_confirmed",
 ]);
 
+type PasswordAttempt = {
+  session?: Record<string, unknown>;
+  status: number;
+  code?: string;
+};
+
+async function tryPassword(
+  phone: string,
+  password: string,
+): Promise<PasswordAttempt> {
+  const response = await passwordSession(phone, password);
+  const body = await response.json();
+  if (response.ok && body.access_token) {
+    return { session: body, status: response.status };
+  }
+  return { status: response.status, code: body.error_code };
+}
+
+// Only a missing account or a password that does not open it is repaired
+// below. Anything else — a rate limit, a server fault — is retried by the
+// person, never fixed by touching the account.
+function requireProvisionable(attempt: PasswordAttempt): void {
+  if (!PROVISIONABLE_FAILURES.has(attempt.code ?? "")) {
+    throw new Error(
+      `Supabase sign-in failed (${attempt.status} ${attempt.code}).`,
+    );
+  }
+}
+
+async function updateUser(
+  id: string,
+  attributes: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${id}`, {
+    method: "PUT",
+    headers: adminHeaders(),
+    body: JSON.stringify(attributes),
+  });
+  if (!response.ok) throw new Error("Supabase account provisioning failed.");
+}
+
 async function supabaseSessionFor(
   phone: string,
 ): Promise<Record<string, unknown>> {
@@ -116,66 +157,57 @@ async function supabaseSessionFor(
   const password = await passwordForPhone(resolvedPhone);
 
   // The common path does not need the service role after the account exists.
-  let signIn = await passwordSession(resolvedPhone, password);
-  let session = await signIn.json();
-  if (signIn.ok && session.access_token) return session;
+  let attempt = await tryPassword(resolvedPhone, password);
+  if (attempt.session) return attempt.session;
+  requireProvisionable(attempt);
 
-  // Provisioning below is for an account that has no password yet, or not
-  // this one. It must not run for any other failure: setting an existing
-  // account's password through the admin API is a password change, and
-  // Supabase Auth answers it by deleting every session the account holds —
-  // every other device is signed out on the spot. That is what signed the
-  // Mac and the iPhone out on 2026-09-11, and both went on refreshing a
-  // session that no longer existed. A rate limit or a server fault is retried
-  // by the person, not repaired by resetting their password.
-  if (!PROVISIONABLE_FAILURES.has(session.error_code)) {
-    throw new Error(
-      `Supabase sign-in failed (${signIn.status} ${session.error_code}).`,
-    );
+  let existing = await findSupabaseUser(resolvedPhone);
+  if (!existing) {
+    const created = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        phone: resolvedPhone,
+        password,
+        phone_confirm: true,
+      }),
+    });
+    if (!created.ok) {
+      // A concurrent first sign-in won the create race and set this same
+      // deterministic password. Its session has to survive, so try the
+      // password before touching the account it made.
+      existing = await findSupabaseUser(resolvedPhone);
+      if (!existing) throw new Error("Supabase account provisioning failed.");
+    }
+    attempt = await tryPassword(resolvedPhone, password);
+    if (attempt.session) return attempt.session;
+    requireProvisionable(attempt);
+    existing = existing ?? await findSupabaseUser(resolvedPhone);
+    if (!existing) throw new Error("Supabase account provisioning failed.");
   }
 
-  const existing = await findSupabaseUser(resolvedPhone);
-  const path = existing
-    ? `${SUPABASE_URL}/auth/v1/admin/users/${existing.id}`
-    : `${SUPABASE_URL}/auth/v1/admin/users`;
-  const provision = await fetch(path, {
-    method: existing ? "PUT" : "POST",
-    headers: adminHeaders(),
-    body: JSON.stringify({
-      phone: resolvedPhone,
-      password,
-      phone_confirm: true,
-    }),
+  // An unconfirmed number only needs confirming.
+  if (attempt.code === "phone_not_confirmed") {
+    await updateUser(existing.id, { phone_confirm: true });
+    attempt = await tryPassword(resolvedPhone, password);
+    if (attempt.session) return attempt.session;
+    requireProvisionable(attempt);
+  }
+
+  // The account exists and this password does not open it. Setting it is an
+  // admin password change, and Supabase Auth answers that by deleting every
+  // session the account holds — every other device is signed out on the
+  // spot. That is what signed the Mac and the iPhone out on 2026-09-11, and
+  // both went on refreshing a session that no longer existed. It is
+  // unavoidable here, which is why nothing else is allowed to reach it.
+  await updateUser(existing.id, {
+    phone: resolvedPhone,
+    password,
+    phone_confirm: true,
   });
-
-  // A concurrent first sign-in can win the create race. Resolve that user and
-  // set the same deterministic password before retrying the session exchange.
-  if (!provision.ok && !existing) {
-    const raced = await findSupabaseUser(resolvedPhone);
-    if (!raced) throw new Error("Supabase account provisioning failed.");
-    const update = await fetch(
-      `${SUPABASE_URL}/auth/v1/admin/users/${raced.id}`,
-      {
-        method: "PUT",
-        headers: adminHeaders(),
-        body: JSON.stringify({
-          phone: resolvedPhone,
-          password,
-          phone_confirm: true,
-        }),
-      },
-    );
-    if (!update.ok) throw new Error("Supabase account provisioning failed.");
-  } else if (!provision.ok) {
-    throw new Error("Supabase account provisioning failed.");
-  }
-
-  signIn = await passwordSession(resolvedPhone, password);
-  session = await signIn.json();
-  if (!signIn.ok || !session.access_token) {
-    throw new Error("Supabase session exchange failed.");
-  }
-  return session;
+  attempt = await tryPassword(resolvedPhone, password);
+  if (!attempt.session) throw new Error("Supabase session exchange failed.");
+  return attempt.session;
 }
 
 function verifiedStytchPhone(

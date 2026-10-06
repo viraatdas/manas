@@ -224,11 +224,13 @@ final class SyncControllerTests: XCTestCase {
     /// The refresh refusals that mean the session is gone, as opposed to a
     /// moment's trouble the next attempt clears.
     func testOnlyARefusedRefreshTokenEndsTheSession() {
-        for status in [400, 401, 403, 404] {
-            XCTAssertTrue(SupabaseAuthClient.endsSession(status: status), "\(status)")
+        for code in ["refresh_token_not_found", "refresh_token_already_used", "session_not_found", "user_not_found"] {
+            XCTAssertTrue(SupabaseAuthClient.endsSession(code: code), code)
         }
-        for status in [408, 429, 500, 502, 503] {
-            XCTAssertFalse(SupabaseAuthClient.endsSession(status: status), "\(status)")
+        // A retired API key answers 401 with no error_code at all; a rate
+        // limit or a proxy says something else. None of those is the session.
+        for code in [nil, "over_request_rate_limit", "unexpected_failure", "validation_failed"] {
+            XCTAssertFalse(SupabaseAuthClient.endsSession(code: code), code ?? "nil")
         }
     }
 
@@ -236,6 +238,7 @@ final class SyncControllerTests: XCTestCase {
         var watermark: Date?
         var snapshot: [UUID: TodoRecord]
         var owner: String?
+        var ownerAccount: String?
     }
 
     /// A device holding a session the server has deleted — exactly where the
@@ -278,11 +281,37 @@ final class SyncControllerTests: XCTestCase {
         XCTAssertEqual(relaunched.endedSessionPhone, "+13042164370")
     }
 
+    func testAPassOutlivedByASignOutWritesNothing() async throws {
+        // A pass waiting on the network when the person signs out used to
+        // carry on and write its snapshot back — with no owner, so the next
+        // number to sign in inherited it.
+        let directory = tempDirectory()
+        let stateURL = directory.appendingPathComponent("state.json")
+        let syncStateURL = directory.appendingPathComponent("sync-state.json")
+        let row = record(Todo(text: "Synced"))
+        try TodoRecord.makeEncoder().encode(
+            SyncState(watermark: now, snapshot: [row.id: row])
+        ).write(to: syncStateURL)
+        AppStore(fileURL: stateURL).saveNow()
+        let store = AppStore(fileURL: stateURL)
+
+        let auth = StubAuth(signedInAs: "+13042164370")
+        auth.slowToken = true
+        let sync = SyncController(auth: auth, stateURL: syncStateURL)
+        sync.start(store: store)          // its first pass is now waiting on the token
+        try await Task.sleep(for: .milliseconds(50))
+        sync.signOut()
+        try await Task.sleep(for: .milliseconds(400))
+
+        XCTAssertEqual(sync.phase, .signedOut, "the stale pass does not report over the sign-out")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: syncStateURL.path), "nor write its snapshot back")
+    }
+
     func testSigningBackInWithTheSameNumberResumesFromTheKeptSnapshot() async throws {
         let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
         let row = record(Todo(text: "Kept"))
         try TodoRecord.makeEncoder().encode(
-            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370")
+            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370", ownerAccount: "account-1")
         ).write(to: syncStateURL)
 
         let auth = StubAuth(signedInAs: nil)
@@ -316,11 +345,32 @@ final class SyncControllerTests: XCTestCase {
         XCTAssertEqual(after.owner, "13042164370", "and from now on it has one")
     }
 
+    func testTheSameNumberWithARecreatedAccountStartsClean() async throws {
+        // The account was deleted on the other device and this number signed
+        // up again. The new account has none of the rows the snapshot says
+        // the server holds, so resuming would never push them.
+        let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
+        let row = record(Todo(text: "Only on this device now"))
+        try TodoRecord.makeEncoder().encode(
+            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370", ownerAccount: "account-1")
+        ).write(to: syncStateURL)
+
+        let auth = StubAuth(signedInAs: nil)
+        auth.nextAccountID = "account-2"
+        let sync = SyncController(auth: auth, stateURL: syncStateURL)
+        try await sync.verifyCode(phone: "+13042164370", code: "123456")
+        sync.stop()
+
+        let after = try TodoRecord.makeDecoder().decode(OwnedSyncState.self, from: Data(contentsOf: syncStateURL))
+        XCTAssertTrue(after.snapshot.isEmpty, "every row goes up to the new account")
+        XCTAssertEqual(after.ownerAccount, "account-2")
+    }
+
     func testADifferentNumberSigningInStartsClean() async throws {
         let syncStateURL = tempDirectory().appendingPathComponent("sync-state.json")
         let row = record(Todo(text: "Somebody else's history"))
         try TodoRecord.makeEncoder().encode(
-            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370")
+            OwnedSyncState(watermark: now, snapshot: [row.id: row], owner: "13042164370", ownerAccount: "account-1")
         ).write(to: syncStateURL)
 
         let sync = SyncController(auth: StubAuth(signedInAs: nil), stateURL: syncStateURL)
@@ -340,17 +390,34 @@ final class SyncControllerTests: XCTestCase {
 @MainActor
 private final class StubAuth: SyncAuth {
     private(set) var phone: String?
+    private(set) var accountID: String?
+    /// The account a `verifyCode` signs into.
+    var nextAccountID = "account-1"
     var refreshEnds = false
     private(set) var didSignOut = false
 
-    init(signedInAs phone: String?) { self.phone = phone }
+    init(signedInAs phone: String?) {
+        self.phone = phone
+        accountID = phone == nil ? nil : "account-1"
+    }
 
     struct Offline: Error {}
 
     var isSignedIn: Bool { phone != nil }
     func requestCode(phone: String) async throws {}
-    func verifyCode(phone: String, code: String) async throws { self.phone = phone }
+    func verifyCode(phone: String, code: String) async throws {
+        self.phone = phone
+        accountID = nextAccountID
+    }
+    /// Hands out a token after a pause, so a test can act while a pass waits
+    /// on it. The token is never good: the pass must stop before using it.
+    var slowToken = false
+
     func bearerToken() async throws -> String {
+        if slowToken {
+            try await Task.sleep(for: .milliseconds(200))
+            return "never-sent"
+        }
         if refreshEnds {
             throw SessionEndedError(reason: "Invalid Refresh Token: Refresh Token Not Found")
         }
@@ -360,6 +427,7 @@ private final class StubAuth: SyncAuth {
     func deleteAccount() async throws {}
     func signOut() {
         phone = nil
+        accountID = nil
         didSignOut = true
     }
 }

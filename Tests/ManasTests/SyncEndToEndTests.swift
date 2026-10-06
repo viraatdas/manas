@@ -114,7 +114,7 @@ final class SyncEndToEndTests: XCTestCase {
         seeded.saveNow()
         let baseline = TodoRecord(todo: todo, position: 0, updatedAt: Date(), deleted: false)
         try TodoRecord.makeEncoder().encode(
-            KeptState(watermark: Date(), snapshot: [baseline.id: baseline], owner: nil)
+            KeptState(watermark: Date(), snapshot: [baseline.id: baseline], owner: nil, ownerAccount: nil)
         ).write(to: syncStateURL)
 
         var expired = session
@@ -137,6 +137,7 @@ final class SyncEndToEndTests: XCTestCase {
         XCTAssertEqual(Array(kept.snapshot.keys), [baseline.id], "the baseline survives the ended session")
         XCTAssertNotNil(kept.watermark)
         XCTAssertEqual(kept.owner, "15555550100")
+        XCTAssertEqual(kept.ownerAccount, session.userID, "and the account behind it")
         XCTAssertEqual(store.todos.map(\.id), [todo.id], "the list is untouched")
     }
 
@@ -145,6 +146,7 @@ final class SyncEndToEndTests: XCTestCase {
         var watermark: Date?
         var snapshot: [UUID: TodoRecord]
         var owner: String?
+        var ownerAccount: String?
     }
 
     // MARK: - Two-device sync conversation
@@ -301,6 +303,7 @@ private final class InMemoryAuth: SyncAuth {
 
     var isSignedIn: Bool { session != nil }
     var phone: String? { session?.phone }
+    var accountID: String? { session?.userID }
     func requestCode(phone: String) async throws {}
     func verifyCode(phone: String, code: String) async throws {}
     func bearerToken() async throws -> String {

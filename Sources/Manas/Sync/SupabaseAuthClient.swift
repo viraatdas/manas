@@ -8,12 +8,12 @@ struct SupabaseAuthClient: Sendable {
 
     enum AuthError: LocalizedError {
         case server(String)
-        /// The server answered, and said no.
-        case rejected(status: Int, message: String)
+        /// The server answered, and said no. `code` is GoTrue's `error_code`.
+        case rejected(status: Int, code: String?, message: String)
 
         var errorDescription: String? {
             switch self {
-            case .server(let message), .rejected(_, let message): message
+            case .server(let message), .rejected(_, _, let message): message
             }
         }
     }
@@ -42,18 +42,27 @@ struct SupabaseAuthClient: Sendable {
                 query: "grant_type=refresh_token",
                 body: ["refresh_token": session.refreshToken]
             )
-        } catch AuthError.rejected(let status, let message) where Self.endsSession(status: status) {
+        } catch AuthError.rejected(_, let code, let message) where Self.endsSession(code: code) {
             throw SessionEndedError(reason: message)
         }
         return try Self.session(from: data, fallbackPhone: session.phone)
     }
 
-    /// Whether a refused refresh means the session is gone. Every 4xx from the
-    /// refresh grant is about the token it was handed — not found, already
-    /// used, its user deleted — except a rate limit or a timeout, which the
-    /// next attempt can clear.
-    static func endsSession(status: Int) -> Bool {
-        (400..<500).contains(status) && status != 408 && status != 429
+    /// The refresh refusals that mean the session itself is gone. Keyed on the
+    /// server's reason rather than the status: a retired API key, a proxy, or
+    /// a rate limit also answers 4xx, and signing every device out over one of
+    /// those would cost a needless SMS sign-in for a session that still works.
+    static let sessionEndingCodes: Set<String> = [
+        "refresh_token_not_found",
+        "refresh_token_already_used",
+        "session_not_found",
+        "session_expired",
+        "user_not_found",
+        "user_banned",
+    ]
+
+    static func endsSession(code: String?) -> Bool {
+        code.map(sessionEndingCodes.contains) ?? false
     }
 
     // MARK: - Wire format
@@ -105,8 +114,10 @@ struct SupabaseAuthClient: Sendable {
             throw AuthError.server("No response from the sync server.")
         }
         guard (200..<300).contains(http.statusCode) else {
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             throw AuthError.rejected(
                 status: http.statusCode,
+                code: object?["error_code"] as? String,
                 message: Self.errorMessage(from: data, status: http.statusCode)
             )
         }

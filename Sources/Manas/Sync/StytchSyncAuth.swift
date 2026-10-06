@@ -24,6 +24,7 @@ final class StytchSyncAuth: SyncAuth {
 
     var isSignedIn: Bool { session != nil }
     var phone: String? { session?.phone }
+    var accountID: String? { session.flatMap { $0.userID.isEmpty ? nil : $0.userID } }
 
     enum AuthError: LocalizedError {
         case server(String)
