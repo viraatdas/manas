@@ -190,11 +190,16 @@
   the real account: the Mac and the iPhone both kept refreshing a session that
   no longer existed and showed "Invalid Refresh Token: Refresh Token Not
   Found" every minute for weeks, still claiming to be signed in. The fallback
-  now runs only on `invalid_credentials`/`phone_not_confirmed`; a refused
-  refresh (any 4xx but 408/429) is `SessionEndedError`, which signs the device
-  out *keeping* its sync snapshot for the same number (`SyncState.owner`), so
-  signing back in merges the offline edits instead of letting rule 2 replace
-  them with the server's copies. `SyncController.signOut()` still forgets
+  now runs only on `invalid_credentials`/`phone_not_confirmed`, and a lost
+  create race signs in rather than resetting. A refresh refused with one of
+  GoTrue's session reasons (`refresh_token_not_found`, `…_already_used`,
+  `session_not_found`, …; keyed on `error_code`, never the bare status — a
+  retired API key also answers 401) is `SessionEndedError`, which signs the
+  device out *keeping* its sync snapshot for that number and server account
+  (`SyncState.owner`/`ownerAccount`), so signing back in merges the offline
+  edits instead of letting rule 2 replace them with the server's copies. A
+  recreated account (same number, new user id) starts clean. Passes carry a
+  session generation and stop if a sign-in/out lands while they wait. `SyncController.signOut()` still forgets
   everything — only a server-ended session keeps state. To see what the
   server holds, query `auth.sessions` through the Management API
   (`POST /v1/projects/<ref>/database/query` with the CLI's token from the
